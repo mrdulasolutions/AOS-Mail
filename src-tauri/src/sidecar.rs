@@ -78,7 +78,7 @@ impl SidecarHandle {
 
         // Forward stdin writes to the child process.
         let pending_for_writer = pending.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             while let Some(line) = stdin_rx.recv().await {
                 if let Err(e) = child.write(line.as_bytes()) {
                     log::error!("sidecar stdin write failed: {}", e);
@@ -93,7 +93,7 @@ impl SidecarHandle {
 
         // Read sidecar stdout/stderr; route NDJSON responses back to callers.
         let pending_for_reader = pending.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
                     CommandEvent::Stdout(bytes) => {
