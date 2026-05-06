@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AOS Mail",
+  "version": "0.0.0",
+  "identifier": "com.mrdulasolutions.aosmail",
+  "build": {
+    "beforeDevCommand": "npm run dev:renderer",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build:renderer",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AOS Mail",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 600,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": true,
+        "trafficLightPosition": { "x": 16, "y": 18 },
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "macOSPrivateApi": true,
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
+    "category": "public.app-category.productivity",
+    "shortDescription": "Agent Operated System for Mail",
+    "longDescription": "AOS Mail — a native-feeling, multi-inbox, Claude-powered Mac email client.",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "entitlements": "../build/entitlements.mac.plist",
+      "hardenedRuntime": true
+    },
+    "externalBin": [
+      "binaries/aos-mail-sidecar"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": [
+        "https://github.com/mrdulasolutions/AOS-Mail/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": ""
+    }
+  }
+}

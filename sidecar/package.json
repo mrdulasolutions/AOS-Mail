@@ -1,0 +1,21 @@
+{
+  "name": "aos-mail-sidecar",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AOS Mail backend — Gmail/IMAP sync, Claude agent, SQLite. Runs as a Tauri sidecar.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --external:better-sqlite3",
+    "package": "node ./scripts/package-sidecar.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

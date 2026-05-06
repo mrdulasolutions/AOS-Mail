@@ -61,3 +61,15 @@ src/agents-private/
 
 # gstack QA reports
 .gstack/
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/binaries/aos-mail-sidecar*
+src-tauri/gen/schemas/
+
+# Sidecar build outputs
+sidecar/dist/
+sidecar/node_modules/
+
+# Cargo lock kept in repo for app reproducibility — Cargo.lock IS committed for binaries
+
