@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI: true
-      EXO_DEMO_MODE: true
+      AOS_DEMO_MODE: true
       ELECTRON_DISABLE_SANDBOX: 1
       NODE_OPTIONS: --max-old-space-size=4096
     steps:

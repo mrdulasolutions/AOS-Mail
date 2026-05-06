@@ -112,26 +112,26 @@ clean_test_dbs() {
     local cleaned=0
     local data_dirs=(
         "$home/Library/Application Support/Electron/data"
-        "$home/Library/Application Support/exo/data"
+        "$home/Library/Application Support/AOS Mail/data"
         "$home/.config/Electron/data"
-        "$home/.config/exo/data"
+        "$home/.config/aos-mail/data"
     )
     local config_dirs=(
         "$home/Library/Application Support/Electron"
-        "$home/Library/Application Support/exo"
+        "$home/Library/Application Support/AOS Mail"
         "$home/.config/Electron"
-        "$home/.config/exo"
+        "$home/.config/aos-mail"
     )
     for dir in "${data_dirs[@]}"; do
         if [ -d "$dir" ]; then
-            for f in "$dir"/exo-demo-w*.db*; do
+            for f in "$dir"/aos-mail-demo-w*.db*; do
                 [ -f "$f" ] && rm -f "$f" && cleaned=$((cleaned + 1))
             done
         fi
     done
     for dir in "${config_dirs[@]}"; do
         if [ -d "$dir" ]; then
-            for f in "$dir"/exo-config.json; do
+            for f in "$dir"/aos-mail-config.json; do
                 [ -f "$f" ] && rm -f "$f" && cleaned=$((cleaned + 1))
             done
         fi
@@ -151,7 +151,7 @@ run_playwright_tolerant() {
     local result=0
     local log_file
     log_file=$(mktemp)
-    run_with_display env EXO_DEMO_MODE=true npx playwright test --project="$project" 2>&1 | tee "$log_file" || result=$?
+    run_with_display env AOS_DEMO_MODE=true npx playwright test --project="$project" 2>&1 | tee "$log_file" || result=$?
     if [ $result -ne 0 ]; then
         if grep -qE '[0-9]+ failed' "$log_file"; then
             rm -f "$log_file"
@@ -171,7 +171,7 @@ run_playwright_tolerant() {
 run_unit_tests() {
     log_info "=== Running Unit Tests ==="
     rebuild_for_node
-    EXO_DEMO_MODE=true npx playwright test --project=unit
+    AOS_DEMO_MODE=true npx playwright test --project=unit
 }
 
 run_e2e_tests() {
@@ -220,7 +220,7 @@ run_all_tests() {
     # teardown-tolerant logic inline.
     local e2e_log
     e2e_log=$(mktemp)
-    run_with_display env EXO_DEMO_MODE=true npx playwright test --project=integration --project=e2e 2>&1 | tee "$e2e_log" || electron_result=$?
+    run_with_display env AOS_DEMO_MODE=true npx playwright test --project=integration --project=e2e 2>&1 | tee "$e2e_log" || electron_result=$?
     if [ $electron_result -ne 0 ]; then
         if grep -qE '[0-9]+ failed' "$e2e_log"; then
             log_error "E2E tests have real failures"
@@ -238,7 +238,7 @@ run_all_tests() {
     # This rebuild (system Node) is fast (~1s) compared to the Electron rebuild (~75s).
     log_info "=== Phase 2: Unit Tests ==="
     rebuild_for_node
-    EXO_DEMO_MODE=true npx playwright test --project=unit || unit_result=$?
+    AOS_DEMO_MODE=true npx playwright test --project=unit || unit_result=$?
 
     # Summary
     echo ""

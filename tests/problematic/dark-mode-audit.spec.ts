@@ -32,14 +32,14 @@ async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
     env: {
       ...process.env,
       NODE_ENV: "test",
-      EXO_DEMO_MODE: "true",
+      AOS_DEMO_MODE: "true",
       ELECTRON_DISABLE_GPU: "1",
     },
   });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("text=Exo", { timeout: 30000 });
+  await window.waitForSelector("text=AOS Mail", { timeout: 30000 });
   await window.waitForTimeout(2000);
 
   return { app, page: window };

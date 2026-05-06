@@ -1,10 +1,10 @@
 ---
 name: take-screenshots
-description: Capture screenshots of the Exo Electron app workflows using Playwright in demo mode. Use when the user asks for screenshots, workflow documentation, or visual captures of the app.
+description: Capture screenshots of the AOS Mail Electron app workflows using Playwright in demo mode. Use when the user asks for screenshots, workflow documentation, or visual captures of the app.
 disable-model-invocation: true
 ---
 
-Captures screenshots of the Exo Electron app by running Playwright tests in demo mode.
+Captures screenshots of the AOS Mail Electron app by running Playwright tests in demo mode.
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Captures screenshots of the Exo Electron app by running Playwright tests in demo
 
 ## How It Works
 
-- Playwright launches the Electron app with `EXO_DEMO_MODE=true` (no real Gmail API calls)
+- Playwright launches the Electron app with `AOS_DEMO_MODE=true` (no real Gmail API calls)
 - Uses **Electron's native `capturePage()` API** for screenshots (not Playwright's `page.screenshot()`, which hangs in headless Electron)
 - Screenshots are saved as PNG files to `./screenshots/`
 - The app runs against `out/main/index.js` (the built output)
@@ -61,14 +61,14 @@ async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
     env: {
       ...process.env,
       NODE_ENV: "test",
-      EXO_DEMO_MODE: "true",
+      AOS_DEMO_MODE: "true",
       ELECTRON_DISABLE_GPU: "1",
     },
   });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("text=Exo", { timeout: 30000 });
+  await window.waitForSelector("text=AOS Mail", { timeout: 30000 });
   await window.waitForTimeout(2000);
 
   return { app, page: window };
@@ -130,6 +130,6 @@ These selectors are useful for navigating the app during screenshot capture:
 - **NEVER use `page.screenshot()`** — it hangs indefinitely in headless Electron. Always use the `electronApp.evaluate` + `capturePage()` pattern shown above.
 - **Always wrap with `xvfb-run`** on headless Linux. Without a display server, Electron exits with "Missing X server or $DISPLAY".
 - **Build before running** — the specs use the compiled `out/main/index.js`, not the dev server.
-- **Demo mode is safe** — `EXO_DEMO_MODE=true` means no real Gmail API calls, no real emails sent. All data is mock.
+- **Demo mode is safe** — `AOS_DEMO_MODE=true` means no real Gmail API calls, no real emails sent. All data is mock.
 - Add `--disable-gpu` and `--disable-software-rasterizer` args to Electron launch for headless compatibility.
 - Use `waitForTimeout()` after interactions to let animations/transitions complete before capturing.

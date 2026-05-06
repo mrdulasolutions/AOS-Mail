@@ -237,11 +237,11 @@ Diana`,
   {
     id: "demo-006",
     threadId: "thread-github-ci",
-    subject: "[ankitvgupta/exo] CI workflow failed on main",
+    subject: "[mrdulasolutions/AOS-Mail] CI workflow failed on main",
     from: "GitHub <noreply@github.com>",
     to: "me@example.com",
     date: new Date(now - 4 * hour).toISOString(),
-    body: `The workflow "Build & Test" in repository ankitvgupta/exo has failed.
+    body: `The workflow "Build & Test" in repository mrdulasolutions/AOS-Mail has failed.
 
 Commit: 4d96857a3f
 Message: Replace all mail-client references with mail-app (#5)
@@ -251,11 +251,11 @@ Failed jobs:
 - test-e2e (ubuntu-latest)
   Error: better-sqlite3 ABI mismatch — rebuilt for system Node but running under Electron
 
-View the workflow run: https://github.com/ankitvgupta/exo/actions/runs/14738291
+View the workflow run: https://github.com/mrdulasolutions/AOS-Mail/actions/runs/14738291
 
 ---
 You are receiving this because you are subscribed to this repository.`,
-    snippet: "The workflow Build & Test in repository ankitvgupta/exo has failed...",
+    snippet: "The workflow Build & Test in repository mrdulasolutions/AOS-Mail has failed...",
   },
 
   // Newsletter (skip)

@@ -1,5 +1,5 @@
 /**
- * Structured logging service for Exo.
+ * Structured logging service for AOS Mail.
  *
  * Uses pino (Layer 1, battle-tested) with:
  * - JSON lines to file in all modes (daily rotation, 7-day retention)
@@ -73,7 +73,7 @@ function getLogDir(): string {
     return join(baseDir, "logs");
   } catch {
     // Fallback for tests or non-Electron environments.
-    return join(tmpdir(), "exo-logs");
+    return join(tmpdir(), "aos-mail-logs");
   }
 }
 

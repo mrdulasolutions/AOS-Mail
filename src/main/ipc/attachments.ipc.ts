@@ -5,8 +5,8 @@ import { getEmailSyncService } from "./sync.ipc";
 import { getEmail } from "../db";
 import type { IpcResponse, AttachmentMeta } from "../../shared/types";
 
-const isTestMode = process.env.EXO_TEST_MODE === "true";
-const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+const isTestMode = process.env.AOS_TEST_MODE === "true";
+const isDemoMode = process.env.AOS_DEMO_MODE === "true";
 const useFakeData = isTestMode || isDemoMode;
 
 // Placeholder base64 data for demo mode previews
@@ -50,7 +50,7 @@ async function uniquePath(filePath: string): Promise<string> {
 
 export function registerAttachmentsIpc(): void {
   // Download an attachment to the app's data directory and reveal in Finder.
-  // Saves under ~/Library/Application Support/exo/downloads/ (macOS)
+  // Saves under ~/Library/Application Support/AOS Mail/downloads/ (macOS)
   // to avoid TCC prompts for ~/Downloads, iCloud, or network volumes.
   ipcMain.handle(
     "attachments:download",

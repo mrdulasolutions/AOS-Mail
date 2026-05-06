@@ -8,8 +8,8 @@ import { createLogger } from "../services/logger";
 
 const log = createLogger("gmail-ipc");
 
-const isTestMode = process.env.EXO_TEST_MODE === "true";
-const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+const isTestMode = process.env.AOS_TEST_MODE === "true";
+const isDemoMode = process.env.AOS_DEMO_MODE === "true";
 const useFakeData = isTestMode || isDemoMode;
 
 const gmailClients = new Map<string, GmailClient>();

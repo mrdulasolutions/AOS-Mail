@@ -4,7 +4,7 @@ import { launchElectronApp , closeApp } from "./launch-helpers";
 /**
  * E2E Tests for email autocomplete dropdown in To/CC/BCC fields
  *
- * Uses EXO_DEMO_MODE=true so contacts:suggest returns:
+ * Uses AOS_DEMO_MODE=true so contacts:suggest returns:
  *   - alice@example.com (Alice Johnson)
  *   - bob@example.com (Bob Smith)
  */

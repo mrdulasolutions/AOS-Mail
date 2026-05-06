@@ -161,7 +161,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [editingSignature, setEditingSignature] = useState<Signature | null>(null);
   const [isSavingSignatures, setIsSavingSignatures] = useState(false);
-  const [showExoBranding, setShowExoBranding] = useState(true);
+  const [showAOSMailBranding, setShowAOSMailBranding] = useState(true);
 
   // Fetch current prompts
   const { data: prompts, isLoading } = useQuery({
@@ -258,7 +258,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   useEffect(() => {
     if (generalConfig) {
       setSignatures(generalConfig.signatures ?? []);
-      setShowExoBranding(generalConfig.showExoBranding !== false);
+      setShowAOSMailBranding(generalConfig.showAOSMailBranding !== false);
     }
   }, [generalConfig]);
 
@@ -545,10 +545,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     }
   };
 
-  const handleToggleExoBranding = async (enabled: boolean) => {
+  const handleToggleAOSMailBranding = async (enabled: boolean) => {
     try {
-      await window.api.settings.set({ showExoBranding: enabled });
-      setShowExoBranding(enabled);
+      await window.api.settings.set({ showAOSMailBranding: enabled });
+      setShowAOSMailBranding(enabled);
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
     } catch {
       // state stays at previous value; next config load will re-sync
@@ -910,7 +910,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 General Settings
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Configure how Exo generates draft replies.
+                Configure how AOS Mail generates draft replies.
               </p>
 
               {/* Appearance / Theme Toggle */}
@@ -1070,7 +1070,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       Default Mail App
                     </h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      Register Exo as the default handler for mailto: links. Clicking email links in
+                      Register AOS Mail as the default handler for mailto: links. Clicking email links in
                       other apps will open a compose window here.
                     </p>
                   </div>
@@ -1588,7 +1588,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </button>
 
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Adding an account will open a Google sign-in window. You'll need to authorize Exo to
+                Adding an account will open a Google sign-in window. You'll need to authorize AOS Mail to
                 access your emails.
               </p>
             </div>
@@ -1696,25 +1696,21 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 when composing new emails.
               </p>
 
-              {/* Exo branding toggle */}
+              {/* AOS Mail branding toggle */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4 mb-6">
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={showExoBranding}
-                    onChange={(e) => handleToggleExoBranding(e.target.checked)}
+                    checked={showAOSMailBranding}
+                    onChange={(e) => handleToggleAOSMailBranding(e.target.checked)}
                     className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      Show &quot;Sent by Exo&quot; branding
+                      Show &quot;Sent by AOS Mail&quot; branding
                     </span>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Appends a small &quot;Sent by{" "}
-                      <a href="https://exo.email" className="text-blue-500 hover:underline">
-                        Exo
-                      </a>
-                      &quot; line after your signature.
+                      Appends a small &quot;Sent by AOS Mail&quot; line after your signature.
                     </p>
                   </div>
                 </label>
@@ -2176,7 +2172,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Executive Assistant Integration
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
-                When enabled, Exo will automatically CC your executive assistant on emails that
+                When enabled, AOS Mail will automatically CC your executive assistant on emails that
                 involve scheduling or calendar coordination. This lets your assistant handle
                 scheduling while you focus on the content of your response.
               </p>
@@ -2186,7 +2182,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   How it works:
                 </h3>
                 <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 list-decimal list-inside">
-                  <li>When you generate a draft, Exo detects scheduling language</li>
+                  <li>When you generate a draft, AOS Mail detects scheduling language</li>
                   <li>If scheduling is detected, your EA is automatically added to the CC</li>
                   <li>The draft includes a note deferring scheduling to your EA</li>
                   <li>Your EA can then coordinate directly with the sender</li>
@@ -3229,7 +3225,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Analytics
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                Help improve Exo by sharing usage data and error reports. No email content is ever
+                Help improve AOS Mail by sharing usage data and error reports. No email content is ever
                 sent.
               </p>
             </div>

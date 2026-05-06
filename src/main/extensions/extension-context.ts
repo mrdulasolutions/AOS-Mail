@@ -37,7 +37,7 @@ function createStorage(extensionId: string): ExtensionStorage {
  * Create secrets API for an extension.
  *
  * Stores secrets in the extension's DB storage (under ~/Library/Application
- * Support/exo/ on macOS). Previously used Electron safeStorage
+ * Support/AOS Mail/ on macOS). Previously used Electron safeStorage
  * (Keychain) for encryption, but that triggers "wants to access data from
  * other apps" prompts whenever the code signing identity changes between
  * builds. The DB directory is already user-protected, so the marginal

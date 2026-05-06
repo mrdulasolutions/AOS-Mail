@@ -1,6 +1,6 @@
 # Architecture
 
-Exo is a desktop Gmail client built with Electron, React, TypeScript, and Tailwind CSS. AI features run through Claude (Anthropic SDK + Claude Agent SDK).
+AOS Mail is a desktop Gmail client built with Electron, React, TypeScript, and Tailwind CSS. AI features run through Claude (Anthropic SDK + Claude Agent SDK).
 
 ## System Diagram
 

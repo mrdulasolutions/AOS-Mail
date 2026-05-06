@@ -255,7 +255,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       {/* Titlebar */}
       <div className="titlebar-drag h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center px-4">
         <div className="w-20" /> {/* Space for traffic lights */}
-        <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Exo Setup</h1>
+        <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">AOS Mail Setup</h1>
       </div>
 
       {/* Content */}
@@ -273,7 +273,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 Google Cloud Credentials
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Exo needs Google OAuth credentials to access your Gmail account. You'll need to
+                AOS Mail needs Google OAuth credentials to access your Gmail account. You'll need to
                 create a Google Cloud project with the Gmail API enabled.
               </p>
 
@@ -355,7 +355,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 Anthropic API Key
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Exo uses Claude to analyze your emails, generate drafts, and look up sender
+                AOS Mail uses Claude to analyze your emails, generate drafts, and look up sender
                 information. You'll need an Anthropic API key to enable these features.
               </p>
 
@@ -418,7 +418,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 Authorize Gmail Access
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Click the button below to authorize Exo to read your emails and create drafts. A
+                Click the button below to authorize AOS Mail to read your emails and create drafts. A
                 browser window will open for you to sign in with Google.
               </p>
 
@@ -525,7 +525,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           {step === "analytics" && (
             <>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Help Improve Exo
+                Help Improve AOS Mail
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 We collect usage data and error reports to improve the app. No email content is ever

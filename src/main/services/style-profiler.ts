@@ -161,11 +161,11 @@ export function computeCorrespondentProfile(
 /** Strip the standard email signature delimiter (-- ) and everything after it */
 function stripPlainTextSignature(text: string): string {
   // Match "-- " on its own line (standard sig delimiter) or "—" dash variants
-  // Also strip "Sent by Exo" / "Sent from Exo" lines that may appear without delimiter
+  // Also strip "Sent by AOS Mail" / "Sent from AOS Mail" lines that may appear without delimiter
   const sigIndex = text.search(/\n-- ?\n/);
   if (sigIndex !== -1) return text.slice(0, sigIndex).trim();
-  // Fallback: strip "Sent by Exo" branding line if present without delimiter
-  return text.replace(/\n*Sent (?:by|from) Exo\s*$/i, "").trim();
+  // Fallback: strip "Sent by AOS Mail" branding line if present without delimiter
+  return text.replace(/\n*Sent (?:by|from) AOS Mail\s*$/i, "").trim();
 }
 
 function truncateBody(bodyText: string, maxWords: number = 300): string {

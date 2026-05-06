@@ -286,7 +286,7 @@ export async function learnFromPriorityOverrideInferred(
  */
 async function analyzeOverride(override: AnalysisOverride): Promise<AnalysisObservation[] | null> {
   // Skip API call in test/demo mode
-  if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+  if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
     return null;
   }
 
@@ -384,7 +384,7 @@ async function matchAnalysisDraftMemories(
   draftMemories: DraftMemory[],
 ): Promise<Array<{ observationIndex: number; matchedDraftMemoryId: string | null }>> {
   // Skip API call in test/demo mode
-  if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+  if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
     return observations.map((_, i) => ({ observationIndex: i, matchedDraftMemoryId: null }));
   }
 
@@ -440,7 +440,7 @@ async function classifyScope(
   senderDomain: string,
 ): Promise<{ scope: MemoryScope; scopeValue: string | null }> {
   // Skip API call in test/demo mode — default to person scope
-  if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+  if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
     return { scope: "person", scopeValue: senderEmail.toLowerCase() };
   }
 

@@ -132,15 +132,15 @@ test.describe("demo/test mode guard", () => {
   test("useFakeData pattern matches expected env vars", () => {
     // Re-implement the guard logic
     function shouldUseFakeData(env: Record<string, string>): boolean {
-      const isTestMode = env.EXO_TEST_MODE === "true";
-      const isDemoMode = env.EXO_DEMO_MODE === "true";
+      const isTestMode = env.AOS_TEST_MODE === "true";
+      const isDemoMode = env.AOS_DEMO_MODE === "true";
       return isTestMode || isDemoMode;
     }
 
     expect(shouldUseFakeData({})).toBe(false);
-    expect(shouldUseFakeData({ EXO_TEST_MODE: "true" })).toBe(true);
-    expect(shouldUseFakeData({ EXO_DEMO_MODE: "true" })).toBe(true);
-    expect(shouldUseFakeData({ EXO_TEST_MODE: "false" })).toBe(false);
-    expect(shouldUseFakeData({ EXO_TEST_MODE: "true", EXO_DEMO_MODE: "true" })).toBe(true);
+    expect(shouldUseFakeData({ AOS_TEST_MODE: "true" })).toBe(true);
+    expect(shouldUseFakeData({ AOS_DEMO_MODE: "true" })).toBe(true);
+    expect(shouldUseFakeData({ AOS_TEST_MODE: "false" })).toBe(false);
+    expect(shouldUseFakeData({ AOS_TEST_MODE: "true", AOS_DEMO_MODE: "true" })).toBe(true);
   });
 });

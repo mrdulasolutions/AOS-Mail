@@ -44,8 +44,8 @@ let _store: Store<{ config: Config }> | null = null;
 function getStore(): Store<{ config: Config }> {
   if (!_store) {
     _store = new Store<{ config: Config }>({
-      name: "exo-config",
-      encryptionKey: "exo-encryption-key",
+      name: "aos-mail-config",
+      encryptionKey: "aos-mail-encryption-key",
       cwd: getDataDir(),
       defaults: {
         config: {
@@ -60,7 +60,7 @@ function getStore(): Store<{ config: Config }> {
           theme: "system" as const,
           inboxDensity: "compact" as const,
           undoSendDelay: 5,
-          showExoBranding: true,
+          showAOSMailBranding: true,
           autoDraft: {
             enabled: true,
             priorities: ["high", "medium", "low"],
@@ -745,8 +745,8 @@ export function registerSettingsIpc(): void {
       _,
       { from, email: emailAddr }: { from: string; email: string },
     ): Promise<IpcResponse<SenderProfile | null>> => {
-      const isTestMode = process.env.EXO_TEST_MODE === "true";
-      const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+      const isTestMode = process.env.AOS_TEST_MODE === "true";
+      const isDemoMode = process.env.AOS_DEMO_MODE === "true";
 
       if (isTestMode || isDemoMode) {
         // Return mock data in demo mode
@@ -845,7 +845,7 @@ export function registerSettingsIpc(): void {
         return { success: false, error: "No log files found." };
       }
 
-      const defaultName = `exo-logs-${new Date().toISOString().split("T")[0]}.zip`;
+      const defaultName = `aos-mail-logs-${new Date().toISOString().split("T")[0]}.zip`;
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: "Export Logs",
         defaultPath: defaultName,

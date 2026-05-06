@@ -4,8 +4,8 @@ import { emailSyncService, type AccountInfo } from "../services/email-sync";
 import { getAccounts, saveAccount } from "../db";
 import type { IpcResponse, OnboardingSyncResult } from "../../shared/types";
 
-const isTestMode = process.env.EXO_TEST_MODE === "true";
-const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+const isTestMode = process.env.AOS_TEST_MODE === "true";
+const isDemoMode = process.env.AOS_DEMO_MODE === "true";
 const useFakeData = isTestMode || isDemoMode;
 
 // Store clients created during onboarding so sync:init can reuse them

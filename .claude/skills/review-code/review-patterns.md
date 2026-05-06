@@ -1513,7 +1513,7 @@ function getDbPath(): string {
 - **The correct pattern**:
 ```ts
 // GOOD: check old location on startup
-const oldPath = path.join(os.homedir(), '.exo', 'config.json');
+const oldPath = path.join(os.homedir(), '.aos-mail', 'config.json');
 const newPath = path.join(app.getPath('userData'), 'config.json');
 if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
   fs.copyFileSync(oldPath, newPath);

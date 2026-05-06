@@ -65,7 +65,7 @@ if (process.platform === "darwin") {
 }
 
 // Disable Chromium's media session / Now Playing integration.
-// Without this, macOS prompts "Exo.app would like to access Apple Music" on first launch
+// Without this, macOS prompts "AOS Mail.app would like to access Apple Music" on first launch
 // because Chromium registers with the MediaPlayer framework for hardware media key handling.
 // An email client has no need for media key interception or Now Playing integration.
 if (process.platform === "darwin") {
@@ -162,8 +162,8 @@ if (app.isPackaged && process.platform === "darwin") {
   // as the settings module (which hasn't been imported yet at this point in startup).
   try {
     const earlyStore = new Store<{ config: { extraPathDirs?: string[] } }>({
-      name: "exo-config",
-      encryptionKey: "exo-encryption-key",
+      name: "aos-mail-config",
+      encryptionKey: "aos-mail-encryption-key",
       cwd: getDataDir(),
     });
     const extras = earlyStore.get("config.extraPathDirs") as string[] | undefined;
@@ -220,7 +220,7 @@ let pendingMailtoUrl: string | null = null;
 // On macOS, open-url handles this instead.
 // Skip in test/demo mode — E2E tests launch multiple Electron instances in parallel,
 // and the lock would cause all but the first to exit immediately.
-const isTestMode = process.env.EXO_DEMO_MODE === "true" || process.env.NODE_ENV === "test";
+const isTestMode = process.env.AOS_DEMO_MODE === "true" || process.env.NODE_ENV === "test";
 if (process.platform !== "darwin" && !isTestMode) {
   const gotTheLock = app.requestSingleInstanceLock();
   if (!gotTheLock) {
@@ -413,12 +413,12 @@ app.whenReady().then(async () => {
     session.defaultSession.setDownloadPath(safeDownloads);
   }
 
-  // Migrate tokens/credentials from old ~/.config/exo/ path (macOS only)
+  // Migrate tokens/credentials from old ~/.config/aos-mail/ path (macOS only)
   const { migrateOldConfigIfNeeded } = await import("./services/gmail-client");
   await migrateOldConfigIfNeeded();
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId("com.exo.app");
+  electronApp.setAppUserModelId("com.mrdulasolutions.aosmail.app");
 
   // Set dock icon on macOS (especially for dev mode where packaged icon isn't used)
   if (process.platform === "darwin" && app.dock) {

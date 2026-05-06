@@ -4,7 +4,7 @@ import { launchElectronApp , closeApp } from "./launch-helpers";
 /**
  * E2E Tests for compose validation: subject OR body is sufficient to send.
  *
- * Uses EXO_DEMO_MODE=true — no real emails are ever sent.
+ * Uses AOS_DEMO_MODE=true — no real emails are ever sent.
  */
 
 test.describe("Compose validation — send with subject only (no body)", () => {

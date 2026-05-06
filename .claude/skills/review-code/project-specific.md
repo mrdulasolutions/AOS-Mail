@@ -1,6 +1,6 @@
 # Project-Specific Review Context
 
-Architecture-specific context for the Exo mail client. Each review agent should consult its section for project context that goes beyond the general patterns in SKILL.md. The general patterns already cover the principles — this file tells you WHERE those principles apply in this codebase and which areas have historically been fragile.
+Architecture-specific context for the AOS Mail mail client. Each review agent should consult its section for project context that goes beyond the general patterns in SKILL.md. The general patterns already cover the principles — this file tells you WHERE those principles apply in this codebase and which areas have historically been fragile.
 
 ---
 

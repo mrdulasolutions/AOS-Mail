@@ -7,7 +7,7 @@ import { launchElectronApp , closeApp } from "./launch-helpers";
  * Tests the full snooze workflow: opening the menu, using presets,
  * typing natural language times, verifying snooze indicators, and unsnoozing.
  *
- * Run with: EXO_DEMO_MODE=true npx playwright test tests/e2e/snooze.spec.ts --headed
+ * Run with: AOS_DEMO_MODE=true npx playwright test tests/e2e/snooze.spec.ts --headed
  */
 
 // Helper: dismiss any overlay/modal that might be blocking the page

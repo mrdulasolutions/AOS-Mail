@@ -43,7 +43,7 @@ function countWords(text: string): number {
 function stripPlainTextSignature(text: string): string {
   const sigIndex = text.search(/\n-- ?\n/);
   if (sigIndex !== -1) return text.slice(0, sigIndex).trim();
-  return text.replace(/\n*Sent (?:by|from) Exo\s*$/i, "").trim();
+  return text.replace(/\n*Sent (?:by|from) AOS Mail\s*$/i, "").trim();
 }
 
 function extractEmailSignals(bodyText: string): EmailSignals {
@@ -202,29 +202,29 @@ Best,
 John
 
 --
-Sent by Exo`;
+Sent by AOS Mail`;
 
     const signals = extractEmailSignals(email);
     expect(signals.signoff).toBe("best");
-    // "Sent by Exo" should not be counted in word count
+    // "Sent by AOS Mail" should not be counted in word count
     expect(signals.wordCount).toBeLessThan(10);
   });
 
-  test("strips 'Sent by Exo' without -- delimiter", () => {
+  test("strips 'Sent by AOS Mail' without -- delimiter", () => {
     const email = `Sounds good!
 
 Thanks
-Sent by Exo`;
+Sent by AOS Mail`;
 
     const signals = extractEmailSignals(email);
     expect(signals.signoff).toBe("thanks");
-    // "Sent by Exo" should be stripped
+    // "Sent by AOS Mail" should be stripped
     expect(signals.wordCount).toBe(3); // "Sounds good! Thanks"
   });
 
-  test("strips 'Sent from Exo' variant", () => {
+  test("strips 'Sent from AOS Mail' variant", () => {
     const email = `Got it, will do.
-Sent from Exo`;
+Sent from AOS Mail`;
 
     const signals = extractEmailSignals(email);
     expect(signals.wordCount).toBe(4); // "Got it, will do."

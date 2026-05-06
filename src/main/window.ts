@@ -13,7 +13,7 @@ export function getIconPath(): string {
 let mainWindow: BrowserWindow | null = null;
 
 // Check if running in test/headless mode
-const isTestMode = process.env.NODE_ENV === "test" || process.env.EXO_HEADLESS === "true";
+const isTestMode = process.env.NODE_ENV === "test" || process.env.AOS_HEADLESS === "true";
 
 // Resolve initial background color from persisted theme to prevent white flash
 function getInitialBackgroundColor(): string {

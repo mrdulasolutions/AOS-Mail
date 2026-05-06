@@ -24,7 +24,7 @@ let _store: Store<SnippetsStore> | null = null;
 function getStore(): Store<SnippetsStore> {
   if (!_store) {
     _store = new Store<SnippetsStore>({
-      name: "exo-snippets",
+      name: "aos-mail-snippets",
       cwd: getDataDir(),
       defaults: {
         snippets: [],

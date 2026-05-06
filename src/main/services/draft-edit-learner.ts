@@ -400,7 +400,7 @@ export async function filterAgainstPromotedMemories(
   }
 
   // Skip API call in demo/test mode — return all observations unfiltered
-  if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+  if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
     return observations;
   }
 
@@ -498,7 +498,7 @@ export async function consolidateMemoryScopes(
   }
 
   // Skip API call in demo/test mode — treat all candidates as new
-  if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+  if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
     return { action: "save", deletedIds: [], createdGlobal: null, coveringMemoryId: null };
   }
 
@@ -677,7 +677,7 @@ export async function learnFromDraftEdit(params: {
   // 2. Normalize both to plain text for comparison
   const originalDraft = htmlToPlainText(rawDraftBody);
   const strippedHtml = sentBodyHtml
-    // Strip email signature (includes "Sent by Exo" branding) — added at send time, not a user edit
+    // Strip email signature (includes "Sent by AOS Mail" branding) — added at send time, not a user edit
     .replace(/<div[^>]*class="[^"]*email-signature[^"]*"[^>]*>[\s\S]*$/i, "")
     .replace(/<div[^>]*class="[^"]*gmail_quote[^"]*"[^>]*>[\s\S]*$/i, "");
   const sentPlainText = htmlToPlainText(strippedHtml);

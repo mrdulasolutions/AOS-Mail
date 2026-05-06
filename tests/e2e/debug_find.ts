@@ -3,7 +3,7 @@ import { _electron as electron } from "@playwright/test";
 async function main() {
   const app = await electron.launch({
     args: ["."],
-    env: { ...process.env, EXO_DEMO_MODE: "true", NODE_ENV: "test" },
+    env: { ...process.env, AOS_DEMO_MODE: "true", NODE_ENV: "test" },
   });
   const page = await app.firstWindow();
   await page.waitForSelector("text=Inbox", { timeout: 10000 });

@@ -5,21 +5,21 @@
 Settings panels for AI Usage (cost breakdown by model/caller), Debug Logs (filterable log viewer from pino JSON files), and System Health (sync status, error rates, agent task history). The backend data is already available: `llm_calls` table for usage, daily log files for logs, and `agent_audit_log` for agent history. This is purely a renderer-side feature.
 
 **Depends on:** AnthropicService cost tracking (done), Logger file output (done)
-**Added:** 2026-03-29, Exo infrastructure review
+**Added:** 2026-03-29, AOS Mail infrastructure review
 
 ## Circuit Breaker + Concurrency Control for AnthropicService
 
 AnthropicService retries on transient errors but has no circuit breaker (continued retries when the API is down for extended periods) and no concurrency limit (PrefetchService can fire many parallel calls). Add a circuit breaker that opens after N consecutive failures and a semaphore to cap concurrent in-flight requests.
 
 **Depends on:** AnthropicService (done)
-**Added:** 2026-03-29, Exo infrastructure review
+**Added:** 2026-03-29, AOS Mail infrastructure review
 
 ## Dynamic Pricing Updates
 
 Model pricing in AnthropicService is hardcoded. Move pricing to a config file or fetch from a pricing endpoint so costs stay accurate without code changes when Anthropic updates prices.
 
 **Depends on:** AnthropicService (done)
-**Added:** 2026-03-29, Exo infrastructure review
+**Added:** 2026-03-29, AOS Mail infrastructure review
 
 ## P3: Enrichment source badge on sidebar panels
 Show a small badge ("Web Search", "YC") on each enrichment sidebar panel so users know where data came from. Currently no attribution on enrichment data. Renderer-only change — enrichment data already carries extensionId.

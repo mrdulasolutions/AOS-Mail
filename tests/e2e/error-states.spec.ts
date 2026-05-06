@@ -72,8 +72,8 @@ test.describe("Error States - App Load", () => {
   });
 
   test("app title is visible", async () => {
-    // The Exo title should be in the titlebar
-    await expect(page.locator("text=Exo").first()).toBeVisible({ timeout: 5000 });
+    // The AOS Mail title should be in the titlebar
+    await expect(page.locator("text=AOS Mail").first()).toBeVisible({ timeout: 5000 });
   });
 });
 

@@ -97,8 +97,8 @@ test.describe("Database isolation between demo and production modes", () => {
 
   test.beforeAll(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "mail-app-db-test-"));
-    prodDbPath = join(tmpDir, "exo.db");
-    demoDbPath = join(tmpDir, "exo-demo.db");
+    prodDbPath = join(tmpDir, "aos-mail.db");
+    demoDbPath = join(tmpDir, "aos-mail-demo.db");
   });
 
   test.afterAll(() => {
@@ -108,13 +108,13 @@ test.describe("Database isolation between demo and production modes", () => {
   test("demo and production use different file paths", () => {
     // Reproduce the logic from initDatabase()
     function getDbFilename(isDemoMode: boolean, isTestMode: boolean): string {
-      return isDemoMode || isTestMode ? "exo-demo.db" : "exo.db";
+      return isDemoMode || isTestMode ? "aos-mail-demo.db" : "aos-mail.db";
     }
 
-    expect(getDbFilename(false, false)).toBe("exo.db");
-    expect(getDbFilename(true, false)).toBe("exo-demo.db");
-    expect(getDbFilename(false, true)).toBe("exo-demo.db");
-    expect(getDbFilename(true, true)).toBe("exo-demo.db");
+    expect(getDbFilename(false, false)).toBe("aos-mail.db");
+    expect(getDbFilename(true, false)).toBe("aos-mail-demo.db");
+    expect(getDbFilename(false, true)).toBe("aos-mail-demo.db");
+    expect(getDbFilename(true, true)).toBe("aos-mail-demo.db");
   });
 
   test("databases are physically separate files", () => {

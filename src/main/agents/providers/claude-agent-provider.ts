@@ -187,7 +187,7 @@ export class ClaudeAgentProvider implements AgentProvider {
             ],
             allowRead: [
               // Re-allow the app's own data directory within ~/Library
-              `${process.env.HOME}/Library/Application Support/exo`,
+              `${process.env.HOME}/Library/Application Support/AOS Mail`,
             ],
           },
         },

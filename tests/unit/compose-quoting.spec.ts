@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
  * Unit tests for compose quoting functionality
  * Tests that HTML email content is properly preserved when replying/forwarding
  *
- * IMPORTANT: These tests use EXO_DEMO_MODE=true
+ * IMPORTANT: These tests use AOS_DEMO_MODE=true
  * No real emails are ever sent
  */
 

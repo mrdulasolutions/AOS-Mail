@@ -3,7 +3,7 @@
  *
  * Any non-packaged run (`!app.isPackaged`) uses a project-local `.dev-data/`
  * directory so that development never touches production data in
- * `~/Library/Application Support/exo/`.
+ * `~/Library/Application Support/AOS Mail/`.
  *
  * Only packaged (released) builds use `app.getPath("userData")`.
  */
@@ -91,7 +91,7 @@ export function initDevData(): void {
   const devDbDir = join(devDir, "data");
   if (existsSync(prodDbDir)) {
     mkdirSync(devDbDir, { recursive: true });
-    const dbFiles = ["exo.db", "exo.db-wal", "exo.db-shm"];
+    const dbFiles = ["aos-mail.db", "aos-mail.db-wal", "aos-mail.db-shm"];
     for (const dbFile of dbFiles) {
       const src = join(prodDbDir, dbFile);
       const dst = join(devDbDir, dbFile);
@@ -107,7 +107,7 @@ export function initDevData(): void {
   }
 
   // Copy electron-store config files
-  const storeFiles = ["exo-config.json", "exo-splits.json"];
+  const storeFiles = ["aos-mail-config.json", "aos-mail-splits.json"];
   for (const storeFile of storeFiles) {
     const storeSrc = join(prodDir, storeFile);
     const storeDst = join(devDir, storeFile);

@@ -1,11 +1,11 @@
 {
-  "name": "exo",
+  "name": "aos-mail",
   "version": "0.0.0",
   "license": "BSL-1.1",
-  "description": "Automated email draft generator using Claude AI and Gmail",
+  "description": "AOS Mail — Agent Operated System for Mail. Native-feeling, multi-inbox, Claude-powered Mac email client.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ankitvgupta/exo.git"
+    "url": "https://github.com/mrdulasolutions/AOS-Mail.git"
   },
   "type": "module",
   "main": "./out/main/index.js",
@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "dev": "npm run ensure-native && npm run build:worker && electron-vite dev",
-    "dev:demo": "npm run ensure-native && EXO_DEMO_MODE=true electron-vite dev",
+    "dev:demo": "npm run ensure-native && AOS_DEMO_MODE=true electron-vite dev",
     "build:worker": "vite build --config vite.worker.config.ts",
     "build": "electron-vite build && npm run build:worker",
     "preview": "electron-vite preview",
@@ -108,8 +108,8 @@
     "vite": "^6.0.5"
   },
   "build": {
-    "appId": "com.exo",
-    "productName": "Exo",
+    "appId": "com.mrdulasolutions.aosmail",
+    "productName": "AOS Mail",
     "artifactName": "${name}-${version}-${arch}-${os}.${ext}",
     "protocols": [
       {
@@ -151,8 +151,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "ankitvgupta",
-      "repo": "mail-app",
+      "owner": "mrdulasolutions",
+      "repo": "AOS-Mail",
       "private": true
     },
     "directories": {

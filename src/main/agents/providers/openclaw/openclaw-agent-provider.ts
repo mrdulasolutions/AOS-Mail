@@ -13,7 +13,7 @@ import type { OpenClawProviderConfig } from "./types";
 import { OpenClawAgentResponseSchema } from "./types";
 
 function isDemoMode(): boolean {
-  return process.env.EXO_DEMO_MODE === "true";
+  return process.env.AOS_DEMO_MODE === "true";
 }
 
 const TIMEOUT_MS = 300_000;

@@ -13,8 +13,8 @@ import { createLogger } from "../services/logger";
 
 const log = createLogger("analysis-ipc");
 
-const isTestMode = process.env.EXO_TEST_MODE === "true";
-const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+const isTestMode = process.env.AOS_TEST_MODE === "true";
+const isDemoMode = process.env.AOS_DEMO_MODE === "true";
 const useFakeData = isTestMode || isDemoMode;
 
 // Per-account learning queue to prevent race conditions on concurrent overrides

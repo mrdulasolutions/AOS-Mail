@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 // ─── Database helpers (via sqlite3 CLI) ────────────────────────────────────────
 
-const DB_PATH = join(process.cwd(), ".dev-data", "data", "exo-demo.db");
+const DB_PATH = join(process.cwd(), ".dev-data", "data", "aos-mail-demo.db");
 
 if (!existsSync(DB_PATH)) {
   console.error(`Database not found at ${DB_PATH}. Start the app in demo mode first.`);

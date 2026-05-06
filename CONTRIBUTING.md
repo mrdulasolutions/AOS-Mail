@@ -1,6 +1,6 @@
-# Contributing to Exo
+# Contributing to AOS Mail
 
-Thanks for your interest in contributing to Exo! This document covers the expectations and workflow for getting a PR merged.
+Thanks for your interest in contributing to AOS Mail! This document covers the expectations and workflow for getting a PR merged.
 
 ## Prerequisites
 

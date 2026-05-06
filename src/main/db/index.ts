@@ -31,14 +31,14 @@ let db: DatabaseInstance | null = null;
 export function initDatabase(): DatabaseInstance {
   if (db) return db;
 
-  const isDemoMode = process.env.EXO_DEMO_MODE === "true";
-  const isTestMode = process.env.EXO_TEST_MODE === "true";
+  const isDemoMode = process.env.AOS_DEMO_MODE === "true";
+  const isTestMode = process.env.AOS_TEST_MODE === "true";
   // Per-worker database isolation for parallel E2E tests
   const workerSuffix =
     (isDemoMode || isTestMode) && process.env.TEST_WORKER_INDEX
       ? `-w${process.env.TEST_WORKER_INDEX}`
       : "";
-  const dbFilename = isDemoMode || isTestMode ? `exo-demo${workerSuffix}.db` : "exo.db";
+  const dbFilename = isDemoMode || isTestMode ? `aos-mail-demo${workerSuffix}.db` : "aos-mail.db";
 
   const userDataPath = getDataDir();
   const dbDir = join(userDataPath, "data");

@@ -17,7 +17,7 @@ import {
  * 4. Sending from ComposeView also shows the undo toast
  * 5. Settings UI for configuring undo send delay
  *
- * IMPORTANT: Uses EXO_DEMO_MODE=true — no real emails are sent.
+ * IMPORTANT: Uses AOS_DEMO_MODE=true — no real emails are sent.
  *
  * Run with: npx playwright test tests/e2e/undo-send.spec.ts
  */
@@ -34,12 +34,12 @@ function resetTestEnvironment(workerIndex: number) {
 
   // Only delete THIS worker's demo database to avoid interfering with parallel workers.
   // Config files are shared global state and must NOT be deleted during parallel runs.
-  const workerDbPattern = `exo-demo-w${workerIndex}.db`;
+  const workerDbPattern = `aos-mail-demo-w${workerIndex}.db`;
   const demoDirs = [
     path.join(home, "Library/Application Support/Electron/data"),
-    path.join(home, "Library/Application Support/exo/data"),
+    path.join(home, "Library/Application Support/AOS Mail/data"),
     path.join(home, ".config/Electron/data"),
-    path.join(home, ".config/exo/data"),
+    path.join(home, ".config/aos-mail/data"),
   ];
   for (const dir of demoDirs) {
     if (!existsSync(dir)) continue;
@@ -104,7 +104,7 @@ test.describe("Undo Send - Inline Reply", () => {
   });
 
   test("app loads with inbox emails", async () => {
-    await expect(page.getByRole("heading", { name: "Exo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "AOS Mail" })).toBeVisible();
     await expect(page.locator("text=Inbox").first()).toBeVisible();
     await expect(page.locator("button").filter({ hasText: "Garry Tan" }).first()).toBeVisible({
       timeout: 5000,

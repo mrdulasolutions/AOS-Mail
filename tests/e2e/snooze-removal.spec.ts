@@ -28,7 +28,7 @@ test.describe("Snooze — email must leave inbox and cursor must advance", () =>
   test.beforeAll(async ({}, testInfo) => {
     const result = await launchElectronApp({
       workerIndex: testInfo.workerIndex,
-      extraEnv: { EXO_TEST_MODE: "true" },
+      extraEnv: { AOS_TEST_MODE: "true" },
     });
     electronApp = result.app;
     page = result.page;
@@ -38,7 +38,7 @@ test.describe("Snooze — email must leave inbox and cursor must advance", () =>
     });
 
     // Wait for the app to fully load with emails
-    await page.waitForSelector("text=Exo", { timeout: 15000 });
+    await page.waitForSelector("text=AOS Mail", { timeout: 15000 });
     await page
       .locator("button")
       .filter({ hasText: /High|Medium|Low/ })

@@ -8,7 +8,7 @@ For complex work (migrations, multi-file refactors, architectural changes), you 
 ## Parallel development
 - In general, I may have between 2 and 10 parallel sessions running at any given time, so you should assume that there are other agents that may be editing the codebase. You can assume that I have already created isolation using git worktrees, so you are free to edit any file you want but you have to assume that either you or other agents might run into merge conflicts when merging later.
 - You should make a best effort, however, to keep this parallelism in mind when doing development. For example, if you're developing an app, you should make the .app assets have some sort of suffix (if possible) to be able to distinguish the build coming from this agent run vs the others. this is likely something from the branch name or something to that effect.
-- **Branch name in app title**: When launching the app for dev (`npm run dev`), append the current git branch name to the app title so it's easy to tell which worktree build is running. The title is in `src/renderer/App.tsx` — find the `<h1>` containing "Exo" (in the titlebar div) and append a `<span>` with the branch name, e.g. `<span className="text-xs font-normal text-gray-400">[claude/my-feature]</span>`. **Remove this change before committing** — it's only for local dev visibility, not for the codebase. Note: the HTML `<title>` in `index.html` is NOT visible because the Electron window uses `titleBarStyle: "hiddenInset"`.
+- **Branch name in app title**: When launching the app for dev (`npm run dev`), append the current git branch name to the app title so it's easy to tell which worktree build is running. The title is in `src/renderer/App.tsx` — find the `<h1>` containing "AOS Mail" (in the titlebar div) and append a `<span>` with the branch name, e.g. `<span className="text-xs font-normal text-gray-400">[claude/my-feature]</span>`. **Remove this change before committing** — it's only for local dev visibility, not for the codebase. Note: the HTML `<title>` in `index.html` is NOT visible because the Electron window uses `titleBarStyle: "hiddenInset"`.
 
 ## Coding Standards
 
@@ -92,7 +92,7 @@ Generally i will give one git worktree one branch to work with and itll be clear
 - When starting work in a new worktree, copy over any gitignored files needed from the main worktree (environment variables, local config, credentials, etc.).
 - Do NOT copy `.claude/` directory contents or `CLAUDE.md` — those are tracked by git and will already be in the worktree.
 - Do NOT use `git -C <path>` or `git -c` flags unnecessarily — you are already working inside the worktree, so just run git commands directly from the current directory.
-- **Worktree dev setup for this project**: The main worktree is at `/Users/ankit/src/mail-app/`. To run `npm run dev` with real accounts, copy `.env` from the main worktree — it's needed at build time for `MAIN_VITE_GOOGLE_CLIENT_ID` / `MAIN_VITE_GOOGLE_CLIENT_SECRET` and `ANTHROPIC_API_KEY`. Everything else (tokens, config, splits) is shared via `~/Library/Application Support/exo/` or `.dev-data/` and does not need to be copied.
+- **Worktree dev setup for this project**: The main worktree is at `/Users/ankit/src/mail-app/`. To run `npm run dev` with real accounts, copy `.env` from the main worktree — it's needed at build time for `MAIN_VITE_GOOGLE_CLIENT_ID` / `MAIN_VITE_GOOGLE_CLIENT_SECRET` and `ANTHROPIC_API_KEY`. Everything else (tokens, config, splits) is shared via `~/Library/Application Support/AOS Mail/` or `.dev-data/` and does not need to be copied.
 
 ## Code reviews
 - All of my repos are set up to use automatic code review software, either provided by claude or other review apps.
@@ -269,14 +269,14 @@ Packaged macOS apps launched from Finder/Dock get a minimal PATH (`/usr/bin:/bin
 
 ## Configuration Paths
 
-All config lives under `app.getPath("userData")` — `~/Library/Application Support/exo/` on macOS.
+All config lives under `app.getPath("userData")` — `~/Library/Application Support/AOS Mail/` on macOS.
 
 - **OAuth credentials**: `credentials.json`
 - **Tokens**: `tokens.json` (default), `tokens-{accountId}.json` (others)
-- **Database**: `data/exo.db`
+- **Database**: `data/aos-mail.db`
 - **App config**: `config.json` (electron-store)
 
-**IMPORTANT:** Reading from `~/Library/Application Support/exo/` is always fine, but **never write to or modify files in that production directory without explicitly asking first**. This is real user data shared across packaged app installs. Dev runs use `.dev-data/` instead.
+**IMPORTANT:** Reading from `~/Library/Application Support/AOS Mail/` is always fine, but **never write to or modify files in that production directory without explicitly asking first**. This is real user data shared across packaged app installs. Dev runs use `.dev-data/` instead.
 
 ## Recent Bug Fixes (Jan 2025)
 
@@ -349,5 +349,5 @@ Run `npm run eval` before any prompt change. The eval harness (`tests/evals/`) r
 ## Environment Variables
 
 - `ANTHROPIC_API_KEY` - Required for Claude API
-- `EXO_TEST_MODE=true` - Use mock data for testing
-- `EXO_DEMO_MODE=true` - Use demo data without real API calls
+- `AOS_TEST_MODE=true` - Use mock data for testing
+- `AOS_DEMO_MODE=true` - Use demo data without real API calls

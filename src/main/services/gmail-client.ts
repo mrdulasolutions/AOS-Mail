@@ -31,10 +31,10 @@ function getConfigDir(): string {
   return getDataDir();
 }
 
-const OLD_CONFIG_DIR = join(homedir(), ".config", "exo");
+const OLD_CONFIG_DIR = join(homedir(), ".config", "aos-mail");
 
 /**
- * One-time migration: copy token/credential files from the old ~/.config/exo/
+ * One-time migration: copy token/credential files from the old ~/.config/aos-mail/
  * location to app.getPath("userData"). Only needed on macOS where those paths differ.
  * Safe to call multiple times — skips files that already exist at the destination.
  */
@@ -335,7 +335,7 @@ export class GmailClient {
             <html>
               <body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
                 <div style="text-align: center;">
-                  <h1>✓ Exo Connected</h1>
+                  <h1>✓ AOS Mail Connected</h1>
                   <p>You can close this tab and return to the application.</p>
                 </div>
               </body>
@@ -1000,7 +1000,7 @@ export class GmailClient {
         const base64Data = rawBase64.replace(/\s+/g, "");
         if (!base64Data) return _match;
         imageIndex++;
-        const cid = `inline-image-${imageIndex}@exo`;
+        const cid = `inline-image-${imageIndex}@aos-mail`;
         const ext = mimeType.split("/")[1] || "png";
 
         attachments.push({

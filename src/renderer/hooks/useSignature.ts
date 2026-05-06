@@ -18,7 +18,7 @@ export function useSignature(accountId: string) {
   });
 
   const allSignatures = configData?.signatures ?? [];
-  const showExoBranding = configData?.showExoBranding !== false;
+  const showAOSMailBranding = configData?.showAOSMailBranding !== false;
 
   const availableSignatures = useMemo(
     () => allSignatures.filter((s: Signature) => !s.accountId || s.accountId === accountId),
@@ -45,14 +45,14 @@ export function useSignature(accountId: string) {
 
   const activeSignature = availableSignatures.find((s: Signature) => s.id === activeSignatureId);
 
-  const exoBrandingLine = showExoBranding
-    ? `<div style="margin-top:12px;font-size:12px;color:#999;">Sent by <a href="https://exo.email" style="color:#999;">Exo</a></div>`
+  const aosMailBrandingLine = showAOSMailBranding
+    ? `<div style="margin-top:12px;font-size:12px;color:#999;">Sent by AOS Mail</div>`
     : "";
 
   const signatureHtml = activeSignature?.bodyHtml
-    ? `<div class="email-signature"><br><div>--</div>${activeSignature.bodyHtml}${exoBrandingLine}</div>`
-    : exoBrandingLine
-      ? `<div class="email-signature"><br><div>--</div>${exoBrandingLine}</div>`
+    ? `<div class="email-signature"><br><div>--</div>${activeSignature.bodyHtml}${aosMailBrandingLine}</div>`
+    : aosMailBrandingLine
+      ? `<div class="email-signature"><br><div>--</div>${aosMailBrandingLine}</div>`
       : "";
 
   return {

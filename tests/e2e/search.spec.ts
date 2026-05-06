@@ -4,7 +4,7 @@ import { launchElectronApp , closeApp } from "./launch-helpers";
 /**
  * E2E Tests for Search functionality
  *
- * IMPORTANT: These tests use EXO_DEMO_MODE=true
+ * IMPORTANT: These tests use AOS_DEMO_MODE=true
  * No real Gmail API calls are made - all search results are mock data
  *
  * The search.ipc.ts returns DEMO_SEARCH_RESULTS when in demo mode

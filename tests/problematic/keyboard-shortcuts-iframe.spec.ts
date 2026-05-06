@@ -22,13 +22,13 @@ async function launchElectronApp(): Promise<{ app: ElectronApplication; page: Pa
     env: {
       ...process.env,
       NODE_ENV: "test",
-      EXO_DEMO_MODE: "true",
+      AOS_DEMO_MODE: "true",
     },
   });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("text=Exo", { timeout: 15000 });
+  await window.waitForSelector("text=AOS Mail", { timeout: 15000 });
 
   return { app, page: window };
 }

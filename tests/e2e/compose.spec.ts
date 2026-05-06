@@ -4,7 +4,7 @@ import { launchElectronApp , closeApp } from "./launch-helpers";
 /**
  * E2E Tests for Compose and Send functionality
  *
- * IMPORTANT: These tests use EXO_DEMO_MODE=true
+ * IMPORTANT: These tests use AOS_DEMO_MODE=true
  * No real emails are ever sent - all Gmail API calls return mock responses
  *
  * Run with: npm run test:e2e

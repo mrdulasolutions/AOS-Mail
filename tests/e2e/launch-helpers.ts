@@ -15,7 +15,7 @@ export type LaunchOptions = {
 /**
  * Launch Electron app for E2E testing with per-worker database isolation.
  *
- * Each worker gets its own database file (e.g. exo-demo-w0.db)
+ * Each worker gets its own database file (e.g. aos-mail-demo-w0.db)
  * so E2E tests can run fully in parallel without state conflicts.
  */
 export async function launchElectronApp(
@@ -28,7 +28,7 @@ export async function launchElectronApp(
     env: {
       ...process.env,
       NODE_ENV: "test",
-      EXO_DEMO_MODE: "true",
+      AOS_DEMO_MODE: "true",
       TEST_WORKER_INDEX: String(workerIndex),
       ...extraEnv,
     },
@@ -36,7 +36,7 @@ export async function launchElectronApp(
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("text=Exo", { timeout: 15000 });
+  await window.waitForSelector("text=AOS Mail", { timeout: 15000 });
 
   // The app defaults to the Priority tab. Switch to "All" so tests see every
   // email in the demo inbox (most tests search for specific emails by name).

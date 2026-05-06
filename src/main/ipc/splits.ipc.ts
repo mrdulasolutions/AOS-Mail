@@ -24,7 +24,7 @@ let _store: Store<SplitsStore> | null = null;
 function getStore(): Store<SplitsStore> {
   if (!_store) {
     _store = new Store<SplitsStore>({
-      name: "exo-splits",
+      name: "aos-mail-splits",
       cwd: getDataDir(),
       defaults: {
         splits: [],

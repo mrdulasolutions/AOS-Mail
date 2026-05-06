@@ -12,8 +12,8 @@ import type {
 import type { DashboardEmail } from "../../../shared/types";
 import { findAllCalendarAccounts } from "./google-calendar-client";
 
-const isDemoMode = process.env.EXO_DEMO_MODE === "true";
-const isTestMode = process.env.EXO_TEST_MODE === "true";
+const isDemoMode = process.env.AOS_DEMO_MODE === "true";
+const isTestMode = process.env.AOS_TEST_MODE === "true";
 
 export function createCalendarProvider(context: ExtensionContext): EnrichmentProvider {
   return {

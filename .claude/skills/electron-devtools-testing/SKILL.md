@@ -3,7 +3,7 @@ name: electron-devtools-testing
 description: Test the Electron app interactively using Chrome DevTools Protocol. Use when the user asks to test, verify, or interact with the running app via browser automation.
 ---
 
-Test the Exo Electron app interactively using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP.
+Test the AOS Mail Electron app interactively using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ Test the Exo Electron app interactively using Chrome DevTools Protocol (CDP) via
 
 ## Notes
 
-- **Demo mode**: When launched with `EXO_DEMO_MODE=true`, the app uses mock data and makes no real Gmail API calls. Useful for testing UI without credentials.
+- **Demo mode**: When launched with `AOS_DEMO_MODE=true`, the app uses mock data and makes no real Gmail API calls. Useful for testing UI without credentials.
 - **Port conflicts**: If port 9222 is already in use, pick another port and update both the launch command and MCP config.
 - **Multiple windows**: Electron may open multiple pages (main window, DevTools, etc). Always select the correct renderer page before interacting.
 - **Hot reload**: `electron-vite dev` supports HMR. After code changes, the renderer reloads automatically but you may need to re-select the page.

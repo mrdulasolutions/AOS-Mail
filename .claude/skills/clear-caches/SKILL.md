@@ -19,7 +19,7 @@ Clears all extension caches, analysis data, and draft data from the database. Us
 ## Command
 
 ```bash
-sqlite3 ~/Library/Application\ Support/exo/data/exo.db "
+sqlite3 ~/Library/Application\ Support/AOS\ Mail/data/aos-mail.db "
 DELETE FROM extension_enrichments;
 DELETE FROM extension_storage;
 DELETE FROM sender_profiles;
@@ -46,15 +46,15 @@ To clear only specific caches:
 
 ```bash
 # Clear only sender profile data (keeps analyses and drafts)
-sqlite3 ~/Library/Application\ Support/exo/data/exo.db "
+sqlite3 ~/Library/Application\ Support/AOS\ Mail/data/aos-mail.db "
 DELETE FROM extension_enrichments;
 DELETE FROM extension_storage WHERE key LIKE 'profile:%';
 DELETE FROM sender_profiles;
 "
 
 # Clear only analyses (will re-analyze all emails)
-sqlite3 ~/Library/Application\ Support/exo/data/exo.db "DELETE FROM analyses;"
+sqlite3 ~/Library/Application\ Support/AOS\ Mail/data/aos-mail.db "DELETE FROM analyses;"
 
 # Clear only drafts
-sqlite3 ~/Library/Application\ Support/exo/data/exo.db "DELETE FROM drafts;"
+sqlite3 ~/Library/Application\ Support/AOS\ Mail/data/aos-mail.db "DELETE FROM drafts;"
 ```

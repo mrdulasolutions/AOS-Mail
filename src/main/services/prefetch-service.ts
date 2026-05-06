@@ -368,8 +368,8 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
     // Deduplicate by thread — only draft for the newest email per thread, since one
     // draft reply per thread is all that's needed.
     const autoDraft = config.autoDraft;
-    const isTestMode = process.env.EXO_TEST_MODE === "true";
-    const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+    const isTestMode = process.env.AOS_TEST_MODE === "true";
+    const isDemoMode = process.env.AOS_DEMO_MODE === "true";
     const skipAgentDrafts = autoDraft?.enabled === false || isTestMode || isDemoMode;
     if (skipAgentDrafts) {
       if (autoDraft?.enabled === false)
@@ -832,8 +832,8 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
         const autoDraftConfig = config.autoDraft;
         const autoDraftAllowed = autoDraftConfig?.enabled !== false;
         const autoDraftPriorities = autoDraftConfig?.priorities ?? ["high", "medium", "low"];
-        const isTest = process.env.EXO_TEST_MODE === "true";
-        const isDemo = process.env.EXO_DEMO_MODE === "true";
+        const isTest = process.env.AOS_TEST_MODE === "true";
+        const isDemo = process.env.AOS_DEMO_MODE === "true";
         if (
           autoDraftAllowed &&
           !isTest &&
@@ -1061,8 +1061,8 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
     if (this.processedDrafts.has(emailId) && !this.forceQueuedDrafts.has(emailId)) return;
 
     // Skip in test/demo mode — agent worker may not be available or we shouldn't make real API calls
-    const isTestMode = process.env.EXO_TEST_MODE === "true";
-    const isDemoMode = process.env.EXO_DEMO_MODE === "true";
+    const isTestMode = process.env.AOS_TEST_MODE === "true";
+    const isDemoMode = process.env.AOS_DEMO_MODE === "true";
     if (isTestMode || isDemoMode) {
       this.processedDrafts.add(emailId);
       this.markAgentDraftDone(emailId, "completed");
@@ -1420,8 +1420,8 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
     if (this.queue.some((t) => t.type === "agent-draft" && t.emailId === emailId)) return;
     if (this.agentDraftBacklog.some((t) => t.emailId === emailId)) return;
 
-    const isTest = process.env.EXO_TEST_MODE === "true";
-    const isDemo = process.env.EXO_DEMO_MODE === "true";
+    const isTest = process.env.AOS_TEST_MODE === "true";
+    const isDemo = process.env.AOS_DEMO_MODE === "true";
     if (isTest || isDemo) return;
 
     // Clear and re-set thread tracking only when we actually queue

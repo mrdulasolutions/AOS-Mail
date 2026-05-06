@@ -179,7 +179,7 @@ export function registerMemoryIpc(): void {
       },
     ): Promise<IpcResponse<{ scope: MemoryScope; scopeValue: string | null; content: string }>> => {
       // In demo/test mode, skip API call and default to person scope
-      if (process.env.EXO_TEST_MODE === "true" || process.env.EXO_DEMO_MODE === "true") {
+      if (process.env.AOS_TEST_MODE === "true" || process.env.AOS_DEMO_MODE === "true") {
         return {
           success: true,
           data: { scope: "person", scopeValue: senderEmail, content },

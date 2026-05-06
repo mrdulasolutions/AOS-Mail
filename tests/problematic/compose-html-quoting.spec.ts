@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /**
  * E2E Tests for HTML content preservation in compose reply/forward
  *
- * IMPORTANT: These tests use EXO_DEMO_MODE=true
+ * IMPORTANT: These tests use AOS_DEMO_MODE=true
  * No real emails are ever sent - all Gmail API calls return mock responses
  *
  * Tests verify that rich HTML content (tables, images, styling) is properly
@@ -66,13 +66,13 @@ async function launchElectronApp(): Promise<{ app: ElectronApplication; page: Pa
     env: {
       ...process.env,
       NODE_ENV: "test",
-      EXO_DEMO_MODE: "true",
+      AOS_DEMO_MODE: "true",
     },
   });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("text=Exo", { timeout: 15000 });
+  await window.waitForSelector("text=AOS Mail", { timeout: 15000 });
 
   return { app, page: window };
 }
