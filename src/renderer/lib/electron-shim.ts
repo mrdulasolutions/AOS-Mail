@@ -91,6 +91,49 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // network — first lifted namespace. Mirrors the Electron `window.api.network`
+  // surface (getStatus / updateStatus / onOnline / onOffline /
+  // removeAllListeners) but routes through the sidecar + Tauri events.
+  const networkUnlisteners: Array<() => void> = [];
+  real.network = {
+    getStatus: async (): Promise<IpcResponse<boolean>> => {
+      try {
+        const data = (await bridge.call("network.getStatus", {})) as { online: boolean };
+        return { success: true, data: data.online };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    updateStatus: async (online: boolean): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("network.updateStatus", { online });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onOnline: (callback: () => void): void => {
+      bridge
+        .listen("network:online", () => callback())
+        .then((unlisten) => networkUnlisteners.push(unlisten));
+    },
+    onOffline: (callback: () => void): void => {
+      bridge
+        .listen("network:offline", () => callback())
+        .then((unlisten) => networkUnlisteners.push(unlisten));
+    },
+    removeAllListeners: (): void => {
+      while (networkUnlisteners.length) {
+        const unlisten = networkUnlisteners.pop();
+        try {
+          unlisten?.();
+        } catch {
+          // noop — best-effort cleanup
+        }
+      }
+    },
+  };
+
   return real;
 }
 

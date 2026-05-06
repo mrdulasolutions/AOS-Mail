@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{oneshot, Mutex};
@@ -38,11 +38,16 @@ struct RpcRequest<'a> {
     params: serde_json::Value,
 }
 
+/// Inbound message from the sidecar's stdout. Either a response (id is set)
+/// or a server-sent notification (id is absent and `method` carries the
+/// channel name).
 #[derive(Deserialize)]
-struct RpcResponse {
+struct RpcInbound {
     #[allow(dead_code)]
     jsonrpc: Option<String>,
     id: Option<u64>,
+    method: Option<String>,
+    params: Option<serde_json::Value>,
     result: Option<serde_json::Value>,
     error: Option<RpcError>,
 }
@@ -91,8 +96,11 @@ impl SidecarHandle {
             }
         });
 
-        // Read sidecar stdout/stderr; route NDJSON responses back to callers.
+        // Read sidecar stdout/stderr; route NDJSON either back to the
+        // matching pending request (response) or out to the renderer as a
+        // Tauri event (server-sent notification).
         let pending_for_reader = pending.clone();
+        let app_for_reader = app.clone();
         tauri::async_runtime::spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
@@ -102,12 +110,12 @@ impl SidecarHandle {
                             if chunk.trim().is_empty() {
                                 continue;
                             }
-                            match serde_json::from_str::<RpcResponse>(chunk) {
-                                Ok(resp) => {
-                                    if let Some(id) = resp.id {
+                            match serde_json::from_str::<RpcInbound>(chunk) {
+                                Ok(msg) => {
+                                    if let Some(id) = msg.id {
                                         let mut pending = pending_for_reader.lock().await;
                                         if let Some(tx) = pending.remove(&id) {
-                                            let result = match (resp.result, resp.error) {
+                                            let result = match (msg.result, msg.error) {
                                                 (Some(v), _) => Ok(v),
                                                 (_, Some(e)) => Err(SidecarError::Remote(e.message)),
                                                 _ => Err(SidecarError::Invalid(
@@ -116,8 +124,22 @@ impl SidecarHandle {
                                             };
                                             let _ = tx.send(result);
                                         }
+                                    } else if let Some(channel) = msg.method {
+                                        // Server-sent notification: forward to
+                                        // the renderer as a Tauri event under
+                                        // the channel name.
+                                        let payload = msg.params.unwrap_or(serde_json::Value::Null);
+                                        if let Err(e) =
+                                            app_for_reader.emit(&channel, payload)
+                                        {
+                                            log::warn!(
+                                                "failed to emit sidecar event {}: {}",
+                                                channel,
+                                                e
+                                            );
+                                        }
                                     } else {
-                                        log::debug!("sidecar event: {}", chunk);
+                                        log::debug!("sidecar non-routable line: {}", chunk);
                                     }
                                 }
                                 Err(e) => {

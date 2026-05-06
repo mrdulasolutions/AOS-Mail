@@ -1,20 +1,17 @@
 // AOS Mail sidecar entry point.
 //
-// Stage 1 of the migration: stdio JSON-RPC server that the Tauri Rust shell
-// spawns and talks to. Methods are registered in `methods/` and dispatched
-// here.
-//
 // Wire format (newline-delimited JSON over stdin/stdout):
-//   request:  {"jsonrpc":"2.0","id":N,"method":"foo","params":{...}}
-//   response: {"jsonrpc":"2.0","id":N,"result":...}
-//             {"jsonrpc":"2.0","id":N,"error":{"code":N,"message":"..."}}
+//   request:      {"jsonrpc":"2.0","id":N,"method":"foo","params":{...}}
+//   response:     {"jsonrpc":"2.0","id":N,"result":...}
+//                 {"jsonrpc":"2.0","id":N,"error":{"code":N,"message":"..."}}
+//   notification: {"jsonrpc":"2.0","method":"channel","params":...}   (no id)
 //
 // As main-process services get lifted from src/main into this sidecar, they
-// register handlers via `registerMethod`. We start with `ping` to validate the
-// pipe end-to-end.
+// register handlers via `registerMethod` and push events via `emit`.
 
 import { createInterface } from "node:readline";
 import { dispatch, registerMethod } from "./rpc.js";
+import { registerNetworkMethods } from "./methods/network.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -23,6 +20,9 @@ registerMethod("ping", async () => ({
   node: process.version,
   ts: new Date().toISOString(),
 }));
+
+// Lifted IPC namespaces (Phase 1B).
+registerNetworkMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });
@@ -37,9 +37,3 @@ rl.on("line", async (line) => {
 
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
-
-// Stage-2 lifts will register additional methods here. Examples (TBD):
-//   registerMethod("mail.list", listMail);
-//   registerMethod("mail.send", sendMail);
-//   registerMethod("agent.draft", draftReply);
-//   registerMethod("settings.get", getSettings);

@@ -1,7 +1,15 @@
 // Tiny JSON-RPC 2.0 dispatcher for the sidecar.
 //
-// Designed for the Tauri shell's request/response pattern. Notifications
-// (no `id`) are accepted but produce no response.
+// Two flavors of message:
+//   - REQUEST  (has `id`)            → response goes back with the same id
+//   - RESPONSE (we send back)        → matched on the Rust side by id
+//   - NOTIFICATION (no `id`)         → server-sent event; the Rust shell
+//                                      forwards it to the renderer as a
+//                                      Tauri event named after `method`.
+//
+// Designed for the Tauri shell's request/response pattern plus push-style
+// updates. Callers use `registerMethod` for handlers, `emit(channel, payload)`
+// for notifications.
 
 type Json = unknown;
 
@@ -19,6 +27,12 @@ interface RpcResponse {
   error?: { code: number; message: string; data?: Json };
 }
 
+interface RpcNotification {
+  jsonrpc: "2.0";
+  method: string;
+  params?: Json;
+}
+
 type Handler = (params: Json) => Promise<Json> | Json;
 
 const methods = new Map<string, Handler>();
@@ -28,6 +42,21 @@ export function registerMethod(name: string, handler: Handler): void {
     throw new Error(`RPC method already registered: ${name}`);
   }
   methods.set(name, handler);
+}
+
+/**
+ * Push a server-sent event up to the Tauri shell, which forwards it to the
+ * renderer as a Tauri event. `channel` is the event name (e.g.
+ * "network:online"). Notifications have no id so the Rust side knows it's
+ * not a response to any pending request.
+ */
+export function emit(channel: string, payload: Json = null): void {
+  const notification: RpcNotification = {
+    jsonrpc: "2.0",
+    method: channel,
+    params: payload,
+  };
+  process.stdout.write(JSON.stringify(notification) + "\n");
 }
 
 export async function dispatch(rawLine: string): Promise<string | null> {
