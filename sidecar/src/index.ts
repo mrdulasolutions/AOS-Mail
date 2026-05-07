@@ -14,6 +14,7 @@ import { dispatch, registerMethod } from "./rpc.js";
 import { registerNetworkMethods } from "./methods/network.js";
 import { registerDbMethods } from "./methods/db.js";
 import { registerThemeMethods } from "./methods/theme.js";
+import { registerUsageMethods } from "./methods/usage.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -27,6 +28,7 @@ registerMethod("ping", async () => ({
 registerNetworkMethods();
 registerDbMethods();
 registerThemeMethods();
+registerUsageMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

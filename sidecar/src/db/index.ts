@@ -36,6 +36,30 @@ export function initDatabase(): DatabaseInstance {
   db.exec(SCHEMA);
   initFTS5(db);
 
+  // llm_calls is created lazily by anthropic-service in the Electron path.
+  // Mirror that here so a fresh sidecar-only install still has the table
+  // for usage queries.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS llm_calls (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      model TEXT NOT NULL,
+      caller TEXT NOT NULL,
+      email_id TEXT,
+      account_id TEXT,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_create_tokens INTEGER DEFAULT 0,
+      cost_cents REAL NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      success INTEGER NOT NULL DEFAULT 1,
+      error_message TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_created_at ON llm_calls(created_at);
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_caller ON llm_calls(caller);
+  `);
+
   return db;
 }
 

@@ -185,6 +185,26 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // usage — Claude API cost + call history visibility.
+  real.usage = {
+    getStats: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("usage.getStats", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getCallHistory: async (limit?: number): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("usage.getHistory", { limit });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // network — first lifted namespace. Mirrors the Electron `window.api.network`
   // surface (getStatus / updateStatus / onOnline / onOffline /
   // removeAllListeners) but routes through the sidecar + Tauri events.
