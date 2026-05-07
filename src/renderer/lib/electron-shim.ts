@@ -107,6 +107,84 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // theme — preference persistence in the sidecar; resolved value
+  // (light|dark) computed in the renderer via prefers-color-scheme matchMedia
+  // because only the renderer has the OS color signal. onChange combines
+  // two sources so the API matches the Electron version exactly.
+  type ThemePreference = "light" | "dark" | "system";
+  type ThemeChange = { preference: ThemePreference; resolved: "light" | "dark" };
+  const prefersDarkMql =
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-color-scheme: dark)")
+      : null;
+  const resolveTheme = (preference: ThemePreference): "light" | "dark" => {
+    if (preference !== "system") return preference;
+    return prefersDarkMql?.matches ? "dark" : "light";
+  };
+  const themeListeners: Array<(d: ThemeChange) => void> = [];
+  let themeUnlistenSidecar: (() => void) | null = null;
+  let themeMqlListener: ((e: MediaQueryListEvent) => void) | null = null;
+  let themeCurrentPreference: ThemePreference = "system";
+
+  // Cache the preference; sidecar push events update it.
+  bridge
+    .listen<{ preference: ThemePreference }>("theme:changed", ({ preference }) => {
+      themeCurrentPreference = preference;
+      const data: ThemeChange = { preference, resolved: resolveTheme(preference) };
+      themeListeners.forEach((cb) => cb(data));
+    })
+    .then((un) => {
+      themeUnlistenSidecar = un;
+    });
+
+  // OS theme flip while preference is "system" → fire onChange too.
+  if (prefersDarkMql) {
+    themeMqlListener = () => {
+      if (themeCurrentPreference !== "system") return;
+      const data: ThemeChange = {
+        preference: "system",
+        resolved: resolveTheme("system"),
+      };
+      themeListeners.forEach((cb) => cb(data));
+    };
+    prefersDarkMql.addEventListener("change", themeMqlListener);
+  }
+
+  real.theme = {
+    get: async (): Promise<IpcResponse<ThemeChange>> => {
+      try {
+        const { preference } = (await bridge.call("theme.get", {})) as {
+          preference: ThemePreference;
+        };
+        themeCurrentPreference = preference;
+        return { success: true, data: { preference, resolved: resolveTheme(preference) } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    set: async (theme: ThemePreference): Promise<IpcResponse<{ resolved: "light" | "dark" }>> => {
+      try {
+        const { preference } = (await bridge.call("theme.set", { theme })) as {
+          preference: ThemePreference;
+        };
+        themeCurrentPreference = preference;
+        return { success: true, data: { resolved: resolveTheme(preference) } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onChange: (callback: (data: ThemeChange) => void): void => {
+      themeListeners.push(callback);
+    },
+    removeAllListeners: (): void => {
+      themeListeners.length = 0;
+      // Sidecar + MQL subscriptions are kept alive — they're cheap and the
+      // listener array is the actual fan-out. This matches the Electron
+      // version's behavior of `ipcRenderer.removeAllListeners` clearing
+      // user callbacks but leaving the underlying channel intact.
+    },
+  };
+
   // network — first lifted namespace. Mirrors the Electron `window.api.network`
   // surface (getStatus / updateStatus / onOnline / onOffline /
   // removeAllListeners) but routes through the sidecar + Tauri events.
