@@ -78,9 +78,68 @@ export function registerSyncMethods(): void {
     }
   });
 
-  registerMethod("sync.start", () => ({ ok: true, note: "background sync not implemented in V1" }));
-  registerMethod("sync.stop", () => ({ ok: true }));
-  registerMethod("sync.setInterval", () => ({ ok: true, note: "background sync not implemented in V1" }));
+  // Background sync loop — one timer per accountId. Default 90s.
+  // Runs sync.now in the background; emits the same sync:new-emails /
+  // sync:status-change events as a manual call. timer.unref() so it
+  // doesn't keep the Node event loop alive on its own.
+  const timers = new Map<string, ReturnType<typeof setInterval>>();
+  let intervalMs = 90_000;
+
+  function startTimer(accountId: string): void {
+    if (timers.has(accountId)) return;
+    const tick = async () => {
+      emit("sync:status-change", { accountId, status: "syncing" });
+      try {
+        const result = await syncAccountNow(accountId);
+        emit("sync:status-change", { accountId, status: "idle" });
+        if (result.newEmails.length > 0) {
+          emit("sync:new-emails", { accountId, emails: result.newEmails });
+        }
+      } catch {
+        emit("sync:status-change", { accountId, status: "error" });
+      }
+    };
+    const handle = setInterval(() => {
+      void tick();
+    }, intervalMs);
+    if (typeof handle.unref === "function") handle.unref();
+    timers.set(accountId, handle);
+  }
+
+  function stopTimer(accountId: string): void {
+    const handle = timers.get(accountId);
+    if (!handle) return;
+    clearInterval(handle);
+    timers.delete(accountId);
+  }
+
+  registerMethod("sync.start", (params) => {
+    const { accountId } = (params as { accountId?: string }) ?? {};
+    if (!accountId) throw new Error("sync.start: requires { accountId }");
+    startTimer(accountId);
+    return { ok: true, intervalMs };
+  });
+
+  registerMethod("sync.stop", (params) => {
+    const { accountId } = (params as { accountId?: string }) ?? {};
+    if (!accountId) throw new Error("sync.stop: requires { accountId }");
+    stopTimer(accountId);
+    return { ok: true };
+  });
+
+  registerMethod("sync.setInterval", (params) => {
+    const next = (params as { intervalMs?: number })?.intervalMs;
+    if (typeof next === "number" && next >= 5_000 && next <= 3_600_000) {
+      intervalMs = next;
+      // Re-arm any active timers with the new cadence.
+      const ids = [...timers.keys()];
+      for (const id of ids) {
+        stopTimer(id);
+        startTimer(id);
+      }
+    }
+    return { ok: true, intervalMs };
+  });
 
   registerMethod("sync.status", (params) => {
     const { accountId } = (params as { accountId?: string }) ?? {};
