@@ -27,6 +27,7 @@ import { registerImapMethods } from "./methods/imap.js";
 import { registerSyncMethods } from "./methods/sync.js";
 import { registerComposeMethods } from "./methods/compose.js";
 import { registerEmailsMethods } from "./methods/emails.js";
+import { registerAnalysisMethods } from "./methods/analysis.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -53,6 +54,7 @@ registerImapMethods();
 registerSyncMethods();
 registerComposeMethods();
 registerEmailsMethods();
+registerAnalysisMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

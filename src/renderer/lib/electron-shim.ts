@@ -357,6 +357,47 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // analysis — Claude-powered triage. Each call hits the Anthropic API
+  // through the lifted anthropic-service. Renderer triggers analysis on
+  // each new email; result lands in the analyses table and bubbles up
+  // to the priority badge.
+  real.analysis = {
+    analyze: async (emailId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("analysis.analyze", { emailId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    analyzeBatch: async (emailIds: string[]): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("analysis.analyzeBatch", { emailIds });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    overridePriority: async (
+      emailId: string,
+      newNeedsReply: boolean,
+      newPriority: string | null,
+      reason?: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("analysis.overridePriority", {
+          emailId,
+          newNeedsReply,
+          newPriority,
+          reason,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // emails — inbox management verbs (archive, trash, star, read).
   // For IMAP these proxy through the sidecar to flag/move on the
   // server, then update the local store. Gmail provider paths in
