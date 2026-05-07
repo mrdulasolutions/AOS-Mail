@@ -2,6 +2,7 @@ import { memo, useMemo, useEffect, useRef } from "react";
 import { useAppStore } from "../store";
 import { useExtensionPanels, ExtensionPanelSlot } from "../extensions";
 import { AgentTabContent } from "./AgentPanel";
+import { V1AgentPanel } from "./V1AgentPanel";
 import type { ScopedAgentEvent } from "../../shared/agent-types";
 
 // SVG icon components for sidebar tabs
@@ -87,6 +88,7 @@ const TAB_LABELS: Record<SidebarTab, string> = {
 // are always wasted work — especially expensive when EventTimeline has hundreds of events.
 export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
   const emails = useAppStore((s) => s.emails);
+  const currentAccountId = useAppStore((s) => s.currentAccountId);
   const selectedEmailId = useAppStore((s) => s.selectedEmailId);
   const selectedDraftId = useAppStore((s) => s.selectedDraftId);
   const focusedThreadEmailId = useAppStore((s) => s.focusedThreadEmailId);
@@ -367,29 +369,37 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
         </div>
       )}
 
-      {/* Agent tab content — kept mounted with FROZEN emailId when hidden.
-         When j/k changes selectedEmailId, displayAgentKey stays the same so React
-         sees identical props → skips reconciliation of 1000+ EventTimeline nodes.
-         Without this, the DOM teardown blocks the main thread for ~1s. */}
-      {displayAgentKey && (
-        <div
-          className="flex-1 flex flex-col overflow-hidden"
-          style={{ display: sidebarTab === "agent" ? undefined : "none" }}
-        >
-          {displayHasAgentTask ? (
-            <AgentTabContent emailId={displayAgentKey} />
-          ) : displayHasPersistedTrace ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-sm text-gray-400 dark:text-gray-500">
-                <div className="animate-spin w-5 h-5 border-2 border-gray-300 dark:border-gray-600 border-t-purple-500 rounded-full mx-auto mb-2" />
-                Loading agent trace…
-              </div>
+      {/* Agent tab content.
+         Two surfaces co-exist:
+           V2 path (when an agent task is live or has a persisted trace) →
+             AgentTabContent renders the streaming Claude-Agent-SDK trace.
+             Kept mounted with a FROZEN emailId when hidden so j/k navigation
+             doesn't tear down 1000+ EventTimeline nodes between switches.
+           V1 path (default) →
+             V1AgentPanel — triage/draft/sender for the selected email,
+             reading off email.analysis + email.draft (joined in sync.getEmails).
+             Renders even when displayAgentKey is null because V1 has nothing
+             to freeze; the panel just shows the empty-selection state. */}
+      <div
+        className="flex-1 flex flex-col overflow-hidden"
+        style={{ display: sidebarTab === "agent" ? undefined : "none" }}
+      >
+        {displayAgentKey && displayHasAgentTask ? (
+          <AgentTabContent emailId={displayAgentKey} />
+        ) : displayAgentKey && displayHasPersistedTrace ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-sm text-gray-400 dark:text-gray-500">
+              <div className="animate-spin w-5 h-5 border-2 border-gray-300 dark:border-gray-600 border-t-purple-500 rounded-full mx-auto mb-2" />
+              Loading agent trace…
             </div>
-          ) : (
-            <AgentTabContent emailId={displayAgentKey} />
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <V1AgentPanel
+            email={contextEmail || latestEmail || null}
+            accountId={currentAccountId}
+          />
+        )}
+      </div>
 
       {/* Sender / email panels */}
       <div
