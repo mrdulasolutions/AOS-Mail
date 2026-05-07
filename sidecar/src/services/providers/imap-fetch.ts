@@ -10,6 +10,7 @@
 // Headers map directly to the emails-table shape the renderer reads.
 
 import { ImapFlow, type FetchMessageObject } from "imapflow";
+import { simpleParser } from "mailparser";
 import { openImapClient } from "./imap.js";
 
 export interface ImapMessageHeader {
@@ -168,13 +169,31 @@ export async function getImapMessageFull(
       const flags = msg.flags as Set<string> | undefined;
       const isUnread = !flags?.has("\\Seen");
       const isStarred = !!flags?.has("\\Flagged");
-      const source = msg.source instanceof Buffer ? msg.source.toString("utf8") : "";
+      const source = msg.source instanceof Buffer ? msg.source : Buffer.alloc(0);
       const dateIso =
         env.date instanceof Date
           ? env.date.toISOString()
           : msg.internalDate instanceof Date
             ? msg.internalDate.toISOString()
             : new Date().toISOString();
+
+      // Parse the RFC 822 source so the renderer gets a real HTML / text
+      // body instead of raw mail-headers + base64 mime parts.
+      // simpleParser handles MIME multipart, transfer-encoding, charset
+      // conversion, inline images (we ignore for V1), attachments, etc.
+      let bodyHtml = "";
+      let bodyText: string | null = null;
+      try {
+        const parsed = await simpleParser(source);
+        bodyHtml =
+          (parsed.html as string | false) ||
+          (parsed.textAsHtml ? String(parsed.textAsHtml) : "") ||
+          "";
+        bodyText = parsed.text ? parsed.text : null;
+      } catch {
+        // Fall through with empty body — better than crashing the open.
+      }
+
       return {
         id: makeId(accountId, folder, uid),
         uid,
@@ -185,13 +204,13 @@ export async function getImapMessageFull(
         cc: formatAddressList(env.cc) || null,
         bcc: formatAddressList(env.bcc) || null,
         date: dateIso,
-        snippet: shortSnippet(env.subject ?? "", 200),
+        snippet: shortSnippet(bodyText ?? env.subject ?? "", 200),
         isUnread,
         isStarred,
         messageId: env.messageId ?? null,
         inReplyTo: env.inReplyTo ?? null,
-        body: source,
-        bodyText: null, // mailparser handles this — done lazily by the renderer for now
+        body: bodyHtml,
+        bodyText,
       };
     } finally {
       lock.release();
