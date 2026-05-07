@@ -273,6 +273,90 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // accounts — multi-account management. Mostly DB CRUD; `add` wraps the
+  // gmail OAuth flow.
+  type AccountRecord = {
+    id: string;
+    email: string;
+    displayName?: string;
+    isPrimary: boolean;
+    addedAt: number;
+  };
+  real.accounts = {
+    list: async (): Promise<IpcResponse<AccountRecord[]>> => {
+      try {
+        const data = (await bridge.call("accounts.list", {})) as AccountRecord[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    add: async (_accountId?: string): Promise<IpcResponse<unknown>> => {
+      try {
+        // Sidecar's accounts.add returns immediately with the OAuth URL but
+        // the underlying promise resolves when the user completes auth in
+        // the system browser. Open the URL via Tauri shell so the same
+        // call delivers the same end-to-end behavior the Electron version
+        // had.
+        const { url } = (await bridge.call("accounts.add", {})) as { url: string };
+        if (bridge.isTauri) {
+          const mod = await import("@tauri-apps/plugin-shell");
+          await mod.open(url);
+        } else {
+          window.open(url, "_blank");
+        }
+        const account = await new Promise<unknown>((resolve, reject) => {
+          const cleanups: Array<() => void> = [];
+          const finish = (fn: () => void) => {
+            for (const c of cleanups) c();
+            fn();
+          };
+          bridge
+            .listen("auth:gmail-connected", (payload) => finish(() => resolve(payload)))
+            .then((un) => cleanups.push(un));
+          bridge
+            .listen<{ error: string }>("auth:gmail-failed", (p) =>
+              finish(() => reject(new Error(p.error))),
+            )
+            .then((un) => cleanups.push(un));
+        });
+        return { success: true, data: account };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    remove: async (accountId: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("accounts.remove", { accountId });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setPrimary: async (accountId: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("accounts.setPrimary", { accountId });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    cancelAdd: async (): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("accounts.cancelAdd", {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onAddProgress: (_callback: (data: { phase: string }) => void): (() => void) => {
+      // The Electron version emitted progress phases mid-OAuth ("Authorizing...",
+      // "Connecting account..."). The sidecar OAuth flow is single-step from the
+      // renderer's perspective — it returns when complete. No-op for now.
+      return () => {};
+    },
+  };
+
   // gmail — auth-side methods only (OAuth flow). API ops (fetch, send, etc.)
   // lift later as gmail-client gets ported.
   type AuthSuccess = { accountId: string; email: string; displayName: string | null };
