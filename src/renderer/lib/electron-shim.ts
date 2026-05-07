@@ -357,6 +357,66 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // compose — V1 wraps the sidecar's IMAP/SMTP send. Gmail send
+  // arrives when the gmail-client code lifts.
+  type ComposeSendInput = {
+    accountId: string;
+    from?: string;
+    to: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject: string;
+    bodyText?: string;
+    bodyHtml?: string;
+    threadId?: string;
+    inReplyTo?: string;
+    references?: string;
+    recipientNames?: Record<string, string>;
+    attachments?: Array<{
+      filename: string;
+      path?: string;
+      content?: string;
+      mimeType: string;
+      size?: number;
+    }>;
+  };
+  real.compose = {
+    send: async (options: ComposeSendInput): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call(
+          "compose.send",
+          options as unknown as Record<string, unknown>,
+        );
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    listLocalDrafts: async (): Promise<IpcResponse<unknown[]>> => {
+      try {
+        const result = (await bridge.call("compose.listLocalDrafts", {})) as {
+          success?: boolean;
+          data?: unknown[];
+        };
+        return { success: true, data: Array.isArray(result?.data) ? result.data : [] };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getSendAsAliases: async (
+      _accountId: string,
+    ): Promise<IpcResponse<{ aliases: unknown[] }>> => {
+      try {
+        const data = (await bridge.call("compose.getSendAsAliases", {
+          accountId: _accountId,
+        })) as { aliases: unknown[] };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // sync — V1 surface that lets the renderer's existing initializeSync
   // flow work against the sidecar. Most methods proxy 1:1; status/setInterval/
   // start/stop are accepted-but-no-op for V1 (no background loop yet).
