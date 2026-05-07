@@ -596,6 +596,7 @@ async function prefetchEmailBodies(emailIds: string[]): Promise<void> {
 
 export default function App() {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const [wizardInitialStep, setWizardInitialStep] = useState<"imap" | undefined>(undefined);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [scheduledPanelOpen, setScheduledPanelOpen] = useState(false);
@@ -1313,24 +1314,27 @@ export default function App() {
     return unsub;
   }, [openCompose, setViewMode]);
 
-  // Check auth status on mount
+  // Check auth status on mount.
+  //
+  // The wizard fires only when the user has *no accounts at all*. As soon
+  // as any account is configured — Gmail OAuth or IMAP — we drop into the
+  // main app. Anthropic API key is optional polish (AI features just
+  // degrade gracefully without it); we no longer hard-gate on it.
+  //
+  // Accounts list is the source of truth here. We probe gmail.checkAuth
+  // only to decide what the wizard shows when it does fire (a fresh install
+  // with bundled-but-not-yet-authorized OAuth credentials skips straight
+  // to the OAuth step).
   useEffect(() => {
-    window.api.gmail.checkAuth().then(
-      (
-        result: IpcResponse<{
-          hasCredentials: boolean;
-          hasTokens: boolean;
-          hasAnthropicKey: boolean;
-        }>,
-      ) => {
-        if (result.success) {
-          // Credentials are always bundled at build time — only check API key and tokens
-          setNeedsSetup(!result.data.hasAnthropicKey || !result.data.hasTokens);
-        } else {
-          setNeedsSetup(true);
-        }
-      },
-    );
+    void (async () => {
+      type AccountRow = { id: string; provider?: string };
+      const accountsResult = (await window.api.accounts.list()) as IpcResponse<AccountRow[]>;
+      const hasAnyAccount =
+        accountsResult.success && Array.isArray(accountsResult.data)
+          ? accountsResult.data.length > 0
+          : false;
+      setNeedsSetup(!hasAnyAccount);
+    })();
   }, []);
 
   // Set up navigator.onLine relay and fetch initial network/outbox status
@@ -1549,13 +1553,18 @@ export default function App() {
     );
   }
 
-  // Show setup wizard if needed
+  // Show setup wizard if needed. The initial step lets the empty-state
+  // CTAs land the user directly in the IMAP path or the Gmail OAuth path
+  // without making them click through the credentials form first.
   if (needsSetup) {
-    return <SetupWizard onComplete={handleSetupComplete} />;
+    return (
+      <SetupWizard onComplete={handleSetupComplete} initialStep={wizardInitialStep} />
+    );
   }
 
   // Skipped setup with no accounts yet → show a friendly empty state instead
-  // of the chrome with a blank inbox. User can re-enter setup whenever.
+  // of the chrome with a blank inbox. User can connect Gmail OAuth, drop
+  // straight into the IMAP form, or just open Settings.
   if (accounts.length === 0) {
     return (
       <div className="h-screen flex flex-col bg-aos-bg-soft">
@@ -1594,15 +1603,27 @@ export default function App() {
               Connect an inbox
             </h2>
             <p className="text-aos-text-soft text-sm leading-relaxed mb-6">
-              AOS Mail handles triage, summaries, and drafts in your voice — once it has access
-              to a mailbox. Connect Gmail to get started.
+              AOS Mail handles triage, summaries, and drafts in your voice — once it has
+              access to a mailbox. Pick a provider:
             </p>
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => setNeedsSetup(true)}
+                onClick={() => {
+                  setWizardInitialStep(undefined);
+                  setNeedsSetup(true);
+                }}
                 className="aos-btn-primary py-2.5"
               >
-                Connect Gmail
+                Connect Gmail (OAuth)
+              </button>
+              <button
+                onClick={() => {
+                  setWizardInitialStep("imap");
+                  setNeedsSetup(true);
+                }}
+                className="aos-btn-secondary py-2.5"
+              >
+                Connect IMAP (iCloud, Fastmail, Yahoo, Outlook…)
               </button>
               <button onClick={() => setShowSettings(true)} className="aos-btn-quiet py-2">
                 Adjust settings instead

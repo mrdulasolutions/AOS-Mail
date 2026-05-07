@@ -5,6 +5,10 @@ import { AddImapAccount } from "./AddImapAccount";
 
 interface SetupWizardProps {
   onComplete: () => void;
+  /** If supplied, the wizard skips the loading probe and lands directly
+   *  on this step. Used by the empty-state CTAs to deep-link the user
+   *  into the IMAP path without forcing a Gmail credential entry first. */
+  initialStep?: "imap";
 }
 
 type Step =
@@ -23,8 +27,8 @@ interface ExtensionAuthInfo {
   authType: "extension" | "agent";
 }
 
-export function SetupWizard({ onComplete }: SetupWizardProps) {
-  const [step, setStep] = useState<Step>("loading");
+export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
+  const [step, setStep] = useState<Step>(initialStep ?? "loading");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -46,7 +50,15 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
 
   // Check what's already configured and skip to the right step.
+  // If `initialStep` was passed (e.g. "imap" from the empty-state CTA),
+  // we still compute the visible-step indicator but don't override the
+  // initial render position.
   useEffect(() => {
+    if (initialStep) {
+      // IMAP path is single-screen; the step indicator stays hidden.
+      setVisibleSteps([]);
+      return;
+    }
     (
       window.api.gmail.checkAuth() as Promise<
         IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasAnthropicKey: boolean }>
