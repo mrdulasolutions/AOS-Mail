@@ -1542,8 +1542,9 @@ export default function App() {
   // Show loading while checking auth
   if (needsSetup === null) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+      <div className="h-screen flex flex-col items-center justify-center bg-aos-bg-soft gap-3">
+        <div className="aos-spinner aos-spinner-lg" />
+        <p className="text-sm text-aos-text-muted">Starting AOS Mail…</p>
       </div>
     );
   }
@@ -1551,6 +1552,74 @@ export default function App() {
   // Show setup wizard if needed
   if (needsSetup) {
     return <SetupWizard onComplete={handleSetupComplete} />;
+  }
+
+  // Skipped setup with no accounts yet → show a friendly empty state instead
+  // of the chrome with a blank inbox. User can re-enter setup whenever.
+  if (accounts.length === 0) {
+    return (
+      <div className="h-screen flex flex-col bg-aos-bg-soft">
+        <div className="titlebar-drag h-12 bg-white border-b border-aos-line flex items-center px-4">
+          <div className="w-20" />
+          <h1 className="text-lg font-semibold text-aos-text">AOS Mail</h1>
+          <div className="ml-auto titlebar-no-drag">
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="aos-btn-quiet"
+              aria-label="Open settings"
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
+          <div className="aos-card aos-fade-in max-w-md w-full p-10 text-center">
+            <div className="mx-auto w-12 h-12 rounded-aos-lg bg-aos-bg-sunk flex items-center justify-center mb-5">
+              <svg
+                className="w-6 h-6 text-aos-text-soft"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="1.75"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-xl font-semibold text-aos-text mb-2 tracking-tight">
+              Connect an inbox
+            </h2>
+            <p className="text-aos-text-soft text-sm leading-relaxed mb-6">
+              AOS Mail handles triage, summaries, and drafts in your voice — once it has access
+              to a mailbox. Connect Gmail to get started.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setNeedsSetup(true)}
+                className="aos-btn-primary py-2.5"
+              >
+                Connect Gmail
+              </button>
+              <button onClick={() => setShowSettings(true)} className="aos-btn-quiet py-2">
+                Adjust settings instead
+              </button>
+            </div>
+          </div>
+        </div>
+        {showSettings && (
+          <div className="absolute inset-0 z-50">
+            <SettingsPanel
+              onClose={() => setShowSettings(false)}
+              initialTab={settingsInitialTab}
+            />
+          </div>
+        )}
+      </div>
+    );
   }
 
   // Get current account and its sync status

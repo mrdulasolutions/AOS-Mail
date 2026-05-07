@@ -2,51 +2,281 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom scrollbar styles */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ============================================================
+ * AOS Mail design tokens — day-only by design.
+ * ============================================================ */
+:root {
+  /* Surfaces */
+  --aos-bg: #ffffff;
+  --aos-bg-soft: #fafafa;
+  --aos-bg-sunk: #f4f4f5;
+  --aos-bg-hover: #f4f4f5;
+  /* Lines */
+  --aos-line: #e4e4e7;
+  --aos-line-strong: #d4d4d8;
+  /* Text */
+  --aos-text: #111111;
+  --aos-text-soft: #3f3f46;
+  --aos-text-muted: #71717a;
+  --aos-text-faint: #a1a1aa;
+  /* Brand accent — restrained black */
+  --aos-accent: #111111;
+  --aos-accent-hover: #27272a;
+  /* Semantic */
+  --aos-danger: #dc2626;
+  --aos-danger-soft: #fee2e2;
+  --aos-warning: #f59e0b;
+  --aos-warning-soft: #fef3c7;
+  --aos-success: #16a34a;
+  --aos-success-soft: #dcfcee;
+  --aos-info: #2563eb;
+  /* Spacing scale (matches Tailwind defaults; vars surface them for non-Tailwind contexts) */
+  --aos-radius-sm: 6px;
+  --aos-radius: 10px;
+  --aos-radius-lg: 14px;
+  /* Shadows tuned for white surfaces */
+  --aos-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --aos-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --aos-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 
+/* ============================================================
+ * Base — system font stack, body color, smooth scrolling.
+ * ============================================================ */
+html,
+body {
+  background: var(--aos-bg);
+  color: var(--aos-text);
+  /* Apple's modern system stack — falls through gracefully on older OSes. */
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "SF Pro Display",
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(17, 17, 17, 0.12);
+  color: var(--aos-text);
+}
+
+/* Branded focus ring — visible on keyboard nav, suppressed on mouse click. */
+:focus-visible {
+  outline: 2px solid var(--aos-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus,
+input:focus,
+textarea:focus,
+[role="button"]:focus,
+[contenteditable]:focus {
+  outline: none;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[contenteditable]:focus-visible {
+  outline: 2px solid var(--aos-accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+ * Scrollbars — Mac-native: hidden by default, thin on hover.
+ * Custom scrollable surfaces should add `aos-scroll` for the
+ * always-visible thin variant.
+ * ============================================================ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: transparent;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
-
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: rgba(0, 0, 0, 0.32);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.aos-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  background-clip: padding-box;
+  border: 3px solid transparent;
 }
 
-/* Dark mode scrollbar */
-.dark ::-webkit-scrollbar-thumb {
-  background: #4b5563;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
-}
-
-/* Titlebar drag region */
+/* ============================================================
+ * Titlebar drag regions (Tauri uses the same convention).
+ * ============================================================ */
 .titlebar-drag {
   -webkit-app-region: drag;
 }
-
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
 }
 
-/* Email body styling */
+/* ============================================================
+ * AOS utility classes — reusable patterns the design references.
+ * ============================================================ */
+@layer components {
+  /* Card surface */
+  .aos-card {
+    background: var(--aos-bg);
+    border: 1px solid var(--aos-line);
+    border-radius: var(--aos-radius);
+    box-shadow: var(--aos-shadow-sm);
+  }
+  /* Subtle separator between content blocks */
+  .aos-divider {
+    height: 1px;
+    background: var(--aos-line);
+  }
+  /* Primary action — solid black with subtle hover lift */
+  .aos-btn-primary {
+    background: var(--aos-accent);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: var(--aos-radius);
+    font-weight: 500;
+    font-size: 0.875rem;
+    line-height: 1;
+    border: 1px solid var(--aos-accent);
+    transition:
+      background 120ms ease,
+      transform 80ms ease;
+  }
+  .aos-btn-primary:hover {
+    background: var(--aos-accent-hover);
+  }
+  .aos-btn-primary:active {
+    transform: translateY(1px);
+  }
+  .aos-btn-primary:disabled {
+    background: var(--aos-text-faint);
+    border-color: var(--aos-text-faint);
+    cursor: not-allowed;
+  }
+  /* Secondary action — outline, neutral */
+  .aos-btn-secondary {
+    background: var(--aos-bg);
+    color: var(--aos-text);
+    padding: 0.5rem 1rem;
+    border-radius: var(--aos-radius);
+    font-weight: 500;
+    font-size: 0.875rem;
+    line-height: 1;
+    border: 1px solid var(--aos-line-strong);
+    transition: background 120ms ease;
+  }
+  .aos-btn-secondary:hover {
+    background: var(--aos-bg-soft);
+  }
+  .aos-btn-secondary:active {
+    background: var(--aos-bg-sunk);
+  }
+  /* Quiet button — text-only, low chrome */
+  .aos-btn-quiet {
+    background: transparent;
+    color: var(--aos-text-soft);
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--aos-radius);
+    font-weight: 500;
+    font-size: 0.8125rem;
+    line-height: 1;
+    border: 1px solid transparent;
+    transition: background 120ms ease;
+  }
+  .aos-btn-quiet:hover {
+    background: var(--aos-bg-soft);
+    color: var(--aos-text);
+  }
+  /* Form input — minimal chrome, accent on focus */
+  .aos-input {
+    background: var(--aos-bg);
+    color: var(--aos-text);
+    border: 1px solid var(--aos-line-strong);
+    border-radius: var(--aos-radius);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    width: 100%;
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+  .aos-input::placeholder {
+    color: var(--aos-text-faint);
+  }
+  .aos-input:focus {
+    outline: none;
+    border-color: var(--aos-accent);
+    box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+  }
+  /* Status callouts — semantic backgrounds */
+  .aos-callout-info {
+    background: #eff6ff;
+    border: 1px solid #dbeafe;
+    color: #1e40af;
+    border-radius: var(--aos-radius);
+    padding: 0.75rem 1rem;
+  }
+  .aos-callout-warning {
+    background: var(--aos-warning-soft);
+    border: 1px solid #fde68a;
+    color: #92400e;
+    border-radius: var(--aos-radius);
+    padding: 0.75rem 1rem;
+  }
+  .aos-callout-danger {
+    background: var(--aos-danger-soft);
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: var(--aos-radius);
+    padding: 0.75rem 1rem;
+  }
+  .aos-callout-success {
+    background: var(--aos-success-soft);
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    border-radius: var(--aos-radius);
+    padding: 0.75rem 1rem;
+  }
+}
+
+/* ============================================================
+ * Email body styling.
+ * ============================================================ */
 .email-body {
   word-break: break-word;
 }
 
-/* HTML email body styling */
 .email-html-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: inherit;
+  color: var(--aos-text);
+  line-height: 1.55;
 }
 
 .email-html-body img {
@@ -55,8 +285,10 @@
 }
 
 .email-html-body a {
-  color: #2563eb;
+  color: var(--aos-info);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 .email-html-body a:hover {
@@ -68,25 +300,28 @@
   max-width: 100%;
 }
 
-.email-html-body td, .email-html-body th {
+.email-html-body td,
+.email-html-body th {
   padding: 4px 8px;
 }
 
 .email-html-body blockquote {
-  border-left: 3px solid #d1d5db;
+  border-left: 3px solid var(--aos-line-strong);
   padding-left: 12px;
   margin-left: 0;
-  color: #6b7280;
+  color: var(--aos-text-muted);
 }
 
 .email-html-body pre {
-  background: #f3f4f6;
+  background: var(--aos-bg-sunk);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--aos-radius-sm);
   overflow-x: auto;
 }
 
-.email-html-body h1, .email-html-body h2, .email-html-body h3 {
+.email-html-body h1,
+.email-html-body h2,
+.email-html-body h3 {
   margin-top: 16px;
   margin-bottom: 8px;
   font-weight: 600;
@@ -96,142 +331,193 @@
   margin-bottom: 8px;
 }
 
-.email-html-body ul, .email-html-body ol {
+.email-html-body ul,
+.email-html-body ol {
   padding-left: 24px;
   margin-bottom: 8px;
 }
 
-/* Dark mode email body overrides */
-.dark .email-html-body a {
-  color: #60a5fa;
-}
-
-.dark .email-html-body a:hover {
-  color: #93bbfd;
-}
-
-.dark .email-html-body blockquote {
-  border-left-color: #4b5563;
-  color: #9ca3af;
-}
-
-.dark .email-html-body pre {
-  background: #1f2937;
-}
-
-/* TipTap editor (compose) list/formatting styles — Tailwind Preflight resets these */
-.tiptap ul, .tiptap ol {
+/* ============================================================
+ * TipTap (compose) editor — list/formatting styles. Tailwind
+ * Preflight resets these so we add them back.
+ * ============================================================ */
+.tiptap ul,
+.tiptap ol {
   padding-left: 1.5em;
   margin-bottom: 0.5em;
 }
-
-.tiptap ul { list-style-type: disc; }
-.tiptap ol { list-style-type: decimal; }
-
+.tiptap ul {
+  list-style-type: disc;
+}
+.tiptap ol {
+  list-style-type: decimal;
+}
 .tiptap li {
   margin-bottom: 0.15em;
 }
-
 .tiptap li p {
   margin-bottom: 0;
 }
-
 .tiptap blockquote {
-  border-left: 3px solid #d1d5db;
+  border-left: 3px solid var(--aos-line-strong);
   padding-left: 12px;
   margin-left: 0;
-  color: #6b7280;
+  color: var(--aos-text-muted);
 }
 
-.dark .tiptap blockquote {
-  border-left-color: #4b5563;
-  color: #9ca3af;
-}
-
-/* Priority badge colors */
+/* ============================================================
+ * Priority badges — semantic colors only. Drops legacy
+ * blue-for-low and gray-for-skipped in favor of the AOS palette.
+ * ============================================================ */
 .priority-high {
-  @apply bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300;
+  background: var(--aos-danger-soft);
+  color: #991b1b;
 }
-
 .priority-medium {
-  @apply bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300;
+  background: var(--aos-warning-soft);
+  color: #92400e;
 }
-
 .priority-low {
-  @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300;
+  background: var(--aos-bg-sunk);
+  color: var(--aos-text-soft);
 }
-
 .priority-done {
-  @apply bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300;
+  background: var(--aos-success-soft);
+  color: #166534;
 }
-
 .priority-skipped {
-  @apply bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400;
+  background: var(--aos-bg-sunk);
+  color: var(--aos-text-muted);
 }
 
-/* Agent panel markdown styles */
+/* ============================================================
+ * Agent panel markdown styles — keep coherent with email body.
+ * ============================================================ */
 .agent-markdown p {
   margin-bottom: 0.5em;
 }
-
 .agent-markdown p:last-child {
   margin-bottom: 0;
 }
-
-.agent-markdown h1, .agent-markdown h2, .agent-markdown h3 {
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3 {
   font-weight: 600;
   margin-top: 0.75em;
   margin-bottom: 0.25em;
 }
-
-.agent-markdown h1 { font-size: 1.1em; }
-.agent-markdown h2 { font-size: 1.05em; }
-.agent-markdown h3 { font-size: 1em; }
-
-.agent-markdown ul, .agent-markdown ol {
+.agent-markdown h1 {
+  font-size: 1.1em;
+}
+.agent-markdown h2 {
+  font-size: 1.05em;
+}
+.agent-markdown h3 {
+  font-size: 1em;
+}
+.agent-markdown ul,
+.agent-markdown ol {
   padding-left: 1.25em;
   margin-bottom: 0.5em;
 }
-
-.agent-markdown ul { list-style-type: disc; }
-.agent-markdown ol { list-style-type: decimal; }
-
+.agent-markdown ul {
+  list-style-type: disc;
+}
+.agent-markdown ol {
+  list-style-type: decimal;
+}
 .agent-markdown li {
   margin-bottom: 0.15em;
 }
-
 .agent-markdown code {
-  @apply bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded text-xs font-mono;
+  background: var(--aos-bg-sunk);
+  padding: 0.0625rem 0.25rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-
 .agent-markdown pre {
-  @apply bg-gray-100 dark:bg-gray-900 p-2 rounded text-xs overflow-x-auto my-1;
+  background: var(--aos-bg-sunk);
+  padding: 0.5rem;
+  border-radius: var(--aos-radius-sm);
+  font-size: 0.75rem;
+  overflow-x: auto;
+  margin: 0.25rem 0;
 }
-
 .agent-markdown pre code {
-  @apply bg-transparent p-0;
+  background: transparent;
+  padding: 0;
 }
-
 .agent-markdown blockquote {
-  @apply border-l-2 border-gray-300 dark:border-gray-600 pl-3 my-1 text-gray-600 dark:text-gray-400;
+  border-left: 2px solid var(--aos-line-strong);
+  padding-left: 0.75rem;
+  margin: 0.25rem 0;
+  color: var(--aos-text-muted);
 }
-
 .agent-markdown a {
-  @apply text-blue-600 dark:text-blue-400 underline;
+  color: var(--aos-info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-
 .agent-markdown strong {
-  @apply font-semibold;
+  font-weight: 600;
 }
-
 .agent-markdown table {
-  @apply border-collapse text-xs my-1;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin: 0.25rem 0;
 }
-
-.agent-markdown th, .agent-markdown td {
-  @apply border border-gray-200 dark:border-gray-700 px-2 py-1;
+.agent-markdown th,
+.agent-markdown td {
+  border: 1px solid var(--aos-line);
+  padding: 0.25rem 0.5rem;
 }
-
 .agent-markdown th {
-  @apply bg-gray-50 dark:bg-gray-800 font-medium;
+  background: var(--aos-bg-soft);
+  font-weight: 500;
+}
+
+/* ============================================================
+ * Animations — used by spinners, fade-ins, etc.
+ * ============================================================ */
+@keyframes aos-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.aos-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--aos-line);
+  border-top-color: var(--aos-accent);
+  border-radius: 50%;
+  animation: aos-spin 0.8s linear infinite;
+}
+.aos-spinner-lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+@keyframes aos-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.aos-fade-in {
+  animation: aos-fade-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aos-fade-in {
+    animation: none;
+  }
+  .aos-spinner {
+    animation-duration: 2s;
+  }
 }

@@ -270,36 +270,35 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="max-w-xl w-full bg-white dark:bg-gray-800 rounded-xl shadow-lg dark:shadow-black/40 p-8">
+      <div className="flex-1 flex items-center justify-center px-8 py-12 overflow-auto">
+        <div className="max-w-xl w-full aos-card aos-fade-in p-10">
           {step === "loading" && (
-            <div className="flex justify-center">
-              <div className="w-8 h-8 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin" />
+            <div className="flex flex-col items-center gap-4 py-8">
+              <div className="aos-spinner aos-spinner-lg" />
+              <p className="text-sm text-aos-text-muted">Checking your setup…</p>
             </div>
           )}
 
           {step === "credentials" && (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Google Cloud Credentials
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Google Cloud credentials
               </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                AOS Mail needs Google OAuth credentials to access your Gmail account. You'll need to
-                create a Google Cloud project with the Gmail API enabled.
+              <p className="text-aos-text-soft mb-6 leading-relaxed">
+                AOS Mail needs Google OAuth credentials to access your Gmail. Create a Google
+                Cloud project with the Gmail API enabled, then paste the keys below.
               </p>
 
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
-                  Setup steps:
-                </h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
+              <div className="aos-callout-info mb-6">
+                <h3 className="font-semibold mb-2">Setup steps</h3>
+                <ol className="text-sm space-y-1.5 list-decimal list-inside marker:text-aos-text-muted">
                   <li>
-                    Go to the{" "}
+                    Open the{" "}
                     <a
                       href="https://console.cloud.google.com/apis/credentials"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline hover:no-underline"
+                      className="underline underline-offset-2 hover:no-underline"
                     >
                       Google Cloud Console
                     </a>
@@ -308,7 +307,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                   <li>
                     Enable the <strong>Gmail API</strong> and <strong>Google Calendar API</strong>
                   </li>
-                  <li>Go to Credentials → Create Credentials → OAuth client ID</li>
+                  <li>Credentials → Create Credentials → OAuth client ID</li>
                   <li>
                     Choose <strong>Desktop app</strong> as the application type
                   </li>
@@ -318,19 +317,21 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
               <div className="space-y-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-aos-text mb-1.5">
                     Client ID
                   </label>
                   <input
                     type="text"
                     value={googleClientId}
                     onChange={(e) => setGoogleClientId(e.target.value)}
-                    placeholder="your-client-id.apps.google..."
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="your-client-id.apps.googleusercontent.com"
+                    className="aos-input"
+                    autoComplete="off"
+                    spellCheck="false"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-aos-text mb-1.5">
                     Client Secret
                   </label>
                   <input
@@ -338,50 +339,45 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     value={googleClientSecret}
                     onChange={(e) => setGoogleClientSecret(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSaveCredentials()}
-                    placeholder="your-client-secret"
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="GOCSPX-…"
+                    className="aos-input"
+                    autoComplete="off"
                   />
                 </div>
               </div>
 
-              {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg mb-4">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
-                </div>
-              )}
+              {error && <div className="aos-callout-danger mb-4 text-sm">{error}</div>}
 
               <button
                 onClick={handleSaveCredentials}
                 disabled={isLoading || !googleClientId.trim() || !googleClientSecret.trim()}
-                className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                className="aos-btn-primary w-full py-3"
               >
-                {isLoading ? "Saving..." : "Continue"}
+                {isLoading ? "Saving…" : "Continue"}
               </button>
             </>
           )}
 
           {step === "apikey" && (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Anthropic API Key
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Anthropic API key
               </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                AOS Mail uses Claude to analyze your emails, generate drafts, and look up sender
-                information. You'll need an Anthropic API key to enable these features.
+              <p className="text-aos-text-soft mb-6 leading-relaxed">
+                Claude powers triage, drafts, and sender lookups. Paste an Anthropic API key to
+                turn those features on.
               </p>
 
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
-                  Get your API key:
-                </h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
+              <div className="aos-callout-info mb-6">
+                <h3 className="font-semibold mb-2">Get your API key</h3>
+                <ol className="text-sm space-y-1.5 list-decimal list-inside marker:text-aos-text-muted">
                   <li>
-                    Go to{" "}
+                    Open{" "}
                     <a
                       href="https://console.anthropic.com/settings/keys"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline hover:no-underline"
+                      className="underline underline-offset-2 hover:no-underline"
                     >
                       console.anthropic.com
                     </a>
@@ -393,72 +389,60 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
               <div className="space-y-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    API Key
+                  <label className="block text-sm font-medium text-aos-text mb-1.5">
+                    API key
                   </label>
                   <input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSaveApiKey()}
-                    placeholder="sk-ant-api03-..."
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="sk-ant-api03-…"
+                    className="aos-input"
+                    autoComplete="off"
                   />
                 </div>
               </div>
 
-              {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg mb-4">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
-                </div>
-              )}
+              {error && <div className="aos-callout-danger mb-4 text-sm">{error}</div>}
 
               <button
                 onClick={handleSaveApiKey}
                 disabled={isLoading}
-                className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                className="aos-btn-primary w-full py-3"
               >
-                {isLoading ? "Saving..." : "Continue"}
+                {isLoading ? "Saving…" : "Continue"}
               </button>
             </>
           )}
 
           {step === "oauth" && (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Authorize Gmail Access
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Authorize Gmail
               </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Click the button below to authorize AOS Mail to read your emails and create drafts. A
-                browser window will open for you to sign in with Google.
+              <p className="text-aos-text-soft mb-6 leading-relaxed">
+                A browser window will open so you can sign in with Google. AOS Mail will receive
+                read &amp; modify access to your messages and read access to your calendar.
               </p>
 
-              <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg mb-6">
-                <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                  We&apos;ll request access to view and edit your emails and view your calendar
-                  events.
-                </p>
+              <div className="aos-callout-warning mb-6 text-sm">
+                These scopes are required for triage and reply drafting. You can revoke access
+                anytime from your Google account.
               </div>
 
-              {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg mb-4">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
-                </div>
-              )}
+              {error && <div className="aos-callout-danger mb-4 text-sm">{error}</div>}
 
               <button
                 onClick={handleStartOAuth}
                 disabled={isLoading}
-                className="w-full py-3 bg-green-600 dark:bg-green-500 text-white font-medium rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors disabled:opacity-50"
+                className="aos-btn-primary w-full py-3"
               >
-                {isLoading ? "Authorizing..." : "Authorize with Google"}
+                {isLoading ? "Authorizing…" : "Authorize with Google"}
               </button>
 
               {isLoading && (
-                <button
-                  onClick={handleCancelOAuth}
-                  className="w-full mt-2 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
-                >
+                <button onClick={handleCancelOAuth} className="aos-btn-quiet w-full mt-2 py-2">
                   Cancel
                 </button>
               )}
@@ -467,46 +451,44 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
           {step === "extensions" && (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Connect Services
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Connect services
               </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Some extensions need authentication to enrich your emails. You can connect them now
-                or later.
+              <p className="text-aos-text-soft mb-6 leading-relaxed">
+                Some extensions enrich your emails with extra context. Connect them now or skip —
+                you can hook them up later from Settings.
               </p>
 
-              <div className="space-y-3 mb-6">
+              <div className="space-y-2 mb-6">
                 {extensionAuths.map((ext) => (
                   <div
                     key={ext.extensionId}
-                    className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg"
+                    className="flex items-center justify-between px-4 py-3 border border-aos-line rounded-aos bg-white"
                   >
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
-                      {ext.displayName}
-                    </span>
+                    <span className="font-medium text-aos-text">{ext.displayName}</span>
                     {ext.needsAuth ? (
                       <button
                         onClick={() => handleExtensionAuth(ext.extensionId, ext.authType)}
                         disabled={authenticatingExtension !== null}
-                        className="px-4 py-1.5 text-sm bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                        className="aos-btn-secondary"
                       >
                         {authenticatingExtension === ext.extensionId ? (
                           <span className="flex items-center gap-2">
-                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            Connecting...
+                            <span className="aos-spinner" style={{ width: 14, height: 14 }} />
+                            Connecting…
                           </span>
                         ) : (
-                          "Login"
+                          "Connect"
                         )}
                       </button>
                     ) : (
-                      <span className="text-green-600 dark:text-green-400 flex items-center gap-1.5">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-aos-success">
                         <svg
-                          className="w-5 h-5"
+                          className="w-4 h-4"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
-                          strokeWidth={2}
+                          strokeWidth={2.5}
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
@@ -517,16 +499,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 ))}
               </div>
 
-              {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg mb-4">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
-                </div>
-              )}
+              {error && <div className="aos-callout-danger mb-4 text-sm">{error}</div>}
 
               <button
                 onClick={() => setStep("analytics")}
                 disabled={authenticatingExtension !== null}
-                className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                className="aos-btn-primary w-full py-3"
               >
                 Continue
               </button>
@@ -535,22 +513,20 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
           {step === "analytics" && (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Help Improve AOS Mail
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Help improve AOS Mail
               </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                We collect usage data and error reports to improve the app. No email content is ever
-                sent — only app interactions and crash diagnostics. Your email address is sent so we
-                can identify you in error reports. You can change this anytime in Settings.
+              <p className="text-aos-text-soft mb-6 leading-relaxed">
+                Optional: send anonymized usage data and crash reports so we can spot real
+                problems. <strong>No email content is ever sent.</strong> Toggle anytime from
+                Settings.
               </p>
 
-              <label className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg cursor-pointer mb-6">
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-gray-100">
-                    Usage Analytics
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Crash reports, app usage data, and session recordings for debugging
+              <label className="flex items-center justify-between p-4 border border-aos-line rounded-aos bg-white cursor-pointer mb-6">
+                <div className="pr-4">
+                  <div className="font-medium text-aos-text">Usage analytics</div>
+                  <div className="text-sm text-aos-text-muted mt-0.5">
+                    App interactions, crash diagnostics, session recordings for debugging.
                   </div>
                 </div>
                 <div
@@ -558,9 +534,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                   aria-checked={analyticsEnabled}
                   onClick={() => setAnalyticsEnabled(!analyticsEnabled)}
                   className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                    analyticsEnabled
-                      ? "bg-blue-600 dark:bg-blue-500"
-                      : "bg-gray-300 dark:bg-gray-600"
+                    analyticsEnabled ? "bg-aos-text" : "bg-aos-line-strong"
                   }`}
                 >
                   <span
@@ -575,15 +549,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 onClick={async () => {
                   setIsLoading(true);
                   try {
-                    // Session replay is bundled with analytics — both on or both off
                     const result = (await window.api.settings.set({
                       posthog: { enabled: analyticsEnabled, sessionReplay: analyticsEnabled },
                     })) as IpcResponse<void>;
                     if (!result.success) {
                       console.error("[SetupWizard] Failed to save analytics config");
-                      // Analytics save failure is non-critical — still complete wizard
                     }
-                    // Only reconfigure if save succeeded — prevents runtime/persisted state divergence
                     const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
                     const host = import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com";
                     if (apiKey && result.success) {
@@ -600,24 +571,27 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                   }
                 }}
                 disabled={isLoading}
-                className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                className="aos-btn-primary w-full py-3"
               >
-                Get Started
+                {isLoading ? "Finishing…" : "Get started"}
               </button>
             </>
           )}
 
           {/* Step indicator — only shows steps the user will actually visit */}
           {step !== "loading" && visibleSteps.length > 0 && (
-            <div className="flex justify-center gap-2 mt-6">
+            <div className="flex justify-center gap-1.5 mt-8">
               {visibleSteps.map((s, i) => (
                 <div
                   key={s}
-                  className={`w-2 h-2 rounded-full transition-colors ${
-                    i <= currentStepIndex
-                      ? "bg-blue-600 dark:bg-blue-400"
-                      : "bg-gray-300 dark:bg-gray-600"
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === currentStepIndex
+                      ? "bg-aos-text w-6"
+                      : i < currentStepIndex
+                        ? "bg-aos-text-soft w-1.5"
+                        : "bg-aos-line-strong w-1.5"
                   }`}
+                  aria-hidden="true"
                 />
               ))}
             </div>
