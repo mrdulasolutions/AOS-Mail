@@ -464,6 +464,34 @@ export interface DashboardEmailRow {
   isUnread: boolean;
   messageId: string | null;
   inReplyTo: string | null;
+  /**
+   * Joined from `analyses` table when present. The renderer's EmailRow
+   * uses this to render priority badges; without it the emails sit on
+   * the inbox with no triage labels even after analysis.analyzeBatch
+   * has finished writing rows.
+   */
+  analysis?: {
+    needsReply: boolean;
+    reason: string;
+    priority?: "high" | "medium" | "low" | "skip";
+    analyzedAt: number;
+  };
+  /**
+   * Joined from `drafts` table when present. The renderer uses this to
+   * render the "draft ready" pill on the row + the prefilled body in
+   * the composer when the user opens the thread.
+   */
+  draft?: {
+    body: string;
+    to?: string[];
+    cc?: string[];
+    bcc?: string[];
+    gmailDraftId?: string;
+    status: "pending" | "created" | "edited";
+    createdAt: number;
+    composeMode?: "reply" | "reply-all" | "forward";
+    agentTaskId?: string;
+  };
 }
 
 interface RawEmailRow {
@@ -481,6 +509,37 @@ interface RawEmailRow {
   label_ids: string | null;
   message_id: string | null;
   in_reply_to: string | null;
+  // Joined columns — present when the SELECT in getEmailsForAccount LEFT
+  // JOINs analyses + drafts. fetchBodyForEmail's narrower SELECT omits
+  // these and the row mapper safely treats them as missing.
+  a_needs_reply?: number | null;
+  a_reason?: string | null;
+  a_priority?: string | null;
+  a_analyzed_at?: number | null;
+  d_draft_body?: string | null;
+  d_gmail_draft_id?: string | null;
+  d_status?: string | null;
+  d_created_at?: number | null;
+  d_agent_task_id?: string | null;
+  d_cc?: string | null;
+  d_bcc?: string | null;
+  d_compose_mode?: string | null;
+  d_to_recipients?: string | null;
+}
+
+function parseStringArrayOrNull(raw: string | null | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as string[]) : undefined;
+  } catch {
+    // Plain comma-separated fallback — older drafts table writes used
+    // this format before the JSON convention landed.
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
 }
 
 function rowToDashboard(r: RawEmailRow): DashboardEmailRow {
@@ -490,7 +549,8 @@ function rowToDashboard(r: RawEmailRow): DashboardEmailRow {
   } catch {
     labels = [];
   }
-  return {
+
+  const out: DashboardEmailRow = {
     id: r.id,
     threadId: r.thread_id,
     accountId: r.account_id,
@@ -503,10 +563,65 @@ function rowToDashboard(r: RawEmailRow): DashboardEmailRow {
     snippet: r.snippet,
     body: r.body || null,
     labelIds: r.label_ids,
-    isUnread: !labels.includes("READ"),
+    // UNREAD source-of-truth for Gmail-style label sets, falling back to
+    // the IMAP-era "READ-when-present" convention. Both providers populate
+    // label_ids; UNREAD is what Gmail's modify API toggles, READ is what
+    // the IMAP path inserts when \Seen is set on the server.
+    isUnread: labels.includes("UNREAD") || (!labels.includes("READ") && !labels.includes("UNREAD")),
     messageId: r.message_id,
     inReplyTo: r.in_reply_to,
   };
+
+  // The IMAP path's "READ" label is stored in label_ids; if neither READ
+  // nor UNREAD is present we fall back to "unread = true" so first-fetch
+  // rows (no flag info yet) show as bold in the inbox. This matches what
+  // listImapMessageHeaders sets via flags?.has("\\Seen").
+  if (labels.includes("READ")) out.isUnread = false;
+  if (labels.includes("UNREAD")) out.isUnread = true;
+
+  // Joined analysis row.
+  if (
+    r.a_needs_reply !== undefined &&
+    r.a_needs_reply !== null &&
+    r.a_analyzed_at !== undefined &&
+    r.a_analyzed_at !== null
+  ) {
+    const priority = r.a_priority ?? undefined;
+    out.analysis = {
+      needsReply: r.a_needs_reply === 1,
+      reason: r.a_reason ?? "",
+      priority:
+        priority === "high" || priority === "medium" || priority === "low" || priority === "skip"
+          ? priority
+          : undefined,
+      analyzedAt: r.a_analyzed_at,
+    };
+  }
+
+  // Joined draft row.
+  if (r.d_draft_body !== undefined && r.d_draft_body !== null) {
+    const status =
+      r.d_status === "created" || r.d_status === "edited" ? r.d_status : "pending";
+    const composeMode =
+      r.d_compose_mode === "reply" ||
+      r.d_compose_mode === "reply-all" ||
+      r.d_compose_mode === "forward"
+        ? r.d_compose_mode
+        : undefined;
+    out.draft = {
+      body: r.d_draft_body,
+      to: parseStringArrayOrNull(r.d_to_recipients),
+      cc: parseStringArrayOrNull(r.d_cc),
+      bcc: parseStringArrayOrNull(r.d_bcc),
+      gmailDraftId: r.d_gmail_draft_id ?? undefined,
+      status,
+      createdAt: r.d_created_at ?? Date.now(),
+      composeMode,
+      agentTaskId: r.d_agent_task_id ?? undefined,
+    };
+  }
+
+  return out;
 }
 
 /**
@@ -579,21 +694,82 @@ export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmail
   }
 }
 
-export function getEmailsForAccount(accountId: string, opts: { sent?: boolean } = {}): DashboardEmailRow[] {
+/**
+ * Same SELECT shape as getEmailsForAccount — analysis + draft joined —
+ * but for a single thread. Used by emails.getThread when the renderer
+ * opens a conversation. Sorted oldest-first to match the conversation
+ * UI's render order.
+ */
+export function getEmailsForThread(
+  threadId: string,
+  accountId: string,
+): DashboardEmailRow[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT e.id, e.thread_id, e.account_id, e.subject,
+              e.from_address, e.to_address, e.cc_address, e.bcc_address,
+              e.date, e.snippet, e.body, e.label_ids,
+              e.message_id, e.in_reply_to,
+              a.needs_reply  AS a_needs_reply,
+              a.reason       AS a_reason,
+              a.priority     AS a_priority,
+              a.analyzed_at  AS a_analyzed_at,
+              d.draft_body     AS d_draft_body,
+              d.gmail_draft_id AS d_gmail_draft_id,
+              d.status         AS d_status,
+              d.created_at     AS d_created_at,
+              d.agent_task_id  AS d_agent_task_id,
+              d.cc             AS d_cc,
+              d.bcc            AS d_bcc,
+              d.compose_mode   AS d_compose_mode,
+              d.to_recipients  AS d_to_recipients
+       FROM emails e
+       LEFT JOIN analyses a ON a.email_id = e.id
+       LEFT JOIN drafts   d ON d.email_id = e.id
+       WHERE e.thread_id = ? AND e.account_id = ?
+       ORDER BY e.date ASC`,
+    )
+    .all(threadId, accountId) as RawEmailRow[];
+  return rows.map(rowToDashboard);
+}
+
+export function getEmailsForAccount(
+  accountId: string,
+  opts: { sent?: boolean } = {},
+): DashboardEmailRow[] {
   // V1 doesn't track sent vs inbox separately — IMAP path stores INBOX
   // only. When the user actually sends, we'll insert with a SENT label.
   const where = opts.sent
-    ? "account_id = ? AND label_ids LIKE '%SENT%'"
-    : "account_id = ? AND (label_ids LIKE '%INBOX%' OR label_ids IS NULL)";
+    ? "e.account_id = ? AND e.label_ids LIKE '%SENT%'"
+    : "e.account_id = ? AND (e.label_ids LIKE '%INBOX%' OR e.label_ids IS NULL)";
+  // LEFT JOIN analyses + drafts so the renderer's EmailRow can render the
+  // priority badge + draft pill on the first paint. Without this join the
+  // renderer paints empty rows even when the DB has analyses, because no
+  // separate analysis.list call ever fires at boot.
   const rows = getDb()
     .prepare(
-      `SELECT id, thread_id, account_id, subject,
-              from_address, to_address, cc_address, bcc_address,
-              date, snippet, body, label_ids,
-              message_id, in_reply_to
-       FROM emails
+      `SELECT e.id, e.thread_id, e.account_id, e.subject,
+              e.from_address, e.to_address, e.cc_address, e.bcc_address,
+              e.date, e.snippet, e.body, e.label_ids,
+              e.message_id, e.in_reply_to,
+              a.needs_reply  AS a_needs_reply,
+              a.reason       AS a_reason,
+              a.priority     AS a_priority,
+              a.analyzed_at  AS a_analyzed_at,
+              d.draft_body     AS d_draft_body,
+              d.gmail_draft_id AS d_gmail_draft_id,
+              d.status         AS d_status,
+              d.created_at     AS d_created_at,
+              d.agent_task_id  AS d_agent_task_id,
+              d.cc             AS d_cc,
+              d.bcc            AS d_bcc,
+              d.compose_mode   AS d_compose_mode,
+              d.to_recipients  AS d_to_recipients
+       FROM emails e
+       LEFT JOIN analyses a ON a.email_id = e.id
+       LEFT JOIN drafts   d ON d.email_id = e.id
        WHERE ${where}
-       ORDER BY date DESC
+       ORDER BY e.date DESC
        LIMIT 500`,
     )
     .all(accountId) as RawEmailRow[];

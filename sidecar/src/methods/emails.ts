@@ -19,6 +19,7 @@ import {
   setStarredGmail,
   trashMessageGmail,
 } from "../services/providers/gmail-actions.js";
+import { getEmailsForThread } from "../services/sync.js";
 import { getDb } from "../db/index.js";
 
 interface EmailRow {
@@ -169,57 +170,9 @@ export function registerEmailsMethods(): void {
     if (!threadId || !accountId) {
       throw new Error("emails.getThread: requires { threadId, accountId }");
     }
-    type Row = {
-      id: string;
-      thread_id: string;
-      account_id: string;
-      subject: string;
-      from_address: string;
-      to_address: string;
-      cc_address: string | null;
-      bcc_address: string | null;
-      date: string;
-      snippet: string | null;
-      body: string;
-      label_ids: string | null;
-      message_id: string | null;
-      in_reply_to: string | null;
-    };
-    const rows = getDb()
-      .prepare(
-        `SELECT id, thread_id, account_id, subject,
-                from_address, to_address, cc_address, bcc_address,
-                date, snippet, body, label_ids,
-                message_id, in_reply_to
-         FROM emails
-         WHERE thread_id = ? AND account_id = ?
-         ORDER BY date ASC`,
-      )
-      .all(threadId, accountId) as Row[];
-    return rows.map((r) => {
-      let labels: string[] = [];
-      try {
-        labels = r.label_ids ? (JSON.parse(r.label_ids) as string[]) : [];
-      } catch {
-        labels = [];
-      }
-      return {
-        id: r.id,
-        threadId: r.thread_id,
-        accountId: r.account_id,
-        subject: r.subject,
-        from: r.from_address,
-        to: r.to_address,
-        cc: r.cc_address,
-        bcc: r.bcc_address,
-        date: r.date,
-        snippet: r.snippet,
-        body: r.body || null,
-        labelIds: r.label_ids,
-        isUnread: !labels.includes("READ"),
-        messageId: r.message_id,
-        inReplyTo: r.in_reply_to,
-      };
-    });
+    // Joined shape matches getEmailsForAccount so the renderer's row
+    // mapper sees the analysis + draft fields. Anything that walks a
+    // thread (reply context, summary panel, etc.) gets full data.
+    return getEmailsForThread(threadId, accountId);
   });
 }
