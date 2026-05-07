@@ -21,6 +21,12 @@
 //
 // Lazy imports keep non-Tauri builds from pulling in @tauri-apps/api code.
 
+import type {
+  SidecarMethodName,
+  SidecarMethodParams,
+  SidecarMethodResult,
+} from "../../shared/sidecar-contract";
+
 type JSONValue =
   | null
   | string
@@ -59,14 +65,34 @@ async function loadListen(): Promise<Listen | null> {
   return listenImpl;
 }
 
+/**
+ * Two overloads:
+ *   - Method names listed in SidecarMethods are typed end-to-end. The
+ *     params and result types come from the contract.
+ *   - Anything else falls through to the loose form (string method name,
+ *     `Record<string, unknown>` params, `JSONValue` result) so callers
+ *     that haven't migrated to the contract keep compiling.
+ */
+export async function call<K extends SidecarMethodName>(
+  method: K,
+  params: SidecarMethodParams<K> extends void
+    ? Record<string, never> | undefined
+    : SidecarMethodParams<K>,
+): Promise<SidecarMethodResult<K>>;
 export async function call<T = JSONValue>(
   method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
+  params?: Record<string, unknown>,
+): Promise<T>;
+export async function call(
+  method: string,
+  params: unknown = {},
+): Promise<unknown> {
   const invoke = await loadInvoke();
   if (invoke) {
-    const result = await invoke("sidecar_request", { method, params });
-    return result as T;
+    return await invoke("sidecar_request", {
+      method,
+      params: (params ?? {}) as Record<string, unknown>,
+    });
   }
   throw new Error(
     `bridge.call(${method}) — not running under Tauri and no Electron shim registered`,

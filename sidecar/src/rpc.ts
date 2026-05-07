@@ -10,6 +10,18 @@
 // Designed for the Tauri shell's request/response pattern plus push-style
 // updates. Callers use `registerMethod` for handlers, `emit(channel, payload)`
 // for notifications.
+//
+// `registerMethod` is overloaded against SidecarMethods (the shared contract
+// in src/shared/sidecar-contract.ts). Methods listed there get a typed
+// handler signature; anything else falls through to the loose `Json -> Json`
+// form. New methods should be added to the contract first, so the renderer's
+// bridge.call sites stay typed end-to-end.
+
+import type {
+  SidecarMethodName,
+  SidecarMethodParams,
+  SidecarMethodResult,
+} from "../../src/shared/sidecar-contract.js";
 
 type Json = unknown;
 
@@ -37,6 +49,18 @@ type Handler = (params: Json) => Promise<Json> | Json;
 
 const methods = new Map<string, Handler>();
 
+// Typed overload: methods listed in SidecarMethods get a signature pinned
+// to the contract — handler must accept the contract's params type and
+// return the contract's result type. Anything else falls through to the
+// loose Handler form so methods that haven't been added to the contract
+// keep working.
+export function registerMethod<K extends SidecarMethodName>(
+  name: K,
+  handler: (
+    params: SidecarMethodParams<K>,
+  ) => SidecarMethodResult<K> | Promise<SidecarMethodResult<K>>,
+): void;
+export function registerMethod(name: string, handler: Handler): void;
 export function registerMethod(name: string, handler: Handler): void {
   if (methods.has(name)) {
     throw new Error(`RPC method already registered: ${name}`);

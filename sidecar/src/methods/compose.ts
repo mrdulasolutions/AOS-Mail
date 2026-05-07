@@ -11,6 +11,7 @@ import { registerMethod, emit } from "../rpc.js";
 import { sendViaSmtp, type SendInput } from "../services/providers/smtp-send.js";
 import { sendViaGmail } from "../services/providers/gmail-send.js";
 import { getDb } from "../db/index.js";
+import type { LocalDraft } from "../../../src/shared/types.js";
 
 interface AccountInfo {
   id: string;
@@ -159,7 +160,7 @@ export function registerComposeMethods(): void {
     synced_at: number | null;
   };
 
-  function rowToLocalDraft(r: LocalDraftRow): Record<string, unknown> {
+  function rowToLocalDraft(r: LocalDraftRow): LocalDraft {
     const parseAddrs = (raw: string | null): string[] | undefined => {
       if (!raw) return undefined;
       try {
