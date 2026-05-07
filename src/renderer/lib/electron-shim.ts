@@ -185,6 +185,70 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // snippets — canned-response store. CRUD against a sidecar-backed JSON
+  // file (replaces electron-store from the Electron path). Two Superhuman
+  // import methods are sidecar-stubbed until superhuman-import lifts.
+  type Snippet = Record<string, unknown> & {
+    id: string;
+    name: string;
+    body: string;
+    createdAt: number;
+    updatedAt: number;
+  };
+  real.snippets = {
+    getAll: async (): Promise<IpcResponse<Snippet[]>> => {
+      try {
+        const data = (await bridge.call("snippets.getAll", {})) as Snippet[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    save: async (snippets: Snippet[]): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("snippets.save", { snippets });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    create: async (snippet: Partial<Snippet>): Promise<IpcResponse<Snippet>> => {
+      try {
+        const data = (await bridge.call("snippets.create", { snippet })) as Snippet;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    update: async (
+      id: string,
+      updates: Partial<Snippet>,
+    ): Promise<IpcResponse<Snippet>> => {
+      try {
+        const data = (await bridge.call("snippets.update", { id, updates })) as Snippet;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    delete: async (id: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("snippets.delete", { id });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    discoverSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
+      success: false,
+      error: "snippets.discoverSuperhuman: not yet lifted into sidecar",
+    }),
+    importSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
+      success: false,
+      error: "snippets.importSuperhuman: not yet lifted into sidecar",
+    }),
+  };
+
   // auth — pure event-listening surface. The two events (token-expired,
   // extension-auth-required) get emitted by gmail-client and the extension
   // host respectively; both are services that haven't been lifted yet, so
