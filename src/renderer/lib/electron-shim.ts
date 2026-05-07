@@ -357,6 +357,86 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // imap — full IMAP/SMTP provider surface for non-Gmail accounts.
+  // The renderer's wizard / settings UI calls testConnection before
+  // addAccount so the user gets an informative error before we persist
+  // anything.
+  type ImapPreset = {
+    id: string;
+    label: string;
+    hint: string;
+    domains?: string[];
+    imap: { host: string; port: number; tls: true };
+    smtp: { host: string; port: number; tls: true };
+    appPasswordRequired?: boolean;
+    appPasswordHelp?: string;
+  };
+  type ImapAddInput = {
+    email: string;
+    password: string;
+    displayName?: string;
+    imapHost: string;
+    imapPort: number;
+    imapUsername?: string;
+    smtpHost: string;
+    smtpPort: number;
+    tls?: boolean;
+  };
+  real.imap = {
+    presets: async (): Promise<IpcResponse<{ presets: ImapPreset[] }>> => {
+      try {
+        const data = (await bridge.call("imap.presets", {})) as { presets: ImapPreset[] };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    suggestForEmail: async (
+      email: string,
+    ): Promise<IpcResponse<{ preset: ImapPreset | null }>> => {
+      try {
+        const data = (await bridge.call("imap.suggestForEmail", { email })) as {
+          preset: ImapPreset | null;
+        };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    testConnection: async (input: ImapAddInput): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("imap.testConnection", input as Record<string, unknown>);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    addAccount: async (input: ImapAddInput): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("imap.addAccount", input as Record<string, unknown>);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    listFolders: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("imap.listFolders", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    disconnect: async (accountId: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("imap.disconnect", { accountId });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // gmail — auth-side methods only (OAuth flow). API ops (fetch, send, etc.)
   // lift later as gmail-client gets ported.
   type AuthSuccess = { accountId: string; email: string; displayName: string | null };

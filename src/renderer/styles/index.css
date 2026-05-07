@@ -47,6 +47,11 @@ html,
 body {
   background: var(--aos-bg);
   color: var(--aos-text);
+  /* Window owns horizontal sizing — never let the document scroll sideways
+   * if a child overflows. Otherwise the whole app frame slides when an
+   * overflowing tab strip or sidebar pushes its parent wider than the
+   * viewport. */
+  overflow-x: hidden;
   /* Apple's modern system stack — falls through gracefully on older OSes. */
   font-family:
     -apple-system,
@@ -127,6 +132,16 @@ textarea:focus-visible,
   background: rgba(0, 0, 0, 0.18);
   background-clip: padding-box;
   border: 3px solid transparent;
+}
+
+/* For surfaces where the scrollbar must NEVER show (e.g. horizontal nav
+ * tabs that scroll on overflow but should look uncluttered). */
+.aos-scroll-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.aos-scroll-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* ============================================================

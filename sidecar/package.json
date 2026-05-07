@@ -14,7 +14,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
     "better-sqlite3": "^12.8.0",
-    "googleapis": "^170.1.0"
+    "googleapis": "^170.1.0",
+    "imapflow": "^1.0.176",
+    "nodemailer": "^7.0.9"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

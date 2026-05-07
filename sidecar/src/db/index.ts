@@ -60,6 +60,29 @@ export function initDatabase(): DatabaseInstance {
     CREATE INDEX IF NOT EXISTS idx_llm_calls_caller ON llm_calls(caller);
   `);
 
+  // Provider columns on accounts. Older mail-app DBs only had the Gmail
+  // shape; AOS Mail supports gmail + imap (and Microsoft Graph later).
+  // ALTER TABLE ADD COLUMN is idempotent in SQLite via try/catch — once a
+  // column exists the second invocation throws which we swallow.
+  for (const ddl of [
+    "ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'gmail'",
+    "ALTER TABLE accounts ADD COLUMN imap_host TEXT",
+    "ALTER TABLE accounts ADD COLUMN imap_port INTEGER",
+    "ALTER TABLE accounts ADD COLUMN imap_username TEXT",
+    "ALTER TABLE accounts ADD COLUMN smtp_host TEXT",
+    "ALTER TABLE accounts ADD COLUMN smtp_port INTEGER",
+    "ALTER TABLE accounts ADD COLUMN tls_enabled INTEGER NOT NULL DEFAULT 1",
+  ]) {
+    try {
+      db.exec(ddl);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("duplicate column name")) {
+        log.warn("schema migration step failed", { ddl, err: msg });
+      }
+    }
+  }
+
   return db;
 }
 

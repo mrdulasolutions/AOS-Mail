@@ -1,12 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import type { IpcResponse } from "../../shared/types";
 import { reconfigurePostHog } from "../services/posthog";
+import { AddImapAccount } from "./AddImapAccount";
 
 interface SetupWizardProps {
   onComplete: () => void;
 }
 
-type Step = "loading" | "credentials" | "apikey" | "oauth" | "extensions" | "analytics";
+type Step =
+  | "loading"
+  | "credentials"
+  | "apikey"
+  | "oauth"
+  | "extensions"
+  | "analytics"
+  | "imap";
 
 interface ExtensionAuthInfo {
   extensionId: string;
@@ -279,6 +287,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             </div>
           )}
 
+          {step === "imap" && (
+            <AddImapAccount
+              onCancel={() => setStep("credentials")}
+              onComplete={() => onComplete()}
+            />
+          )}
+
           {step === "credentials" && (
             <>
               <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
@@ -288,6 +303,21 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 AOS Mail needs Google OAuth credentials to access your Gmail. Create a Google
                 Cloud project with the Gmail API enabled, then paste the keys below.
               </p>
+
+              {/* Alternative path — IMAP for non-Gmail providers. */}
+              <div className="aos-callout-info mb-6 flex items-center justify-between">
+                <span className="text-sm">
+                  Not using Gmail? Connect iCloud, Fastmail, Yahoo, Outlook, or any IMAP server
+                  instead.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setStep("imap")}
+                  className="aos-btn-secondary text-sm py-1.5 px-3 flex-shrink-0 ml-3"
+                >
+                  Use IMAP
+                </button>
+              </div>
 
               <div className="aos-callout-info mb-6">
                 <h3 className="font-semibold mb-2">Setup steps</h3>

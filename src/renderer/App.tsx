@@ -2177,7 +2177,9 @@ export default function App() {
            from search or full view forces a full recompute of groupByThread +
            categorization for 2500+ emails before the UI responds. */}
         <div
-          className={viewMode === "split" && !activeSearchQuery ? "flex-1 flex flex-col" : ""}
+          className={
+            viewMode === "split" && !activeSearchQuery ? "flex-1 min-w-0 flex flex-col" : ""
+          }
           style={{ display: viewMode === "split" && !activeSearchQuery ? undefined : "none" }}
         >
           <EmailList />
