@@ -18,13 +18,21 @@
 // store — those fields are now joined in sync.getEmails (commit eeab3f3)
 // so the data is there from the first paint, no separate fetch needed.
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useAppStore } from "../store";
 import type { DashboardEmail } from "../../shared/types";
 
 interface V1AgentPanelProps {
   email: DashboardEmail | null;
   accountId: string | null;
+}
+
+interface ThreadSummaryState {
+  summary: string;
+  actionItems: string[];
+  decisions: string[];
+  cached?: boolean;
+  createdAt?: number;
 }
 
 function PriorityPill({
@@ -91,11 +99,64 @@ function Section({
 
 export const V1AgentPanel = memo(function V1AgentPanel({
   email,
+  accountId,
 }: V1AgentPanelProps) {
   const updateEmail = useAppStore((s) => s.updateEmail);
+  const allEmails = useAppStore((s) => s.emails);
   const [triageBusy, setTriageBusy] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summary, setSummary] = useState<ThreadSummaryState | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // How many messages are in the current thread (for the Summary section).
+  const threadMessageCount = email
+    ? allEmails.filter((e) => e.threadId === email.threadId).length
+    : 0;
+
+  // Auto-load summary when opening a multi-message thread. Sidecar caches
+  // by latestMessageId, so re-opening the same thread is free.
+  useEffect(() => {
+    if (!email || !accountId || threadMessageCount < 2) {
+      setSummary(null);
+      return;
+    }
+    let cancelled = false;
+    setSummary(null);
+    setSummaryBusy(true);
+    (async () => {
+      try {
+        const result = (await (
+          window.api as {
+            summary?: {
+              thread: (
+                threadId: string,
+                accountId: string,
+                opts?: { force?: boolean },
+              ) => Promise<{
+                success: boolean;
+                data?: ThreadSummaryState;
+                error?: string;
+              }>;
+            };
+          }
+        ).summary?.thread(email.threadId, accountId)) ?? { success: false };
+        if (cancelled) return;
+        if (result.success && result.data) {
+          setSummary(result.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[V1AgentPanel] summary fetch failed:", err);
+        }
+      } finally {
+        if (!cancelled) setSummaryBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [email, accountId, threadMessageCount]);
 
   if (!email) {
     return (
@@ -188,6 +249,92 @@ export const V1AgentPanel = memo(function V1AgentPanel({
         <div className="mx-4 mt-3 px-3 py-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md">
           {error}
         </div>
+      )}
+
+      {/* Thread summary — only when there are multiple messages. The
+          sidecar caches by latestMessageId so re-opens are free. */}
+      {threadMessageCount >= 2 && (
+        <Section
+          title={`Thread summary · ${threadMessageCount} messages`}
+          action={
+            <button
+              onClick={async () => {
+                if (!accountId) return;
+                setSummaryBusy(true);
+                try {
+                  const result = (await (
+                    window.api as {
+                      summary?: {
+                        thread: (
+                          threadId: string,
+                          accountId: string,
+                          opts?: { force?: boolean },
+                        ) => Promise<{
+                          success: boolean;
+                          data?: ThreadSummaryState;
+                        }>;
+                      };
+                    }
+                  ).summary?.thread(email.threadId, accountId, { force: true })) ?? {
+                    success: false,
+                  };
+                  if (result.success && result.data) {
+                    setSummary(result.data);
+                  }
+                } finally {
+                  setSummaryBusy(false);
+                }
+              }}
+              disabled={summaryBusy}
+              className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+            >
+              {summaryBusy ? "Summarizing…" : summary ? "Refresh" : "Summarize"}
+            </button>
+          }
+        >
+          {summaryBusy && !summary ? (
+            <p className="text-sm text-gray-400">Reading the thread…</p>
+          ) : summary?.summary ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700 leading-snug whitespace-pre-wrap">
+                {summary.summary}
+              </p>
+              {summary.actionItems.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">
+                    Action items
+                  </p>
+                  <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+                    {summary.actionItems.map((item, i) => (
+                      <li key={i} className="leading-snug">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {summary.decisions.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-green-700 mb-1">
+                    Decisions
+                  </p>
+                  <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+                    {summary.decisions.map((item, i) => (
+                      <li key={i} className="leading-snug">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              Click Summarize to extract what&apos;s happening in this thread plus any
+              action items or decisions.
+            </p>
+          )}
+        </Section>
       )}
 
       {/* Sender identity — minimal until extension-driven enrichment lifts. */}

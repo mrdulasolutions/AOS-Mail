@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Claude Code internal state (do not check in)
+.claude/scheduled_tasks.lock
+.claude/projects/
+
 # Build outputs
 out/
 dist/

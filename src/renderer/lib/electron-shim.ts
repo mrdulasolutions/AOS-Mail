@@ -2015,6 +2015,29 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // summary — Claude-powered thread summarization. The V1 agent panel
+  // calls this when opening a multi-message thread so the user gets
+  // "what's happening + what do I owe" without reading every message.
+  // Sidecar caches by (threadId, latestMessageId), so re-opens are free.
+  real.summary = {
+    thread: async (
+      threadId: string,
+      accountId: string,
+      opts?: { force?: boolean },
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("summary.thread", {
+          threadId,
+          accountId,
+          force: opts?.force ?? false,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   return real;
 }
 

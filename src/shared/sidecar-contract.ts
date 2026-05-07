@@ -269,6 +269,18 @@ export interface SidecarMethods {
     params: ComposeSendInput & { gmailDraftId?: string };
     result: { draftId: string; messageId: string; threadId: string };
   };
+
+  // ── thread summary ────────────────────────────────────────────────────
+  "summary.thread": {
+    params: { threadId: string; accountId: string; force?: boolean };
+    result: {
+      summary: string;
+      actionItems: string[];
+      decisions: string[];
+      cached: boolean;
+      createdAt?: number;
+    };
+  };
 }
 
 // Helpers — the renderer's bridge.call uses these to project the keyed
