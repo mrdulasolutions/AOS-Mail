@@ -940,6 +940,28 @@ export default function App() {
       if (sentInBatch.length > 0) {
         addSentEmails(sentInBatch);
       }
+      // Background-triage any incoming emails that aren't already in
+      // the sent view. Auto-skip if there's no Anthropic key (analysis
+      // would just fail per-email and rate-limit Claude). This fills
+      // the Priority tab over time without the user having to do
+      // anything.
+      const incomingIds = data.emails
+        .filter((e) => !e.labelIds?.includes("SENT"))
+        .map((e) => e.id);
+      if (incomingIds.length > 0) {
+        void (async () => {
+          try {
+            const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+              success?: boolean;
+              data?: { configured?: boolean };
+            };
+            if (!has?.success || !has.data?.configured) return;
+            await window.api.analysis.analyzeBatch(incomingIds);
+          } catch (err) {
+            console.warn("[triage] background analyze failed:", err);
+          }
+        })();
+      }
     });
 
     // Listen for new sent emails (from full sent sync, not added to inbox)
@@ -1434,6 +1456,29 @@ export default function App() {
       if (result.success) {
         setEmails(result.data);
         prefetchEmailBodies(result.data.map((e: DashboardEmail) => e.id)).catch(console.error);
+        // Background-triage anything that isn't already analyzed. The
+        // priority filter excludes unanalyzed rows entirely, so a fresh
+        // inbox shows nothing in Priority until this batch runs.
+        const ids = result.data
+          .filter(
+            (e: DashboardEmail) =>
+              !e.analysis && !(e.labelIds && e.labelIds.includes("SENT")),
+          )
+          .map((e: DashboardEmail) => e.id);
+        if (ids.length > 0) {
+          void (async () => {
+            try {
+              const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+                success?: boolean;
+                data?: { configured?: boolean };
+              };
+              if (!has?.success || !has.data?.configured) return;
+              await window.api.analysis.analyzeBatch(ids);
+            } catch (err) {
+              console.warn("[triage] boot analyze failed:", err);
+            }
+          })();
+        }
         return result.data;
       }
       throw new Error(result.error);

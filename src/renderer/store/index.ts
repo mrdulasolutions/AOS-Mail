@@ -601,7 +601,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Inbox splits state
   splits: [],
-  currentSplitId: "__priority__",
+  // Default to "__other__" so unanalyzed emails are visible at first open.
+  // Priority is a curated view — meaningful only after analysis has run.
+  // Once Anthropic API key is set + analyses populate, the user can flip
+  // to Priority via the tab strip.
+  currentSplitId: "__other__",
 
   // Snippets state
   snippets: [],
