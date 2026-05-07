@@ -185,6 +185,52 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // auth — pure event-listening surface. The two events (token-expired,
+  // extension-auth-required) get emitted by gmail-client and the extension
+  // host respectively; both are services that haven't been lifted yet, so
+  // the listeners are wired but won't fire until those lift. The two
+  // methods (reauth, cancelReauth) require OAuth-in-Tauri and stay
+  // auto-stubbed for now — they'll move here once OAuth lands.
+  type AuthTokenExpired = { accountId: string; email: string; source: string };
+  type AuthExtensionRequired = {
+    extensionId: string;
+    displayName: string;
+    message?: string;
+  };
+  const authUnlisteners: Array<() => void> = [];
+  real.auth = {
+    onTokenExpired: (callback: (data: AuthTokenExpired) => void): void => {
+      bridge
+        .listen<AuthTokenExpired>("auth:token-expired", (payload) => callback(payload))
+        .then((un) => authUnlisteners.push(un));
+    },
+    onExtensionAuthRequired: (callback: (data: AuthExtensionRequired) => void): void => {
+      bridge
+        .listen<AuthExtensionRequired>("auth:extension-auth-required", (payload) =>
+          callback(payload),
+        )
+        .then((un) => authUnlisteners.push(un));
+    },
+    reauth: async (_accountId: string): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "auth.reauth: blocked on Tauri OAuth flow (see TAURI_MIGRATION.md)",
+    }),
+    cancelReauth: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "auth.cancelReauth: blocked on Tauri OAuth flow",
+    }),
+    removeAllListeners: (): void => {
+      while (authUnlisteners.length) {
+        const un = authUnlisteners.pop();
+        try {
+          un?.();
+        } catch {
+          // best-effort
+        }
+      }
+    },
+  };
+
   // usage — Claude API cost + call history visibility.
   real.usage = {
     getStats: async (): Promise<IpcResponse<unknown>> => {
