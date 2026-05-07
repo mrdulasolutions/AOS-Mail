@@ -251,11 +251,22 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const currentStepIndex = visibleSteps.indexOf(step);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
+    <div className="h-screen flex flex-col bg-aos-bg-soft">
       {/* Titlebar */}
-      <div className="titlebar-drag h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center px-4">
+      <div className="titlebar-drag h-12 bg-white border-b border-aos-line flex items-center px-4">
         <div className="w-20" /> {/* Space for traffic lights */}
-        <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">AOS Mail Setup</h1>
+        <h1 className="text-lg font-semibold text-aos-text">AOS Mail Setup</h1>
+        <div className="ml-auto titlebar-no-drag">
+          <button
+            type="button"
+            onClick={onComplete}
+            className="text-xs px-3 py-1 rounded-md text-aos-text-muted hover:text-aos-text hover:bg-aos-bg-soft border border-transparent hover:border-aos-line transition-colors"
+            aria-label="Skip setup and use AOS Mail without an account"
+            title="Skip setup — you can finish later from Settings"
+          >
+            Skip for now
+          </button>
+        </div>
       </div>
 
       {/* Content */}

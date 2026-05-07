@@ -739,10 +739,17 @@ export default function App() {
       },
     );
 
-    // Listen for theme changes (OS change when preference is "system", or explicit set)
-    window.api.theme.onChange((data: { preference: string; resolved: string }) => {
-      setThemePreference(data.preference as ThemePreference);
-      setResolvedTheme(data.resolved as "light" | "dark");
+    // AOS Mail is day-only — pin the preference and resolved theme to "light"
+    // regardless of what was stored. We still listen so a Settings change
+    // away from "light" gets snapped back, but no UI exposes that anymore.
+    setThemePreference("light");
+    setResolvedTheme("light");
+    window.api.theme.set("light").catch(() => {
+      /* best-effort — sidecar may not yet have the method */
+    });
+    window.api.theme.onChange(() => {
+      setThemePreference("light");
+      setResolvedTheme("light");
     });
 
     return () => {
@@ -756,13 +763,12 @@ export default function App() {
     setUndoSendDelay,
   ]);
 
-  // Toggle dark class on document.documentElement when resolvedTheme changes
+  // AOS Mail is day-only by design — white/black core with red/yellow/green
+  // accents. We strip any inherited `dark` class on every theme change so
+  // legacy `dark:` Tailwind classes don't activate.
   useEffect(() => {
-    if (resolvedTheme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "light";
   }, [resolvedTheme]);
 
   // Load inbox splits on mount (stored in electron-store, independent of sync)

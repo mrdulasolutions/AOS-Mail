@@ -41,9 +41,6 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setAccounts,
     removeAccount: removeAccountFromStore,
     prefetchProgress,
-    themePreference,
-    setThemePreference,
-    setResolvedTheme,
     inboxDensity,
     setInboxDensity,
     keyboardBindings,
@@ -358,13 +355,9 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     await window.api.calendar.setVisibility(accountId, calendarId, visible);
   };
 
-  const handleThemeChange = async (theme: "light" | "dark" | "system") => {
-    const result = await window.api.theme.set(theme);
-    if (result.success) {
-      setThemePreference(theme);
-      setResolvedTheme(result.data.resolved);
-    }
-  };
+  // handleThemeChange removed — AOS Mail is day-only by design.
+  // The theme preference is fixed to "light" by App.tsx; the
+  // appearance card in this panel is now informational only.
 
   const handleDensityChange = async (density: InboxDensity) => {
     setInboxDensity(density);
@@ -913,48 +906,15 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Configure how AOS Mail generates draft replies.
               </p>
 
-              {/* Appearance / Theme Toggle */}
-              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
-                <div className="mb-3">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">Appearance</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Choose your preferred color theme.
+              {/* Appearance — AOS Mail is day-only by design */}
+              <div className="bg-white p-4 rounded-aos border border-aos-line mb-6">
+                <div className="mb-1">
+                  <h3 className="font-semibold text-aos-text">Appearance</h3>
+                  <p className="text-sm text-aos-text-soft mt-1">
+                    AOS Mail uses a single day theme — white and black surfaces with red,
+                    amber, and green accents. Dark mode is intentionally omitted to keep
+                    the agent UI legible at a glance.
                   </p>
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleThemeChange("light")}
-                    data-active={themePreference === "light" ? "true" : undefined}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      themePreference === "light"
-                        ? "bg-blue-600 dark:bg-blue-500 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                    }`}
-                  >
-                    Light
-                  </button>
-                  <button
-                    onClick={() => handleThemeChange("dark")}
-                    data-active={themePreference === "dark" ? "true" : undefined}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      themePreference === "dark"
-                        ? "bg-blue-600 dark:bg-blue-500 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                    }`}
-                  >
-                    Dark
-                  </button>
-                  <button
-                    onClick={() => handleThemeChange("system")}
-                    data-active={themePreference === "system" ? "true" : undefined}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      themePreference === "system"
-                        ? "bg-blue-600 dark:bg-blue-500 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                    }`}
-                  >
-                    System
-                  </button>
                 </div>
               </div>
 
