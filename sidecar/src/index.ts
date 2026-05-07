@@ -18,6 +18,8 @@ import { registerUsageMethods } from "./methods/usage.js";
 import { registerSnippetsMethods } from "./methods/snippets.js";
 import { registerSplitsMethods } from "./methods/splits.js";
 import { registerSnoozeMethods } from "./methods/snooze.js";
+import { registerSenderMethods } from "./methods/sender.js";
+import { registerSearchMethods } from "./methods/search.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -35,6 +37,8 @@ registerUsageMethods();
 registerSnippetsMethods();
 registerSplitsMethods();
 registerSnoozeMethods();
+registerSenderMethods();
+registerSearchMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

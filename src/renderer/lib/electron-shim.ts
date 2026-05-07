@@ -249,6 +249,93 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // search + contacts — local FTS5 search + contact autocomplete.
+  type SearchResult = Record<string, unknown> & { id: string; threadId: string };
+  type ContactSuggestion = { email: string; name: string; frequency: number };
+  real.search = {
+    query: async (
+      query: string,
+      options?: { accountId?: string; limit?: number; offset?: number },
+    ): Promise<IpcResponse<SearchResult[]>> => {
+      try {
+        const data = (await bridge.call("search.query", { query, options })) as SearchResult[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    suggestions: async (query: string, limit?: number): Promise<IpcResponse<string[]>> => {
+      try {
+        const data = (await bridge.call("search.suggestions", { query, limit })) as string[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    rebuildIndex: async (): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("search.rebuildIndex", {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+  real.contacts = {
+    suggest: async (
+      query: string,
+      limit?: number,
+    ): Promise<IpcResponse<ContactSuggestion[]>> => {
+      try {
+        const data = (await bridge.call("contacts.suggest", {
+          query,
+          limit,
+        })) as ContactSuggestion[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
+  // sender — sender profile lookup. V1 hits the legacy sender_profiles
+  // table only; extension-enrichment cache integration arrives with the
+  // extensions namespace lift.
+  type SenderProfile = {
+    email: string;
+    name: string | null;
+    summary: string;
+    linkedinUrl: string | null;
+    company: string | null;
+    title: string | null;
+    lookupAt: number;
+  };
+  real.sender = {
+    getProfile: async (email: string): Promise<IpcResponse<SenderProfile | null>> => {
+      try {
+        const data = (await bridge.call("sender.getProfile", { email })) as
+          | SenderProfile
+          | null;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    lookup: async (
+      from: string,
+      email: string,
+    ): Promise<IpcResponse<SenderProfile | null>> => {
+      try {
+        const data = (await bridge.call("sender.lookup", { from, email })) as
+          | SenderProfile
+          | null;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // snooze — local thread snoozing. The sidecar's auto-unsnooze timer
   // emits snooze:unsnoozed events; manual operations emit snoozed /
   // manually-unsnoozed.
