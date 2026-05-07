@@ -249,6 +249,158 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // snooze — local thread snoozing. The sidecar's auto-unsnooze timer
+  // emits snooze:unsnoozed events; manual operations emit snoozed /
+  // manually-unsnoozed.
+  type SnoozedEmail = {
+    id: string;
+    emailId: string;
+    threadId: string;
+    accountId: string;
+    snoozeUntil: number;
+    snoozedAt: number;
+  };
+  const snoozeUnlisteners: Array<() => void> = [];
+  real.snooze = {
+    snooze: async (
+      emailId: string,
+      threadId: string,
+      accountId: string,
+      snoozeUntil: number,
+    ): Promise<IpcResponse<SnoozedEmail>> => {
+      try {
+        const data = (await bridge.call("snooze.snooze", {
+          emailId,
+          threadId,
+          accountId,
+          snoozeUntil,
+        })) as SnoozedEmail;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    unsnooze: async (threadId: string, accountId: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("snooze.unsnooze", { threadId, accountId });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    list: async (
+      accountId: string,
+    ): Promise<IpcResponse<SnoozedEmail[]> & { expired?: SnoozedEmail[] }> => {
+      try {
+        const result = (await bridge.call("snooze.list", { accountId })) as {
+          data: SnoozedEmail[];
+          expired: SnoozedEmail[];
+        };
+        return { success: true, data: result.data, expired: result.expired };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    get: async (
+      threadId: string,
+      accountId: string,
+    ): Promise<IpcResponse<SnoozedEmail | null>> => {
+      try {
+        const data = (await bridge.call("snooze.get", {
+          threadId,
+          accountId,
+        })) as SnoozedEmail | null;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onSnoozed: (callback: (data: { snoozedEmail: SnoozedEmail }) => void): void => {
+      bridge
+        .listen<{ snoozedEmail: SnoozedEmail }>("snooze:snoozed", (payload) => callback(payload))
+        .then((un) => snoozeUnlisteners.push(un));
+    },
+    onUnsnoozed: (callback: (data: { emails: SnoozedEmail[] }) => void): void => {
+      bridge
+        .listen<{ emails: SnoozedEmail[] }>("snooze:unsnoozed", (payload) => callback(payload))
+        .then((un) => snoozeUnlisteners.push(un));
+    },
+    onManuallyUnsnoozed: (
+      callback: (data: { threadId: string; accountId: string; snoozeUntil: number }) => void,
+    ): void => {
+      bridge
+        .listen<{ threadId: string; accountId: string; snoozeUntil: number }>(
+          "snooze:manually-unsnoozed",
+          (payload) => callback(payload),
+        )
+        .then((un) => snoozeUnlisteners.push(un));
+    },
+    removeAllListeners: (): void => {
+      while (snoozeUnlisteners.length) {
+        const un = snoozeUnlisteners.pop();
+        try {
+          un?.();
+        } catch {
+          // best-effort
+        }
+      }
+    },
+  };
+
+  // splits — user-defined inbox splits / smart folders. CRUD against
+  // splits.json; Superhuman import stubbed (same as snippets).
+  type Split = Record<string, unknown> & { id: string; accountId: string; name: string };
+  real.splits = {
+    getAll: async (): Promise<IpcResponse<Split[]>> => {
+      try {
+        return { success: true, data: (await bridge.call("splits.getAll", {})) as Split[] };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    save: async (splits: Split[]): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("splits.save", { splits });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    create: async (split: Partial<Split>): Promise<IpcResponse<Split>> => {
+      try {
+        return { success: true, data: (await bridge.call("splits.create", { split })) as Split };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    update: async (id: string, updates: Partial<Split>): Promise<IpcResponse<Split>> => {
+      try {
+        return {
+          success: true,
+          data: (await bridge.call("splits.update", { id, updates })) as Split,
+        };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    delete: async (id: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("splits.delete", { id });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    discoverSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
+      success: false,
+      error: "splits.discoverSuperhuman: not yet lifted",
+    }),
+    importSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
+      success: false,
+      error: "splits.importSuperhuman: not yet lifted",
+    }),
+  };
+
   // auth — pure event-listening surface. The two events (token-expired,
   // extension-auth-required) get emitted by gmail-client and the extension
   // host respectively; both are services that haven't been lifted yet, so
