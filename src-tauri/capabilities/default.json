@@ -15,6 +15,7 @@
     "os:default",
     "process:default",
     "store:default",
-    "log:default"
+    "log:default",
+    "updater:default"
   ]
 }

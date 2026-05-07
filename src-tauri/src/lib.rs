@@ -58,6 +58,11 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_log::Builder::default().build())
+        // Updater plugin — registered so `@tauri-apps/plugin-updater` from
+        // the renderer can call check()/downloadAndInstall(). Endpoint is
+        // configured in tauri.conf.json with `active: false` until signing
+        // keys land in Phase 5; the surface is in place either way.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Spawn the Node sidecar that runs the email/agent backend.
             let handle = sidecar::SidecarHandle::spawn(app.handle().clone())?;

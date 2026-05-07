@@ -1430,6 +1430,219 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // find — page text search. The Electron version drove
+  // webContents.findInPage() from the main process; under Tauri there is no
+  // such IPC. Instead we use the standard browser `window.find()` API which
+  // works in WKWebView and selects the next match in the DOM directly. The
+  // existing FindBar UI is unchanged — it still subscribes via
+  // window.api.find.onResult() to a `find:result` event.
+  //
+  // window.find() doesn't report total match counts, so we emit a partial
+  // result: matches=1 / ordinal=1 on hit, matches=0 on miss. The FindBar's
+  // counter UI degrades gracefully ("No matches" / "1 of 1" / blank).
+  type FindResult = { activeMatchOrdinal: number; matches: number };
+  type FindWindow = Window & {
+    find?: (
+      text: string,
+      caseSensitive?: boolean,
+      backwards?: boolean,
+      wrapAround?: boolean,
+      wholeWord?: boolean,
+      searchInFrames?: boolean,
+      showDialog?: boolean,
+    ) => boolean;
+  };
+  let findResultCb: ((r: FindResult) => void) | null = null;
+  const findOpenListeners: Array<() => void> = [];
+  if (typeof window !== "undefined") {
+    // Cmd+F surfaces from the native menu via the menu-bridge as an
+    // `aos-mail:find` CustomEvent. Routing it here matches the Electron-era
+    // `find:open` IPC that was dispatched from window.ts.
+    window.addEventListener("aos-mail:find", () => {
+      findOpenListeners.forEach((cb) => {
+        try {
+          cb();
+        } catch {
+          // best-effort
+        }
+      });
+    });
+  }
+  real.find = {
+    find: (text: string, options?: { forward?: boolean; findNext?: boolean }): void => {
+      if (typeof window === "undefined" || !text) return;
+      const w = window as FindWindow;
+      let matched = false;
+      try {
+        // Per the spec template — third arg of window.find is `backwards`.
+        matched = w.find?.(text, false, !!options?.forward, true, false, false, false) ?? false;
+      } catch {
+        matched = false;
+      }
+      const result: FindResult = matched
+        ? { activeMatchOrdinal: 1, matches: 1 }
+        : { activeMatchOrdinal: 0, matches: 0 };
+      // Dispatch a window CustomEvent so any direct DOM listeners stay
+      // compatible alongside the API-style onResult callback.
+      window.dispatchEvent(new CustomEvent("find:result", { detail: result }));
+      findResultCb?.(result);
+    },
+    stop: (): void => {
+      if (typeof window === "undefined") return;
+      window.getSelection()?.removeAllRanges();
+    },
+    onResult: (callback: (result: FindResult) => void): void => {
+      findResultCb = callback;
+    },
+    removeResultListener: (): void => {
+      findResultCb = null;
+    },
+    onOpen: (callback: () => void): void => {
+      // Replace any previous registration to mirror the Electron preload
+      // behavior of removeAllListeners + on.
+      findOpenListeners.length = 0;
+      findOpenListeners.push(callback);
+    },
+    removeOpenListener: (): void => {
+      findOpenListeners.length = 0;
+    },
+  };
+
+  // updates — auto-update via tauri-plugin-updater. The Electron version
+  // was driven by electron-updater + the auto-updater service; under Tauri
+  // the renderer talks to the plugin directly. The endpoint is currently
+  // disabled (active=false in tauri.conf.json) so check() is a no-op until
+  // signing keys land in Phase 5. Surface is wired so the UI renders the
+  // moment the feature is activated.
+  type UpdateStatus =
+    | { state: "idle" }
+    | { state: "checking" }
+    | { state: "available"; version: string }
+    | { state: "downloading"; progress: number }
+    | { state: "downloaded"; version: string }
+    | { state: "error"; message: string };
+  let updateStatus: UpdateStatus = { state: "idle" };
+  const updateStatusListeners: Array<(s: UpdateStatus) => void> = [];
+  const setUpdateStatus = (s: UpdateStatus): void => {
+    updateStatus = s;
+    updateStatusListeners.forEach((cb) => {
+      try {
+        cb(s);
+      } catch {
+        // best-effort
+      }
+    });
+  };
+  // The pending update object returned by plugin-updater's check() exposes
+  // version + downloadAndInstall. We hold onto it so the UI's separate
+  // download click can use it; matches the electron-updater flow.
+  type PendingUpdate = {
+    version: string;
+    downloadAndInstall: (cb: (e: unknown) => void) => Promise<void>;
+  };
+  let pendingUpdate: PendingUpdate | null = null;
+  real.updates = {
+    getStatus: async (): Promise<IpcResponse<UpdateStatus>> => {
+      return { success: true, data: updateStatus };
+    },
+    getVersion: async (): Promise<IpcResponse<string>> => {
+      try {
+        if (!bridge.isTauri) return { success: true, data: "0.0.0" };
+        const mod = await import("@tauri-apps/api/app");
+        const v = await mod.getVersion();
+        return { success: true, data: v };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    check: async (): Promise<IpcResponse<UpdateStatus>> => {
+      if (!bridge.isTauri) {
+        return { success: false, error: "updates.check: only available under Tauri" };
+      }
+      try {
+        setUpdateStatus({ state: "checking" });
+        const mod = await import("@tauri-apps/plugin-updater");
+        const update = await mod.check();
+        if (update) {
+          pendingUpdate = update as unknown as PendingUpdate;
+          const version = (update as { version?: string }).version ?? "unknown";
+          setUpdateStatus({ state: "available", version });
+        } else {
+          setUpdateStatus({ state: "idle" });
+        }
+        return { success: true, data: updateStatus };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setUpdateStatus({ state: "error", message: msg });
+        return { success: false, error: msg };
+      }
+    },
+    download: async (): Promise<IpcResponse<null>> => {
+      if (!bridge.isTauri || !pendingUpdate) {
+        return {
+          success: false,
+          error: "updates.download: no pending update (call check() first)",
+        };
+      }
+      try {
+        const version = pendingUpdate.version;
+        setUpdateStatus({ state: "downloading", progress: 0 });
+        let totalBytes = 0;
+        let downloaded = 0;
+        await pendingUpdate.downloadAndInstall((event) => {
+          // Tauri updater emits {event: 'Started'|'Progress'|'Finished',
+          // data: {...}} — see plugin-updater docs.
+          const ev = event as {
+            event?: string;
+            data?: { contentLength?: number; chunkLength?: number };
+          };
+          if (ev.event === "Started") {
+            totalBytes = ev.data?.contentLength ?? 0;
+            downloaded = 0;
+          } else if (ev.event === "Progress") {
+            downloaded += ev.data?.chunkLength ?? 0;
+            const progress = totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0;
+            setUpdateStatus({ state: "downloading", progress });
+          } else if (ev.event === "Finished") {
+            setUpdateStatus({ state: "downloaded", version });
+          }
+        });
+        // downloadAndInstall both downloads and installs. By the time it
+        // resolves the install is staged; mark downloaded so the UI offers
+        // the restart prompt — install() relaunches via plugin-process.
+        if (updateStatus.state !== "downloaded") {
+          setUpdateStatus({ state: "downloaded", version });
+        }
+        return { success: true, data: null };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setUpdateStatus({ state: "error", message: msg });
+        return { success: false, error: msg };
+      }
+    },
+    install: async (): Promise<IpcResponse<null>> => {
+      // tauri-plugin-updater's downloadAndInstall already installs in
+      // place; this just relaunches via plugin-process.
+      if (!bridge.isTauri) {
+        return { success: false, error: "updates.install: only available under Tauri" };
+      }
+      try {
+        const mod = await import("@tauri-apps/plugin-process");
+        await mod.relaunch();
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onStatusChanged: (callback: (status: UpdateStatus) => void): (() => void) => {
+      updateStatusListeners.push(callback);
+      return () => {
+        const idx = updateStatusListeners.indexOf(callback);
+        if (idx >= 0) updateStatusListeners.splice(idx, 1);
+      };
+    },
+  };
+
   // network — first lifted namespace. Mirrors the Electron `window.api.network`
   // surface (getStatus / updateStatus / onOnline / onOffline /
   // removeAllListeners) but routes through the sidecar + Tauri events.
