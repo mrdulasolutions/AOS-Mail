@@ -32,7 +32,7 @@ function rustTargetTriple() {
 }
 
 function main() {
-  const dist = resolve(ROOT, "dist", "index.js");
+  const dist = resolve(ROOT, "dist", "index.cjs");
   if (!existsSync(dist)) {
     throw new Error(`sidecar build missing: ${dist} — run \`npm run build\` first`);
   }
@@ -62,10 +62,20 @@ function main() {
     delim = `AOS_SIDECAR_EOF_${n}`;
   }
 
+  // The sidecar bundle is bare ESM — esbuild leaves better-sqlite3 (and any
+  // other native module flagged --external:*) as a runtime require/import.
+  // Node resolves those by walking up from the script location (a tmpfile),
+  // which can't see sidecar/node_modules. We bake the sidecar's
+  // node_modules absolute path into NODE_PATH at package time so dev runs
+  // work without the user setting anything. (Production will switch to
+  // Node SEA or pkg so we don't depend on this path existing.)
+  const sidecarNodeModules = resolve(ROOT, "node_modules");
+
   const stub =
     `#!/usr/bin/env bash\n` +
     `set -euo pipefail\n` +
-    `TMP="$(mktemp -t aos-mail-sidecar.XXXXXX).mjs"\n` +
+    `export NODE_PATH=${JSON.stringify(sidecarNodeModules)}\${NODE_PATH:+:$NODE_PATH}\n` +
+    `TMP="$(mktemp -t aos-mail-sidecar.XXXXXX).cjs"\n` +
     `trap 'rm -f "$TMP"' EXIT\n` +
     `cat > "$TMP" <<'${delim}'\n` +
     bundle +

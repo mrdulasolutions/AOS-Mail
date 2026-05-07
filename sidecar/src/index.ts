@@ -12,6 +12,7 @@
 import { createInterface } from "node:readline";
 import { dispatch, registerMethod } from "./rpc.js";
 import { registerNetworkMethods } from "./methods/network.js";
+import { registerDbMethods } from "./methods/db.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -23,6 +24,7 @@ registerMethod("ping", async () => ({
 
 // Lifted IPC namespaces (Phase 1B).
 registerNetworkMethods();
+registerDbMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

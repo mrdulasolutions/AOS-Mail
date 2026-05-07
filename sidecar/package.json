@@ -7,12 +7,15 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --external:better-sqlite3",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs --external:better-sqlite3",
     "package": "node ./scripts/package-sidecar.mjs",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "better-sqlite3": "^12.8.0"
+  },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.15.0",
     "esbuild": "^0.25.0",
     "tsx": "^4.19.0",
