@@ -8,7 +8,10 @@
 // user opens a thread (sync.fetchBody).
 
 import { getDb } from "../db/index.js";
-import { listImapMessageHeaders } from "./providers/imap-fetch.js";
+import {
+  getImapMessageFull,
+  listImapMessageHeaders,
+} from "./providers/imap-fetch.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("sync");
@@ -276,6 +279,56 @@ function rowToDashboard(r: RawEmailRow): DashboardEmailRow {
     messageId: r.message_id,
     inReplyTo: r.in_reply_to,
   };
+}
+
+/**
+ * Fetch the full body for one email on demand (called when the user opens
+ * a thread). For IMAP this goes back to the server, parses the RFC 822
+ * source, updates the body field in the emails table, and returns the
+ * fresh DashboardEmailRow shape. For Gmail (when its provider lifts) the
+ * same dispatch lives here.
+ */
+export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmailRow | null> {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT id, account_id, thread_id, subject,
+              from_address, to_address, cc_address, bcc_address,
+              date, snippet, body, label_ids,
+              message_id, in_reply_to
+       FROM emails WHERE id = ?`,
+    )
+    .get(emailId) as RawEmailRow | undefined;
+  if (!row) return null;
+
+  // If we already have a non-empty body, just return what's stored.
+  if (row.body && row.body.length > 0) {
+    return rowToDashboard(row);
+  }
+
+  // Parse the IMAP id format: imap:<accountId>:<folder>:<uid>
+  const m = /^imap:([^:]+):([^:]+):(\d+)$/.exec(emailId);
+  if (!m) {
+    // Not an IMAP-format id — Gmail body fetch will land here when that
+    // provider lifts. For now, return what we have.
+    return rowToDashboard(row);
+  }
+  const [, , folder, uidStr] = m;
+  if (!folder || !uidStr) return rowToDashboard(row);
+  try {
+    const full = await getImapMessageFull(row.account_id, folder, Number(uidStr));
+    if (!full) return rowToDashboard(row);
+    db.prepare(
+      "UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?",
+    ).run(full.body, full.bodyText, Date.now(), emailId);
+    return rowToDashboard({ ...row, body: full.body });
+  } catch (err) {
+    log.warn("fetchBodyForEmail failed", {
+      emailId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return rowToDashboard(row);
+  }
 }
 
 export function getEmailsForAccount(accountId: string, opts: { sent?: boolean } = {}): DashboardEmailRow[] {

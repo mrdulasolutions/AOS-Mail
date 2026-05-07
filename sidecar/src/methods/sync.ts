@@ -18,7 +18,7 @@
 
 import { registerMethod, emit } from "../rpc.js";
 import { getDb } from "../db/index.js";
-import { syncAccountNow, getEmailsForAccount } from "../services/sync.js";
+import { syncAccountNow, getEmailsForAccount, fetchBodyForEmail } from "../services/sync.js";
 import {
   listImapAccountIds,
 } from "../services/providers/imap-creds.js";
@@ -104,4 +104,14 @@ export function registerSyncMethods(): void {
   // empty bodies (fetched lazily on thread open), so this is a no-op
   // that returns success so the renderer doesn't surface an error.
   registerMethod("sync.prefetchBodies", () => ({ ok: true, fetched: 0 }));
+
+  // On-demand body fetch — called when the renderer opens a thread.
+  // Used by the renderer-side gmail.getEmail shim too, which routes
+  // here regardless of the underlying provider so the same handler
+  // works for both Gmail (when it lifts) and IMAP.
+  registerMethod("sync.fetchBody", async (params) => {
+    const { emailId } = (params as { emailId?: string }) ?? {};
+    if (!emailId) throw new Error("sync.fetchBody: requires { emailId }");
+    return fetchBodyForEmail(emailId);
+  });
 }

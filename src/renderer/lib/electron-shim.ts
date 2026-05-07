@@ -550,6 +550,19 @@ function installRealNamespaces(): Record<string, unknown> {
   type AuthSuccess = { accountId: string; email: string; displayName: string | null };
   const gmailAuthListeners: Array<() => void> = [];
   real.gmail = {
+    // Provider-agnostic body fetch: the renderer calls
+    // window.api.gmail.getEmail(id) for any email regardless of which
+    // backend it came from. We route to sync.fetchBody which dispatches
+    // by id format (imap:* → IMAP path, gmail-numeric-id → Gmail path
+    // when the gmail provider lifts).
+    getEmail: async (emailId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.fetchBody", { emailId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
     saveCredentials: async (
       clientId: string,
       clientSecret: string,
