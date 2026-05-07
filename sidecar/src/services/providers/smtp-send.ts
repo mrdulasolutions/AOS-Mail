@@ -23,6 +23,13 @@ export interface SendInput {
   subject: string;
   bodyText?: string;
   bodyHtml?: string;
+  /**
+   * Provider-specific thread identifier. For Gmail this is the conversation
+   * thread id and is forwarded as `threadId` in messages.send so the reply
+   * stays grouped. For IMAP/SMTP it is unused — IMAP threads are emergent
+   * from In-Reply-To / References headers.
+   */
+  threadId?: string;
   inReplyTo?: string;
   references?: string;
   recipientNames?: Record<string, string>;

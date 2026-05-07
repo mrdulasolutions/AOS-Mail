@@ -12,6 +12,14 @@ import {
   getImapMessageFull,
   listImapMessageHeaders,
 } from "./providers/imap-fetch.js";
+import {
+  getGmailHeaders,
+  getGmailHistoryChanges,
+  getGmailMessageFull,
+  listGmailMessages,
+  parseGmailEmailId,
+  type GmailMessageHeader,
+} from "./providers/gmail-fetch.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("sync");
@@ -135,14 +143,7 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
     };
   }
   if (row.provider === "gmail") {
-    log.info("gmail sync not yet wired", { accountId });
-    return {
-      accountId,
-      fetched: 0,
-      newRows: 0,
-      newEmails: [],
-      errors: ["gmail sync via History API is not yet implemented in the sidecar"],
-    };
+    return syncGmailAccountNow(accountId);
   }
   if (row.provider !== "imap") {
     return {
@@ -215,6 +216,233 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
     }
   } catch (err) {
     errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  return { accountId, fetched, newRows, newEmails, errors };
+}
+
+// ── Gmail provider sync ─────────────────────────────────────────────────
+
+interface SyncStateRow {
+  account_id: string;
+  history_id: string;
+  last_sync_at: number;
+}
+
+function getGmailSyncState(accountId: string): SyncStateRow | null {
+  return (
+    (getDb()
+      .prepare("SELECT account_id, history_id, last_sync_at FROM sync_state WHERE account_id = ?")
+      .get(accountId) as SyncStateRow | undefined) ?? null
+  );
+}
+
+function setGmailSyncState(accountId: string, historyId: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO sync_state (account_id, history_id, last_sync_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(account_id) DO UPDATE SET
+         history_id = excluded.history_id,
+         last_sync_at = excluded.last_sync_at`,
+    )
+    .run(accountId, historyId, Date.now());
+}
+
+function gmailHeaderToUpsert(
+  accountId: string,
+  h: GmailMessageHeader,
+): UpsertEmail {
+  return {
+    id: h.id,
+    account_id: accountId,
+    thread_id: h.threadId,
+    subject: h.subject,
+    from_address: h.from,
+    to_address: h.to,
+    cc_address: h.cc,
+    bcc_address: h.bcc,
+    body: "", // bodies fetched on demand by fetchBodyForEmail
+    body_text: null,
+    snippet: h.snippet,
+    date: h.date,
+    fetched_at: Date.now(),
+    label_ids: JSON.stringify(h.labelIds),
+    attachments: null,
+    message_id: h.messageId,
+    in_reply_to: h.inReplyTo,
+  };
+}
+
+/**
+ * Sync a single Gmail account.
+ *
+ * Two paths:
+ *   - First sync (no stored historyId): list the latest 50 inbox messages,
+ *     batch-fetch their headers, upsert, then persist Gmail's profile
+ *     historyId so the next call goes incremental.
+ *   - Incremental: ask Gmail's history.list for changes since the stored
+ *     historyId. Fetch headers for newly-added messages, upsert. For
+ *     archived/deleted messages, drop INBOX from their label_ids (they
+ *     stay in the DB so search/sent views still see them, but they no
+ *     longer show up in the inbox query). For read/unread changes, flip
+ *     the corresponding label.
+ *
+ * On HISTORY_EXPIRED (Gmail purges history records ~7d after creation),
+ * fall back to the first-sync path and overwrite the stored historyId.
+ */
+async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
+  const errors: string[] = [];
+  const newEmails: DashboardEmailRow[] = [];
+  let fetched = 0;
+  let newRows = 0;
+
+  const stored = getGmailSyncState(accountId);
+  let useFullSync = !stored;
+
+  if (stored) {
+    try {
+      const changes = await getGmailHistoryChanges(accountId, stored.history_id);
+      if (changes.newIds.length > 0) {
+        const headers = await getGmailHeaders(accountId, changes.newIds);
+        for (const h of headers) {
+          try {
+            const upsertRow = gmailHeaderToUpsert(accountId, h);
+            const inserted = upsertEmail(upsertRow);
+            fetched++;
+            if (inserted) {
+              newRows++;
+              newEmails.push(
+                rowToDashboard({
+                  id: upsertRow.id,
+                  thread_id: upsertRow.thread_id,
+                  account_id: upsertRow.account_id,
+                  subject: upsertRow.subject,
+                  from_address: upsertRow.from_address,
+                  to_address: upsertRow.to_address,
+                  cc_address: upsertRow.cc_address,
+                  bcc_address: upsertRow.bcc_address,
+                  date: upsertRow.date,
+                  snippet: upsertRow.snippet,
+                  body: upsertRow.body,
+                  label_ids: upsertRow.label_ids,
+                  message_id: upsertRow.message_id,
+                  in_reply_to: upsertRow.in_reply_to,
+                }),
+              );
+            }
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+      if (changes.removedIds.length > 0) {
+        // Remove INBOX from label_ids so the row stops showing up in the
+        // inbox query. We don't DELETE; the row may still be needed for
+        // thread context or search.
+        const stmt = getDb().prepare(
+          "UPDATE emails SET label_ids = ? WHERE id = ?",
+        );
+        for (const gid of changes.removedIds) {
+          const id = `gmail:${accountId}:${gid}`;
+          const row = getDb()
+            .prepare("SELECT label_ids FROM emails WHERE id = ?")
+            .get(id) as { label_ids: string | null } | undefined;
+          if (!row) continue;
+          let labels: string[] = [];
+          try {
+            labels = row.label_ids ? (JSON.parse(row.label_ids) as string[]) : [];
+          } catch {
+            labels = [];
+          }
+          stmt.run(JSON.stringify(labels.filter((l) => l !== "INBOX")), id);
+        }
+      }
+      // Read/unread flips — toggle the UNREAD label in the stored JSON.
+      const flipUnread = (gids: string[], unread: boolean): void => {
+        const stmt = getDb().prepare(
+          "UPDATE emails SET label_ids = ? WHERE id = ?",
+        );
+        for (const gid of gids) {
+          const id = `gmail:${accountId}:${gid}`;
+          const row = getDb()
+            .prepare("SELECT label_ids FROM emails WHERE id = ?")
+            .get(id) as { label_ids: string | null } | undefined;
+          if (!row) continue;
+          let labels: string[] = [];
+          try {
+            labels = row.label_ids ? (JSON.parse(row.label_ids) as string[]) : [];
+          } catch {
+            labels = [];
+          }
+          const next = unread
+            ? [...new Set([...labels, "UNREAD"])]
+            : labels.filter((l) => l !== "UNREAD");
+          stmt.run(JSON.stringify(next), id);
+        }
+      };
+      flipUnread(changes.readIds, false);
+      flipUnread(changes.unreadIds, true);
+
+      setGmailSyncState(accountId, changes.historyId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "HISTORY_EXPIRED") {
+        log.info("gmail history expired, falling back to full sync", {
+          accountId,
+        });
+        useFullSync = true;
+      } else {
+        errors.push(msg);
+      }
+    }
+  }
+
+  if (useFullSync) {
+    try {
+      const { messageIds, historyId } = await listGmailMessages(accountId, {
+        maxResults: 50,
+      });
+      if (messageIds.length > 0) {
+        const headers = await getGmailHeaders(
+          accountId,
+          messageIds.map((m) => m.id),
+        );
+        for (const h of headers) {
+          try {
+            const upsertRow = gmailHeaderToUpsert(accountId, h);
+            const inserted = upsertEmail(upsertRow);
+            fetched++;
+            if (inserted) {
+              newRows++;
+              newEmails.push(
+                rowToDashboard({
+                  id: upsertRow.id,
+                  thread_id: upsertRow.thread_id,
+                  account_id: upsertRow.account_id,
+                  subject: upsertRow.subject,
+                  from_address: upsertRow.from_address,
+                  to_address: upsertRow.to_address,
+                  cc_address: upsertRow.cc_address,
+                  bcc_address: upsertRow.bcc_address,
+                  date: upsertRow.date,
+                  snippet: upsertRow.snippet,
+                  body: upsertRow.body,
+                  label_ids: upsertRow.label_ids,
+                  message_id: upsertRow.message_id,
+                  in_reply_to: upsertRow.in_reply_to,
+                }),
+              );
+            }
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+      if (historyId) setGmailSyncState(accountId, historyId);
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return { accountId, fetched, newRows, newEmails, errors };
@@ -306,11 +534,31 @@ export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmail
     return rowToDashboard(row);
   }
 
-  // Parse the IMAP id format: imap:<accountId>:<folder>:<uid>
+  // Dispatch on the id scheme: imap:<accountId>:<folder>:<uid>
+  // or gmail:<accountId>:<gmailId>.
+  if (emailId.startsWith("gmail:")) {
+    const parsed = parseGmailEmailId(emailId);
+    if (!parsed) return rowToDashboard(row);
+    try {
+      const full = await getGmailMessageFull(parsed.accountId, parsed.gmailId);
+      if (!full) return rowToDashboard(row);
+      db.prepare(
+        "UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?",
+      ).run(full.body, full.bodyText, Date.now(), emailId);
+      return rowToDashboard({ ...row, body: full.body });
+    } catch (err) {
+      log.warn("fetchBodyForEmail (gmail) failed", {
+        emailId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return rowToDashboard(row);
+    }
+  }
+
   const m = /^imap:([^:]+):([^:]+):(\d+)$/.exec(emailId);
   if (!m) {
-    // Not an IMAP-format id — Gmail body fetch will land here when that
-    // provider lifts. For now, return what we have.
+    // Unknown id scheme — return what we have rather than throwing; old
+    // 'sent:<uuid>' rows from compose.send land here.
     return rowToDashboard(row);
   }
   const [, , folder, uidStr] = m;

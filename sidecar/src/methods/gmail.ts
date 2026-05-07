@@ -28,6 +28,11 @@ import {
 import { getDb } from "../db/index.js";
 import { google } from "googleapis";
 import { upsertAccountAfterAuth } from "./gmail-helpers.js";
+import {
+  createDraftGmail,
+  updateDraftGmail,
+} from "../services/providers/gmail-send.js";
+import type { SendInput } from "../services/providers/smtp-send.js";
 
 export function registerGmailMethods(): void {
   registerMethod("gmail.saveCredentials", (params) => {
@@ -105,5 +110,31 @@ export function registerGmailMethods(): void {
     deleteTokens(accountId);
     getDb().prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
     return { ok: true };
+  });
+
+  // Create or update a server-side Gmail draft. The renderer's compose
+  // panel calls this when the user wants their draft synced to Gmail
+  // (vs. the local-only path through compose.saveLocalDraft). If a
+  // gmailDraftId is passed we update in place; otherwise we create.
+  registerMethod("gmail.createDraft", async (params) => {
+    const p = (params ?? {}) as SendInput & { gmailDraftId?: string };
+    if (!p.accountId) throw new Error("gmail.createDraft: requires { accountId }");
+
+    // Resolve from-address from the account row when the renderer doesn't
+    // pass it (most calls don't).
+    const account = getDb()
+      .prepare("SELECT email FROM accounts WHERE id = ?")
+      .get(p.accountId) as { email?: string } | undefined;
+    if (!account?.email) {
+      throw new Error(`gmail.createDraft: account ${p.accountId} not found`);
+    }
+    const enriched: SendInput = { ...p, from: p.from ?? account.email };
+
+    if (p.gmailDraftId) {
+      const result = await updateDraftGmail(p.gmailDraftId, enriched);
+      return result;
+    }
+    const result = await createDraftGmail(enriched);
+    return result;
   });
 }

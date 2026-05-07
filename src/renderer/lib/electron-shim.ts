@@ -997,10 +997,20 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    // Gmail API ops (fetchUnread / createDraft / getEmail) require the
-    // gmail-client port — until then they auto-stub. Removed from the real
-    // namespace so window.api.gmail.fetchUnread() still goes through the
-    // not-yet-wired error path.
+    // Create or update a server-side Gmail draft. The renderer's compose
+    // panel uses this to keep an in-progress message visible from the
+    // user's other Gmail clients (web, mobile). Pass `gmailDraftId` to
+    // update an existing draft, omit to create a new one.
+    createDraft: async (
+      input: Record<string, unknown>,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("gmail.createDraft", input);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
   // Enrich the auto-stub-fallback's window.api.gmail with method mixin: the
   // Proxy returns whichever real fields we set above and stubs the rest.

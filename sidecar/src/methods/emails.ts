@@ -13,6 +13,12 @@ import {
   setStarFlag,
   trashMessage,
 } from "../services/providers/imap-actions.js";
+import {
+  archiveMessageGmail,
+  setReadGmail,
+  setStarredGmail,
+  trashMessageGmail,
+} from "../services/providers/gmail-actions.js";
 import { getDb } from "../db/index.js";
 
 interface EmailRow {
@@ -21,6 +27,10 @@ interface EmailRow {
   account_id: string;
 }
 
+// Dispatch on the email id scheme — `imap:<accountId>:<folder>:<uid>` lands
+// on imapflow flags/move; `gmail:<accountId>:<gmailId>` lands on the Gmail
+// API messages.modify / messages.trash. Each provider produces ids in its
+// own format at insert time so this dispatch stays simple.
 async function dispatch(
   emailId: string,
   op: "archive" | "trash" | "setRead" | "setStarred",
@@ -33,7 +43,14 @@ async function dispatch(
     if (op === "setStarred") return setStarFlag(emailId, !!flag);
     return;
   }
-  throw new Error(`emails.${op}: Gmail provider path not yet wired in sidecar`);
+  if (emailId.startsWith("gmail:")) {
+    if (op === "archive") return archiveMessageGmail(emailId);
+    if (op === "trash") return trashMessageGmail(emailId);
+    if (op === "setRead") return setReadGmail(emailId, !!flag);
+    if (op === "setStarred") return setStarredGmail(emailId, !!flag);
+    return;
+  }
+  throw new Error(`emails.${op}: unknown email id scheme: ${emailId}`);
 }
 
 export function registerEmailsMethods(): void {

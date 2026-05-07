@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { registerMethod, emit } from "../rpc.js";
 import { sendViaSmtp, type SendInput } from "../services/providers/smtp-send.js";
+import { sendViaGmail } from "../services/providers/gmail-send.js";
 import { getDb } from "../db/index.js";
 
 interface AccountInfo {
@@ -78,18 +79,33 @@ export function registerComposeMethods(): void {
     const account = getAccount(input.accountId);
     if (!account) throw new Error(`compose.send: account ${input.accountId} not found`);
 
-    if (account.provider === "gmail") {
-      throw new Error("compose.send: Gmail send via Gmail API not yet implemented in sidecar");
-    }
-    if (account.provider !== "imap") {
+    if (account.provider !== "gmail" && account.provider !== "imap") {
       throw new Error(`compose.send: unknown provider '${account.provider}'`);
     }
 
-    const result = await sendViaSmtp({ ...input, from: input.from ?? account.email });
-    const { id, threadId } = recordSentEmail(
-      { ...input, from: input.from ?? account.email },
-      result.messageId,
-    );
+    const enrichedInput: SendInput = {
+      ...input,
+      from: input.from ?? account.email,
+    };
+
+    let messageId: string;
+    let accepted: string[] = [];
+    let rejected: string[] = [];
+    if (account.provider === "gmail") {
+      const sent = await sendViaGmail(enrichedInput);
+      messageId = sent.messageId;
+      // Gmail's API doesn't return per-recipient delivery status — anything
+      // it accepts goes to the recipient list, and rejections come back as
+      // a thrown error. Mirror SMTP's shape so the renderer can stay
+      // provider-agnostic.
+      accepted = enrichedInput.to;
+    } else {
+      const sent = await sendViaSmtp(enrichedInput);
+      messageId = sent.messageId;
+      accepted = sent.accepted;
+      rejected = sent.rejected;
+    }
+    const { id, threadId } = recordSentEmail(enrichedInput, messageId);
 
     emit("sync:new-sent-emails", {
       accountId: input.accountId,
@@ -108,19 +124,13 @@ export function registerComposeMethods(): void {
           body: input.bodyHtml ?? input.bodyText ?? "",
           labelIds: '["SENT","READ"]',
           isUnread: false,
-          messageId: result.messageId,
+          messageId,
           inReplyTo: input.inReplyTo ?? null,
         },
       ],
     });
 
-    return {
-      id,
-      threadId,
-      messageId: result.messageId,
-      accepted: result.accepted,
-      rejected: result.rejected,
-    };
+    return { id, threadId, messageId, accepted, rejected };
   });
 
   // Local drafts — persisted in the local_drafts table so a reload doesn't
