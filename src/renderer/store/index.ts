@@ -25,21 +25,25 @@ import type {
   AgentContext,
 } from "../../shared/agent-types";
 
+// General is pinned first; the remainder is alphabetical by *display label*
+// so the tab strip in SettingsPanel can iterate in declaration order without
+// re-sorting at render time. If you add a tab here, also add the matching
+// label entry in SETTINGS_TAB_LABELS (see SettingsPanel.tsx).
 export type SettingsTab =
   | "general"
   | "accounts"
-  | "calendar"
-  | "splits"
-  | "signatures"
-  | "prompts"
-  | "style"
-  | "assistant"
-  | "memories"
-  | "queue"
-  | "agents"
+  | "agents" // "Agent Tools"
+  | "memories" // "AI Memories"
   | "analytics"
+  | "calendar"
+  | "assistant" // "Executive Assistant"
   | "extensions"
-  | "snippets";
+  | "prompts"
+  | "queue"
+  | "signatures"
+  | "snippets"
+  | "splits"
+  | "style"; // "Writing Style"
 
 // Draft content for undo-send restoration or local draft editing
 export type RestoredDraft = {

@@ -53,14 +53,6 @@ pub fn build_menu(app: &App) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::close_window(handle, None)?,
             &PredefinedMenuItem::separator(handle)?,
             &MenuItem::with_id(handle, "save-draft", "Save Draft", true, Some("Cmd+S"))?,
-            &PredefinedMenuItem::separator(handle)?,
-            &MenuItem::with_id(
-                handle,
-                "import-superhuman",
-                "Import from Superhuman…",
-                true,
-                None::<&str>,
-            )?,
         ],
     )?;
 

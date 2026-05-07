@@ -21,7 +21,6 @@ const KNOWN_MENU_IDS = [
   "new-message",
   "new-window",
   "save-draft",
-  "import-superhuman",
   "find",
   "toggle-sidebar",
   "command-palette",

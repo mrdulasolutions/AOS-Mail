@@ -227,8 +227,7 @@ function installRealNamespaces(): Record<string, unknown> {
   };
 
   // snippets — canned-response store. CRUD against a sidecar-backed JSON
-  // file (replaces electron-store from the Electron path). Two Superhuman
-  // import methods are sidecar-stubbed until superhuman-import lifts.
+  // file (replaces electron-store from the Electron path).
   type Snippet = Record<string, unknown> & {
     id: string;
     name: string;
@@ -280,14 +279,6 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    discoverSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
-      success: false,
-      error: "snippets.discoverSuperhuman: not yet lifted into sidecar",
-    }),
-    importSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
-      success: false,
-      error: "snippets.importSuperhuman: not yet lifted into sidecar",
-    }),
   };
 
   // accounts — multi-account management. Mostly DB CRUD; `add` wraps the
@@ -1203,7 +1194,7 @@ function installRealNamespaces(): Record<string, unknown> {
   };
 
   // splits — user-defined inbox splits / smart folders. CRUD against
-  // splits.json; Superhuman import stubbed (same as snippets).
+  // splits.json.
   type Split = Record<string, unknown> & { id: string; accountId: string; name: string };
   real.splits = {
     getAll: async (): Promise<IpcResponse<Split[]>> => {
@@ -1246,14 +1237,6 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    discoverSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
-      success: false,
-      error: "splits.discoverSuperhuman: not yet lifted",
-    }),
-    importSuperhuman: async (): Promise<IpcResponse<unknown>> => ({
-      success: false,
-      error: "splits.importSuperhuman: not yet lifted",
-    }),
   };
 
   // memory — agent persistent-memory CRUD + Claude-powered scope classify.

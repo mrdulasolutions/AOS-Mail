@@ -231,22 +231,12 @@ function SplitEditor({ split, onSave, onCancel, existingCount }: SplitEditorProp
   );
 }
 
-type SuperhumanAccount = { email: string; splitCount: number };
-type ImportResult = { imported: number; warnings: string[] };
-
 export function SplitConfigEditor() {
   const { splits: allSplits, setSplits, currentAccountId, accounts } = useAppStore();
   const [editingSplit, setEditingSplit] = useState<InboxSplit | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Superhuman import state
-  const [shAccounts, setShAccounts] = useState<SuperhumanAccount[] | null>(null);
-  const [shDiscovering, setShDiscovering] = useState(false);
-  const [shImporting, setShImporting] = useState(false);
-  const [shResult, setShResult] = useState<ImportResult | null>(null);
-  const [shError, setShError] = useState<string | null>(null);
 
   // Filter splits for current account
   const splits = allSplits.filter((s) => s.accountId === currentAccountId);
@@ -342,60 +332,6 @@ export function SplitConfigEditor() {
     await window.api.splits.save([...otherSplits, ...newSplits]);
   };
 
-  const handleDiscoverSuperhuman = async () => {
-    setShDiscovering(true);
-    setShAccounts(null);
-    setShResult(null);
-    setShError(null);
-    try {
-      const result = (await window.api.splits.discoverSuperhuman()) as {
-        success: boolean;
-        data?: { accounts: SuperhumanAccount[] };
-        error?: string;
-      };
-      if (result.success && result.data) {
-        setShAccounts(result.data.accounts);
-        if (result.data.accounts.length === 0) {
-          setShError("Superhuman not found on this machine");
-        }
-      } else {
-        setShError(result.error ?? "Failed to discover accounts");
-      }
-    } finally {
-      setShDiscovering(false);
-    }
-  };
-
-  const handleImportSuperhuman = async (email: string) => {
-    if (!currentAccountId) return;
-    setShImporting(true);
-    setShResult(null);
-    try {
-      const result = (await window.api.splits.importFromSuperhuman(email, currentAccountId)) as {
-        success: boolean;
-        data?: ImportResult;
-        error?: string;
-      };
-      if (result.success && result.data) {
-        setShResult(result.data);
-        // Refresh splits
-        const refreshed = (await window.api.splits.getAll()) as {
-          success: boolean;
-          data?: InboxSplit[];
-        };
-        if (refreshed.success && refreshed.data) {
-          setSplits(refreshed.data);
-        }
-        setShAccounts(null);
-      } else {
-        setShError(result.error ?? "Import failed");
-        setShAccounts(null);
-      }
-    } finally {
-      setShImporting(false);
-    }
-  };
-
   const sortedSplits = [...splits].sort((a, b) => a.order - b.order);
 
   if (isLoading) {
@@ -421,86 +357,14 @@ export function SplitConfigEditor() {
           </p>
         </div>
         {!isCreating && !editingSplit && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDiscoverSuperhuman}
-              disabled={shDiscovering}
-              className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-            >
-              {shDiscovering ? "Checking..." : "Import from Superhuman"}
-            </button>
-            <button
-              onClick={() => setIsCreating(true)}
-              className="px-3 py-1.5 text-sm bg-blue-500 dark:bg-blue-400 text-white rounded hover:bg-blue-600 dark:hover:bg-blue-500"
-            >
-              + New Split
-            </button>
-          </div>
+          <button
+            onClick={() => setIsCreating(true)}
+            className="px-3 py-1.5 text-sm bg-blue-500 dark:bg-blue-400 text-white rounded hover:bg-blue-600 dark:hover:bg-blue-500"
+          >
+            + New Split
+          </button>
         )}
       </div>
-
-      {/* Superhuman import inline dialog */}
-      {shAccounts && shAccounts.length > 0 && !shResult && (
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Select Superhuman account to import from:
-            </span>
-            <button
-              onClick={() => setShAccounts(null)}
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              Cancel
-            </button>
-          </div>
-          {shAccounts.map((acct) => (
-            <button
-              key={acct.email}
-              onClick={() => handleImportSuperhuman(acct.email)}
-              disabled={shImporting || acct.splitCount === 0}
-              className="w-full text-left px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="font-medium">{acct.email}</span>
-              <span className="ml-2 text-gray-500 dark:text-gray-400">
-                ({acct.splitCount} split{acct.splitCount !== 1 ? "s" : ""})
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Import result */}
-      {shResult && (
-        <div className="border rounded-lg p-4 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 space-y-1">
-          <p className="text-sm font-medium text-green-800 dark:text-green-300">
-            Imported {shResult.imported} split{shResult.imported !== 1 ? "s" : ""}
-          </p>
-          {shResult.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-yellow-700 dark:text-yellow-400">
-              {w}
-            </p>
-          ))}
-          <button
-            onClick={() => setShResult(null)}
-            className="text-xs text-green-700 dark:text-green-400 hover:underline mt-1"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Import error */}
-      {shError && (
-        <div className="border rounded-lg p-3 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
-          <p className="text-sm text-red-700 dark:text-red-400">{shError}</p>
-          <button
-            onClick={() => setShError(null)}
-            className="text-xs text-red-600 dark:text-red-400 hover:underline mt-1"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {isCreating && (
         <SplitEditor
