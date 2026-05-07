@@ -801,90 +801,111 @@ export default function App() {
   }, [setSnippets]);
 
   // Initialize sync and accounts
+  //
+  // IMPORTANT: accounts are loaded INDEPENDENTLY of sync.init. Earlier
+  // versions of this code only called accounts.list inside the
+  // sync.init success branch, which silently dropped the entire
+  // accounts list whenever sync wasn't ready (e.g. while the sidecar's
+  // sync namespace is still being lifted in Phase 1b-vii). The result
+  // was: an IMAP account row sat happily in the DB, but the renderer
+  // saw `accounts === []` and stayed in the empty state forever.
+  //
+  // The new ordering:
+  //   1. accounts.list     — single source of truth, always called
+  //   2. sync.init         — best-effort; populates per-account
+  //                          isConnected / sync-loop state when it
+  //                          succeeds, ignored when it doesn't
+  //   3. cached emails     — only if sync.init came back ok
   const initializeSync = useCallback(async () => {
     try {
-      const result = await window.api.sync.init();
-      if (result.success && result.data) {
-        const accountList: Account[] = result.data.map(
-          (acc: { accountId: string; email: string; isConnected: boolean }) => ({
-            id: acc.accountId,
+      // Step 1: load accounts. This is the source of truth for the UI.
+      const accountsResult = await window.api.accounts.list();
+      let fullAccounts: Account[] = [];
+      if (accountsResult.success && Array.isArray(accountsResult.data)) {
+        fullAccounts = accountsResult.data.map(
+          (acc: {
+            id: string;
+            email: string;
+            isPrimary: boolean;
+            displayName?: string;
+          }) => ({
+            id: acc.id,
             email: acc.email,
-            isPrimary: false, // Will be set from accounts:list
-            isConnected: acc.isConnected,
+            displayName: acc.displayName,
+            isPrimary: acc.isPrimary,
+            isConnected: false, // optimistic — sync.init may overwrite below
           }),
         );
-
-        // Fetch full account info
-        const accountsResult = await window.api.accounts.list();
-        if (accountsResult.success && accountsResult.data) {
-          const fullAccounts: Account[] = accountsResult.data.map(
-            (acc: { id: string; email: string; isPrimary: boolean; displayName?: string }) => ({
-              id: acc.id,
-              email: acc.email,
-              displayName: acc.displayName,
-              isPrimary: acc.isPrimary,
-              isConnected: accountList.find((a) => a.id === acc.id)?.isConnected ?? false,
-            }),
-          );
-          setAccounts(fullAccounts);
-
-          // Set current account to primary or first available
-          const primaryAccount = fullAccounts.find((a) => a.isPrimary) || fullAccounts[0];
-          if (primaryAccount) {
-            setCurrentAccountId(primaryAccount.id);
-            // Identify user in PostHog using primary email
-            identifyUser(primaryAccount.email, {
-              account_count: fullAccounts.length,
-            });
-            trackEvent("app_launched", {
-              account_count: fullAccounts.length,
-            });
-          }
+        setAccounts(fullAccounts);
+        const primaryAccount =
+          fullAccounts.find((a) => a.isPrimary) || fullAccounts[0];
+        if (primaryAccount) {
+          setCurrentAccountId(primaryAccount.id);
+          identifyUser(primaryAccount.email, {
+            account_count: fullAccounts.length,
+          });
+          trackEvent("app_launched", { account_count: fullAccounts.length });
         }
+      }
 
-        // Load cached emails for all accounts (including expired ones)
-        // Fetch all accounts in parallel instead of sequentially
-        const allEmails: DashboardEmail[] = [];
-        const allSentEmails: DashboardEmail[] = [];
-        const accountResults = await Promise.all(
-          accountList.map((acc) =>
-            Promise.all([window.api.sync.getEmails(acc.id), window.api.sync.getSentEmails(acc.id)]),
-          ),
+      // Step 2: sync.init — best-effort. If the sync namespace isn't lifted
+      // yet (or fails for any reason), we keep the accounts loaded above.
+      const syncResult = await window.api.sync.init();
+      if (!syncResult.success || !syncResult.data) {
+        return;
+      }
+      const accountList: Account[] = syncResult.data.map(
+        (acc: { accountId: string; email: string; isConnected: boolean }) => ({
+          id: acc.accountId,
+          email: acc.email,
+          isPrimary: false,
+          isConnected: acc.isConnected,
+        }),
+      );
+
+      // Merge isConnected from sync.init back into the loaded accounts.
+      const mergedAccounts = fullAccounts.map((a) => ({
+        ...a,
+        isConnected: accountList.find((s) => s.id === a.id)?.isConnected ?? a.isConnected,
+      }));
+      setAccounts(mergedAccounts);
+
+      // Step 3: cached emails for connected accounts.
+      const allEmails: DashboardEmail[] = [];
+      const allSentEmails: DashboardEmail[] = [];
+      const accountResults = await Promise.all(
+        accountList.map((acc) =>
+          Promise.all([window.api.sync.getEmails(acc.id), window.api.sync.getSentEmails(acc.id)]),
+        ),
+      );
+      for (const [emailsResult, sentResult] of accountResults) {
+        if (emailsResult.success && emailsResult.data) {
+          allEmails.push(...emailsResult.data);
+        }
+        if (sentResult.success && sentResult.data) {
+          allSentEmails.push(...sentResult.data);
+        }
+      }
+      if (allEmails.length > 0) {
+        // addEmails (merge) instead of setEmails (replace) — progressive
+        // sync may be running concurrently; a full replace would wipe its
+        // partial state.
+        addEmails(allEmails);
+        prefetchEmailBodies(allEmails.map((e) => e.id)).catch((err) =>
+          console.error("Body prefetch failed:", err),
         );
-        for (const [emailsResult, sentResult] of accountResults) {
-          if (emailsResult.success && emailsResult.data) {
-            allEmails.push(...emailsResult.data);
-          }
-          if (sentResult.success && sentResult.data) {
-            allSentEmails.push(...sentResult.data);
-          }
-        }
-        if (allEmails.length > 0) {
-          // Use addEmails (merge) instead of setEmails (replace) because
-          // progressive loading may already be adding emails to the store
-          // concurrently via sync:new-emails → bufferAddEmails. A full
-          // replace would wipe those progressive adds with a partial DB snapshot.
-          addEmails(allEmails);
+      }
+      if (allSentEmails.length > 0) {
+        setSentEmails(allSentEmails);
+      }
 
-          // Backfill bodies in the background — emails were loaded without
-          // body content to avoid blocking the main thread on SQLite overflow reads.
-          prefetchEmailBodies(allEmails.map((e) => e.id)).catch((err) =>
-            console.error("Body prefetch failed:", err),
-          );
-        }
-        if (allSentEmails.length > 0) {
-          setSentEmails(allSentEmails);
-        }
-
-        // Load local drafts (new emails composed by agent or user)
-        const draftsResult = (await window.api.compose.listLocalDrafts()) as {
-          success: boolean;
-          data?: unknown[];
-        };
-        if (draftsResult.success && draftsResult.data) {
-          const drafts = draftsResult.data.map((d) => LocalDraftSchema.parse(d));
-          useAppStore.getState().setLocalDrafts(drafts);
-        }
+      const draftsResult = (await window.api.compose.listLocalDrafts()) as {
+        success: boolean;
+        data?: unknown[];
+      };
+      if (draftsResult.success && draftsResult.data) {
+        const drafts = draftsResult.data.map((d) => LocalDraftSchema.parse(d));
+        useAppStore.getState().setLocalDrafts(drafts);
       }
     } catch (err) {
       console.error("Failed to initialize sync:", err);
