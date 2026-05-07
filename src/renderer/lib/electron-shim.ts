@@ -1194,6 +1194,176 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // memory — agent persistent-memory CRUD + Claude-powered scope classify.
+  // Mirrors the Electron preload contract (src/preload/index.ts:memory).
+  // The two learned-event listeners (onDraftEditLearned /
+  // onAnalysisOverrideLearned) are wired to bridge events; they will fire
+  // once the consolidate-memory-scopes pipeline is lifted, but no-op
+  // gracefully until then.
+  type Memory = Record<string, unknown> & { id: string };
+  type DraftMemory = Record<string, unknown> & { id: string };
+  type LearnedPromotion = {
+    id: string;
+    content: string;
+    scope: string;
+    scopeValue: string | null;
+  };
+  type DraftEditLearned = {
+    promoted: LearnedPromotion[];
+    draftMemoriesCreated: number;
+    draftMemoryIds: string[];
+  };
+  type AnalysisOverrideLearned = {
+    promoted: LearnedPromotion[];
+    draftMemoriesCreated: number;
+  };
+
+  real.memory = {
+    list: async (accountId: string): Promise<IpcResponse<Memory[]>> => {
+      try {
+        const data = (await bridge.call("memory.list", { accountId })) as Memory[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getForEmail: async (
+      senderEmail: string,
+      accountId: string,
+    ): Promise<IpcResponse<Memory[]>> => {
+      try {
+        const data = (await bridge.call("memory.getForEmail", {
+          senderEmail,
+          accountId,
+        })) as Memory[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    save: async (params: {
+      accountId: string;
+      scope: string;
+      scopeValue?: string | null;
+      content: string;
+      source?: string;
+      sourceEmailId?: string;
+    }): Promise<IpcResponse<Memory>> => {
+      try {
+        const data = (await bridge.call("memory.save", params)) as Memory;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    update: async (
+      id: string,
+      updates: {
+        content?: string;
+        enabled?: boolean;
+        scope?: string;
+        scopeValue?: string | null;
+      },
+    ): Promise<IpcResponse<Memory | null>> => {
+      try {
+        const data = (await bridge.call("memory.update", { id, updates })) as Memory | null;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    delete: async (id: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("memory.delete", { id });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    categories: async (accountId: string): Promise<IpcResponse<string[]>> => {
+      try {
+        const data = (await bridge.call("memory.categories", { accountId })) as string[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    classify: async (params: {
+      content: string;
+      senderEmail: string;
+      senderDomain: string;
+    }): Promise<
+      IpcResponse<{ scope: string; scopeValue: string | null; content: string }>
+    > => {
+      try {
+        const data = (await bridge.call("memory.classify", params)) as {
+          scope: string;
+          scopeValue: string | null;
+          content: string;
+        };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onDraftEditLearned: (callback: (data: DraftEditLearned) => void): (() => void) => {
+      let unsub: (() => void) | null = null;
+      bridge
+        .listen<DraftEditLearned>("draft-edit:learned", (payload) => callback(payload))
+        .then((un) => {
+          unsub = un;
+        });
+      return () => {
+        try {
+          unsub?.();
+        } catch {
+          // best-effort
+        }
+      };
+    },
+    onAnalysisOverrideLearned: (
+      callback: (data: AnalysisOverrideLearned) => void,
+    ): (() => void) => {
+      let unsub: (() => void) | null = null;
+      bridge
+        .listen<AnalysisOverrideLearned>("analysis-override:learned", (payload) =>
+          callback(payload),
+        )
+        .then((un) => {
+          unsub = un;
+        });
+      return () => {
+        try {
+          unsub?.();
+        } catch {
+          // best-effort
+        }
+      };
+    },
+    draftMemories: {
+      list: async (accountId: string): Promise<IpcResponse<DraftMemory[]>> => {
+        try {
+          const data = (await bridge.call("draftMemory.list", { accountId })) as DraftMemory[];
+          return { success: true, data };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+      promote: async (_id: string, _accountId: string): Promise<IpcResponse<null>> => ({
+        success: false,
+        error: "draftMemory.promote: not yet wired in sidecar",
+      }),
+      delete: async (id: string): Promise<IpcResponse<null>> => {
+        try {
+          await bridge.call("draftMemory.delete", { id });
+          return { success: true, data: null };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    },
+  };
+
   // auth — pure event-listening surface. The two events (token-expired,
   // extension-auth-required) get emitted by gmail-client and the extension
   // host respectively; both are services that haven't been lifted yet, so
