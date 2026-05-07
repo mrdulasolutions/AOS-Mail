@@ -789,14 +789,29 @@ function installRealNamespaces(): Record<string, unknown> {
   type AuthSuccess = { accountId: string; email: string; displayName: string | null };
   const gmailAuthListeners: Array<() => void> = [];
   real.gmail = {
-    // Provider-agnostic body fetch: the renderer calls
-    // window.api.gmail.getEmail(id) for any email regardless of which
-    // backend it came from. We route to sync.fetchBody which dispatches
-    // by id format (imap:* → IMAP path, gmail-numeric-id → Gmail path
-    // when the gmail provider lifts).
+    // Provider-agnostic body fetch.
     getEmail: async (emailId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("sync.fetchBody", { emailId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Provider-agnostic inbox listing. The renderer uses gmail.fetchUnread
+    // as its bootstrap fetch (via React Query in App.tsx); we route to
+    // sync.getEmails so the same call path serves IMAP accounts. Without
+    // this routing the auto-stub throws → React Query retries → the
+    // inbox is stuck on "Loading..." forever even though the DB has rows.
+    fetchUnread: async (
+      _maxResults?: number,
+      accountId?: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        if (!accountId) {
+          return { success: true, data: [] };
+        }
+        const data = await bridge.call("sync.getEmails", { accountId });
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
