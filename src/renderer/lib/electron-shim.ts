@@ -357,6 +357,86 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // emails — inbox management verbs (archive, trash, star, read).
+  // For IMAP these proxy through the sidecar to flag/move on the
+  // server, then update the local store. Gmail provider paths in
+  // emails.* arrive when gmail-client lifts.
+  real.emails = {
+    archive: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.archive", { emailId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    batchArchive: async (
+      emailIds: string[],
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.batchArchive", { emailIds, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    archiveThread: async (
+      threadId: string,
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.archiveThread", { threadId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    trash: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.trash", { emailId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    batchTrash: async (
+      emailIds: string[],
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.batchTrash", { emailIds, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setStarred: async (
+      emailId: string,
+      _accountId: string,
+      starred: boolean,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.setStarred", { emailId, starred });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setRead: async (
+      emailId: string,
+      _accountId: string,
+      read: boolean,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.setRead", { emailId, read });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // compose — V1 wraps the sidecar's IMAP/SMTP send. Gmail send
   // arrives when the gmail-client code lifts.
   type ComposeSendInput = {
