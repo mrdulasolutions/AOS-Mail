@@ -166,6 +166,26 @@ export interface SidecarMethods {
     result: { configured: boolean; source: "env" | "prefs" | null };
   };
 
+  // ── openrouter ────────────────────────────────────────────────────────
+  // Lets users configure a separate OpenRouter API key, which unlocks the
+  // free-tier model catalogue exposed by listFreeModels. The renderer
+  // never calls chat-completions directly through these methods — calls go
+  // through the LLM router in services/anthropic.ts (createMessage).
+  "openrouter.setApiKey": { params: { apiKey: string }; result: { ok: true } };
+  "openrouter.clearApiKey": { params: void; result: { ok: true } };
+  "openrouter.hasApiKey": {
+    params: void;
+    result: { configured: boolean; source: "env" | "prefs" | null };
+  };
+  "openrouter.validateApiKey": {
+    params: { apiKey: string };
+    result: { ok: true };
+  };
+  "openrouter.listFreeModels": {
+    params: void;
+    result: Array<{ id: string; name: string; contextLength: number }>;
+  };
+
   // ── sync ──────────────────────────────────────────────────────────────
   "sync.init": { params: void; result: SidecarAccountInfo[] };
   "sync.now": { params: { accountId: string }; result: SyncResultLite };

@@ -148,6 +148,54 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // openrouter — alternate LLM provider (OpenAI-compatible API). Lets users
+  // route per-feature LLM calls through OpenRouter's free or paid model
+  // catalogue. The renderer never calls chat completions directly through
+  // these methods — actual LLM calls go through the sidecar's router in
+  // services/anthropic.ts (createMessage).
+  real.openrouter = {
+    setApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("openrouter.setApiKey", { apiKey });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    clearApiKey: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("openrouter.clearApiKey", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    hasApiKey: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("openrouter.hasApiKey", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    validateApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("openrouter.validateApiKey", { apiKey });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    listFreeModels: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("openrouter.listFreeModels", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // theme — preference persistence in the sidecar; resolved value
   // (light|dark) computed in the renderer via prefers-color-scheme matchMedia
   // because only the renderer has the OS color signal. onChange combines

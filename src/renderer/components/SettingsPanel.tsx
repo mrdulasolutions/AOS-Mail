@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL_CONFIG,
   MODEL_TIERS,
   MODEL_TIER_LABELS,
+  ANTHROPIC_MODEL_OPTIONS,
   type EAConfig,
   type Config,
   type InboxDensity,
@@ -177,6 +178,18 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // OpenRouter (alternate LLM provider) state
+  const [openRouterApiKey, setOpenRouterApiKey] = useState("");
+  const [isSavingOpenRouter, setIsSavingOpenRouter] = useState(false);
+  const [openRouterSaved, setOpenRouterSaved] = useState(false);
+  const [openRouterError, setOpenRouterError] = useState<string | null>(null);
+  const [openRouterConfigured, setOpenRouterConfigured] = useState(false);
+  const [freeModels, setFreeModels] = useState<
+    Array<{ id: string; name: string; contextLength: number }>
+  >([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
+
   // Agent browser settings state
   const [browserEnabled, setBrowserEnabled] = useState(false);
   const [chromeDebugPort, setChromeDebugPort] = useState(9222);
@@ -274,6 +287,24 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         setIsDefaultMailApp(result);
       })
       .catch(() => {});
+  }, []);
+
+  // Probe whether an OpenRouter key is configured (env or prefs). Used to
+  // surface a "configured" badge and auto-load the free model list once.
+  useEffect(() => {
+    let cancelled = false;
+    window.api.openrouter
+      .hasApiKey()
+      .then((result: { success: boolean; data?: { configured: boolean } }) => {
+        if (cancelled) return;
+        if (result.success && result.data) {
+          setOpenRouterConfigured(result.data.configured);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -646,6 +677,60 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       setTimeout(() => setApiKeySaved(false), 3000);
     } finally {
       setIsSavingApiKey(false);
+    }
+  };
+
+  // OpenRouter handlers — keep parallel to the Anthropic flow above so
+  // the UI looks/feels consistent (validate then persist, ephemeral
+  // "Saved" pill, error surfaced inline).
+  const handleSaveOpenRouterKey = async () => {
+    setIsSavingOpenRouter(true);
+    setOpenRouterSaved(false);
+    setOpenRouterError(null);
+    try {
+      const trimmed = openRouterApiKey.trim();
+      if (trimmed) {
+        const validation = (await window.api.openrouter.validateApiKey(trimmed)) as {
+          success: boolean;
+          error?: string;
+        };
+        if (!validation.success) {
+          setOpenRouterError(validation.error || "Validation failed");
+          return;
+        }
+      }
+      const setResult = (await window.api.openrouter.setApiKey(trimmed)) as {
+        success: boolean;
+        error?: string;
+      };
+      if (!setResult.success) {
+        setOpenRouterError(setResult.error || "Save failed");
+        return;
+      }
+      setOpenRouterConfigured(!!trimmed);
+      setOpenRouterSaved(true);
+      setTimeout(() => setOpenRouterSaved(false), 3000);
+    } finally {
+      setIsSavingOpenRouter(false);
+    }
+  };
+
+  const handleRefreshFreeModels = async () => {
+    setIsLoadingModels(true);
+    setModelsLoadError(null);
+    try {
+      const result = (await window.api.openrouter.listFreeModels()) as {
+        success: boolean;
+        data?: Array<{ id: string; name: string; contextLength: number }>;
+        error?: string;
+      };
+      if (result.success && Array.isArray(result.data)) {
+        setFreeModels(result.data);
+      } else {
+        setModelsLoadError(result.error || "Failed to load models");
+      }
+    } finally {
+      setIsLoadingModels(false);
     }
   };
 
@@ -1894,6 +1979,184 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* AI Models — provider routing and per-feature model selection.
+                Lets users mix Claude (default) with OpenRouter free or paid
+                models. The sidecar router in services/anthropic.ts dispatches
+                based on the model id prefix (claude-* → Anthropic SDK,
+                everything else → OpenRouter chat-completions). */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                  AI Models
+                </h4>
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
+                  Active
+                </span>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Pick which model handles each AI feature. Anthropic models go through your
+                Anthropic key; OpenRouter models go through OpenRouter. Free OpenRouter models
+                cost $0 but are rate-limited and may be slower.
+              </p>
+
+              {/* OpenRouter API Key */}
+              <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  OpenRouter API Key
+                </h5>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Optional. Required only if you want to route any feature through OpenRouter.
+                  Get one at{" "}
+                  <span className="font-mono text-xs">https://openrouter.ai/keys</span>.
+                  {openRouterConfigured && (
+                    <span className="ml-1 text-green-700 dark:text-green-400">
+                      A key is currently configured.
+                    </span>
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={openRouterApiKey}
+                    onChange={(e) => setOpenRouterApiKey(e.target.value)}
+                    placeholder="sk-or-..."
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
+                  />
+                  <button
+                    onClick={handleSaveOpenRouterKey}
+                    disabled={isSavingOpenRouter}
+                    className={`px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${
+                      openRouterSaved
+                        ? "bg-green-600 dark:bg-green-500"
+                        : "bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600"
+                    }`}
+                  >
+                    {isSavingOpenRouter
+                      ? "Saving..."
+                      : openRouterSaved
+                        ? "Saved"
+                        : "Save"}
+                  </button>
+                </div>
+                {openRouterError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                    {openRouterError}
+                  </p>
+                )}
+              </div>
+
+              {/* Free model loader */}
+              <div className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      OpenRouter free models
+                    </h5>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {freeModels.length > 0
+                        ? `Loaded ${freeModels.length} free model${
+                            freeModels.length === 1 ? "" : "s"
+                          }.`
+                        : "Click refresh to load the current free-tier catalogue."}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleRefreshFreeModels}
+                    disabled={isLoadingModels}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                  >
+                    {isLoadingModels ? "Loading..." : "Refresh free models"}
+                  </button>
+                </div>
+                {modelsLoadError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                    {modelsLoadError}
+                  </p>
+                )}
+              </div>
+
+              {/* Per-task model picker — Anthropic + free OpenRouter list */}
+              <div>
+                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Per-feature models
+                </h5>
+                <div className="space-y-3">
+                  {(
+                    [
+                      {
+                        key: "analysis" as const,
+                        label: "Email Analysis",
+                        description: "Triaging which emails need replies",
+                      },
+                      {
+                        key: "drafts" as const,
+                        label: "Draft Generation",
+                        description: "Writing reply drafts",
+                      },
+                      {
+                        key: "summary" as const,
+                        label: "Thread Summary",
+                        description: "Multi-message thread summaries (wired)",
+                      },
+                      {
+                        key: "archiveReady" as const,
+                        label: "Archive-Ready Analysis",
+                        description: "Detecting completed conversations",
+                      },
+                    ] as const
+                  ).map(({ key, label, description }) => (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                    >
+                      <div className="flex-1 min-w-0 mr-4">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {label}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {description}
+                        </p>
+                      </div>
+                      <select
+                        value={modelConfig[key]}
+                        onChange={async (e) => {
+                          const next = e.target.value;
+                          const updated = { ...modelConfig, [key]: next };
+                          setModelConfig(updated);
+                          await window.api.settings.set({ modelConfig: updated });
+                          queryClient.invalidateQueries({ queryKey: ["general-config"] });
+                        }}
+                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-[300px]"
+                      >
+                        <optgroup label="Anthropic">
+                          {ANTHROPIC_MODEL_OPTIONS.map((opt) => (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {freeModels.length > 0 && (
+                          <optgroup label="OpenRouter (free)">
+                            {freeModels.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                  Today only Thread Summary is wired through this picker. Email Analysis,
+                  Draft Generation, and Archive-Ready Analysis still use hardcoded models pending
+                  a separate migration; the dropdown saves your preference but won&apos;t take
+                  effect for those features yet.
+                </p>
+              </div>
             </div>
 
             {/* Browser Automation */}
