@@ -105,6 +105,30 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    anthropicPing: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("anthropic.ping", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    anthropicHasApiKey: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("anthropic.hasApiKey", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    anthropicSetApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("anthropic.setApiKey", { apiKey });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // theme — preference persistence in the sidecar; resolved value

@@ -20,6 +20,7 @@ import { registerSplitsMethods } from "./methods/splits.js";
 import { registerSnoozeMethods } from "./methods/snooze.js";
 import { registerSenderMethods } from "./methods/sender.js";
 import { registerSearchMethods } from "./methods/search.js";
+import { registerAnthropicMethods } from "./methods/anthropic.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -39,6 +40,7 @@ registerSplitsMethods();
 registerSnoozeMethods();
 registerSenderMethods();
 registerSearchMethods();
+registerAnthropicMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });
