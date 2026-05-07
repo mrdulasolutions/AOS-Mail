@@ -12,6 +12,7 @@
 
 use tauri::Manager;
 
+mod menu;
 mod sidecar;
 
 #[cfg(target_os = "macos")]
@@ -62,12 +63,18 @@ pub fn run() {
             let handle = sidecar::SidecarHandle::spawn(app.handle().clone())?;
             app.manage(handle);
 
+            // Native menu bar — standard Mac chrome with custom IDs that
+            // emit Tauri events the renderer subscribes to.
+            let menu_bar = menu::build_menu(app)?;
+            app.set_menu(menu_bar)?;
+
             // Window polish: macOS vibrancy, fallback no-op elsewhere.
             if let Some(window) = app.get_webview_window("main") {
                 apply_macos_vibrancy(&window)?;
             }
             Ok(())
         })
+        .on_menu_event(menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![ping, sidecar_request])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
