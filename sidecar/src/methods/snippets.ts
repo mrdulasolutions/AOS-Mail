@@ -7,10 +7,6 @@
 // snippets.json with atomic-rename safety.
 //
 // CRUD methods (get-all / save / create / update / delete) lift cleanly.
-// The two Superhuman-import methods (discover-superhuman, import-
-// superhuman) depend on src/main/services/superhuman-import.ts, a
-// 200-line filesystem scanner. They're stubbed with clear error
-// responses for now — niche feature, low priority for V1.
 
 import { randomUUID } from "node:crypto";
 import { registerMethod } from "../rpc.js";
@@ -90,14 +86,5 @@ export function registerSnippetsMethods(): void {
     });
     if (!removed) throw new Error(`snippets.delete: id ${id} not found`);
     return { id };
-  });
-
-  // Superhuman import methods are stubbed — niche feature, defer until
-  // we lift the superhuman-import service.
-  registerMethod("snippets.discoverSuperhuman", () => {
-    throw new Error("snippets.discoverSuperhuman: not yet lifted into sidecar");
-  });
-  registerMethod("snippets.importSuperhuman", () => {
-    throw new Error("snippets.importSuperhuman: not yet lifted into sidecar");
   });
 }

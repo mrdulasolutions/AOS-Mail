@@ -1,9 +1,7 @@
 // `splits` IPC namespace — user-defined inbox splits / smart folders.
 //
 // Same shape as snippets: electron-store in the Electron path; sidecar
-// uses the generic openStore() helper. CRUD methods lift cleanly. The
-// two Superhuman-import methods are stubbed until superhuman-import.ts
-// gets ported (same as snippets).
+// uses the generic openStore() helper. CRUD methods lift cleanly.
 
 import { randomUUID } from "node:crypto";
 import { registerMethod } from "../rpc.js";
@@ -77,12 +75,5 @@ export function registerSplitsMethods(): void {
     });
     if (!removed) throw new Error(`splits.delete: id ${id} not found`);
     return { id };
-  });
-
-  registerMethod("splits.discoverSuperhuman", () => {
-    throw new Error("splits.discoverSuperhuman: not yet lifted into sidecar");
-  });
-  registerMethod("splits.importSuperhuman", () => {
-    throw new Error("splits.importSuperhuman: not yet lifted into sidecar");
   });
 }

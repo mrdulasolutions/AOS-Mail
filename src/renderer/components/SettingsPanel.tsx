@@ -31,9 +31,46 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
+// Tab definitions drive both the tab strip render order and the
+// content-panel order below. General is pinned first; the rest are
+// alphabetical by display label. Adding a tab here is a 3-step change:
+//   1. add the id to SettingsTab in store/index.ts
+//   2. add an entry to this array
+//   3. add the matching content panel below in alphabetical order
+const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
+  { id: "general", label: "General" },
+  { id: "accounts", label: "Accounts" },
+  { id: "agents", label: "Agent Tools" },
+  { id: "memories", label: "AI Memories" },
+  { id: "analytics", label: "Analytics" },
+  { id: "calendar", label: "Calendar" },
+  { id: "assistant", label: "Executive Assistant" },
+  { id: "extensions", label: "Extensions" },
+  { id: "prompts", label: "Prompts" },
+  { id: "queue", label: "Queue" },
+  { id: "signatures", label: "Signatures" },
+  { id: "snippets", label: "Snippets" },
+  { id: "splits", label: "Splits" },
+  { id: "style", label: "Writing Style" },
+];
+
 export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "general");
+
+  // Per-tab button refs so we can scroll the active one into view when the
+  // strip wraps onto multiple rows on narrow windows. Keyed by SettingsTab
+  // id; React assigns nulls on unmount but we only read on the active id.
+  const tabButtonRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
+  useEffect(() => {
+    const el = tabButtonRefs.current[activeTab];
+    if (el) {
+      // `inline: "center"` keeps the active tab centered in the strip if it
+      // also overflows horizontally (e.g. browser zoom). `block: "nearest"`
+      // avoids forcing the page to scroll vertically.
+      el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    }
+  }, [activeTab]);
 
   // Account management state
   const {
@@ -732,165 +769,39 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
       {/* Tabs */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex space-x-1 p-2">
-          <button
-            onClick={() => setActiveTab("general")}
-            data-active={activeTab === "general" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "general"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            General
-          </button>
-          <button
-            onClick={() => setActiveTab("accounts")}
-            data-active={activeTab === "accounts" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "accounts"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Accounts
-          </button>
-          <button
-            onClick={() => setActiveTab("calendar")}
-            data-active={activeTab === "calendar" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "calendar"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Calendar
-          </button>
-          <button
-            onClick={() => setActiveTab("splits")}
-            data-active={activeTab === "splits" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "splits"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Splits
-          </button>
-          <button
-            onClick={() => setActiveTab("snippets")}
-            data-active={activeTab === "snippets" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "snippets"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Snippets
-          </button>
-          <button
-            onClick={() => setActiveTab("signatures")}
-            data-active={activeTab === "signatures" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "signatures"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Signatures
-          </button>
-          <button
-            onClick={() => setActiveTab("prompts")}
-            data-active={activeTab === "prompts" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "prompts"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Prompts
-          </button>
-          <button
-            onClick={() => setActiveTab("style")}
-            data-active={activeTab === "style" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "style"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Writing Style
-          </button>
-          <button
-            onClick={() => setActiveTab("assistant")}
-            data-active={activeTab === "assistant" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "assistant"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Executive Assistant
-          </button>
-          <button
-            onClick={() => setActiveTab("memories")}
-            data-active={activeTab === "memories" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "memories"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            AI Memories
-          </button>
-          <button
-            onClick={() => setActiveTab("queue")}
-            data-active={activeTab === "queue" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "queue"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Queue
-            {prefetchProgress.status === "running" && (
-              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-blue-600 dark:bg-blue-500 rounded-full">
-                {prefetchProgress.queueLength}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("agents")}
-            data-active={activeTab === "agents" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "agents"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Agent Tools
-          </button>
-          <button
-            onClick={() => setActiveTab("extensions")}
-            data-active={activeTab === "extensions" ? "true" : undefined}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "extensions"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Extensions
-          </button>
-          <button
-            onClick={() => setActiveTab("analytics")}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === "analytics"
-                ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            Analytics
-          </button>
+        {/*
+          Tab strip: General is pinned first; the rest are alphabetical by
+          display label. The strip wraps onto multiple rows on narrow windows
+          (`flex-wrap`) so no tab gets clipped off the right edge. The active
+          tab auto-scrolls into view when changed via the ref-attaching map
+          below — useful when wrap pushes it out of the visible row.
+        */}
+        <div className="flex flex-wrap gap-1 p-2">
+          {SETTINGS_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  tabButtonRefs.current[tab.id] = el;
+                }}
+                onClick={() => setActiveTab(tab.id)}
+                data-active={isActive ? "true" : undefined}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                  isActive
+                    ? "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+              >
+                {tab.label}
+                {tab.id === "queue" && prefetchProgress.status === "running" && (
+                  <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-blue-600 dark:bg-blue-500 rounded-full">
+                    {prefetchProgress.queueLength}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1551,924 +1462,6 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Adding an account will open a Google sign-in window. You'll need to authorize AOS Mail to
                 access your emails.
               </p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "calendar" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                Calendar Visibility
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Choose which calendars to show in the sidebar. Only visible calendars will have
-                their events displayed.
-              </p>
-
-              {calendarLoading ? (
-                <p className="text-gray-500 dark:text-gray-400">Loading calendars...</p>
-              ) : calendars.length === 0 ? (
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-600 text-center text-gray-500 dark:text-gray-400">
-                  No calendars found. Calendar sync may not have completed yet.
-                </div>
-              ) : (
-                (() => {
-                  // Group calendars by account
-                  const grouped = new Map<string, typeof calendars>();
-                  for (const cal of calendars) {
-                    const list = grouped.get(cal.accountId) ?? [];
-                    list.push(cal);
-                    grouped.set(cal.accountId, list);
-                  }
-
-                  return Array.from(grouped.entries()).map(([accountId, cals]) => (
-                    <div key={accountId} className="mb-6">
-                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                        {accountEmails[accountId] ?? accountId}
-                      </h3>
-                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700">
-                        {cals.map((cal) => (
-                          <div
-                            key={cal.calendarId}
-                            className="p-4 flex items-center justify-between"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className="w-3 h-3 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: cal.calendarColor ?? "#4285f4" }}
-                              />
-                              <span className="text-gray-900 dark:text-gray-100 text-sm">
-                                {cal.calendarName ?? cal.calendarId}
-                              </span>
-                            </div>
-                            <button
-                              onClick={() =>
-                                handleCalendarVisibility(
-                                  cal.accountId,
-                                  cal.calendarId,
-                                  !cal.visible,
-                                )
-                              }
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                cal.visible
-                                  ? "bg-blue-600 dark:bg-blue-500"
-                                  : "bg-gray-200 dark:bg-gray-700"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  cal.visible ? "translate-x-6" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ));
-                })()
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "splits" && (
-          <div className="max-w-3xl">
-            <SplitConfigEditor />
-          </div>
-        )}
-
-        {activeTab === "snippets" && (
-          <div className="max-w-3xl">
-            <SnippetsEditor />
-          </div>
-        )}
-
-        {activeTab === "signatures" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                Email Signatures
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Create and manage email signatures. The default signature is automatically appended
-                when composing new emails.
-              </p>
-
-              {/* AOS Mail branding toggle */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4 mb-6">
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showAOSMailBranding}
-                    onChange={(e) => handleToggleAOSMailBranding(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      Show &quot;Sent by AOS Mail&quot; branding
-                    </span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Appends a small &quot;Sent by AOS Mail&quot; line after your signature.
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              {/* Signature list */}
-              {!editingSignature && (
-                <>
-                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700 mb-6">
-                    {signatures.length === 0 ? (
-                      <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                        No signatures yet. Click "Add Signature" to create one.
-                      </div>
-                    ) : (
-                      signatures.map((sig) => (
-                        <div key={sig.id} className="p-4 flex items-center justify-between">
-                          <div className="flex items-center space-x-3 min-w-0">
-                            <div className="min-w-0">
-                              <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
-                                {sig.name || "Untitled"}
-                              </div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                                {sig.isDefault && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300">
-                                    Default
-                                  </span>
-                                )}
-                                {sig.accountId && (
-                                  <span className="text-xs">
-                                    {accounts.find((a) => a.id === sig.accountId)?.email ??
-                                      sig.accountId}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2 flex-shrink-0">
-                            <button
-                              onClick={() => setEditingSignature(sig)}
-                              className="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteSignature(sig.id)}
-                              className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                              title="Delete signature"
-                            >
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <button
-                    onClick={handleAddSignature}
-                    className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
-                  >
-                    + Add Signature
-                  </button>
-                </>
-              )}
-
-              {/* Signature editor */}
-              {editingSignature && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Signature Name
-                    </label>
-                    <input
-                      type="text"
-                      value={editingSignature.name}
-                      onChange={(e) =>
-                        setEditingSignature({ ...editingSignature, name: e.target.value })
-                      }
-                      placeholder="e.g., Work, Personal"
-                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Signature Content (HTML)
-                    </label>
-                    <textarea
-                      value={editingSignature.bodyHtml}
-                      onChange={(e) =>
-                        setEditingSignature({ ...editingSignature, bodyHtml: e.target.value })
-                      }
-                      rows={8}
-                      placeholder="<p>Best regards,<br>Your Name</p>"
-                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      You can use HTML tags for formatting (e.g., &lt;b&gt;, &lt;i&gt;, &lt;a
-                      href="..."&gt;).
-                    </p>
-                  </div>
-
-                  {/* Preview */}
-                  {editingSignature.bodyHtml.trim() && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Preview
-                      </label>
-                      <div
-                        className="p-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm"
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(editingSignature.bodyHtml),
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {accounts.length > 1 && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Account (optional)
-                      </label>
-                      <select
-                        value={editingSignature.accountId ?? ""}
-                        onChange={(e) =>
-                          setEditingSignature({
-                            ...editingSignature,
-                            accountId: e.target.value || undefined,
-                          })
-                        }
-                        className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                      >
-                        <option value="">All accounts (global)</option>
-                        {accounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.email}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Restrict this signature to a specific account, or leave as global.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={() =>
-                        setEditingSignature({
-                          ...editingSignature,
-                          isDefault: !editingSignature.isDefault,
-                        })
-                      }
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        editingSignature.isDefault
-                          ? "bg-blue-600 dark:bg-blue-500"
-                          : "bg-gray-200 dark:bg-gray-700"
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          editingSignature.isDefault ? "translate-x-6" : "translate-x-1"
-                        }`}
-                      />
-                    </button>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Set as default signature
-                    </span>
-                  </div>
-
-                  <div className="flex justify-end space-x-3 pt-2">
-                    <button
-                      onClick={() => setEditingSignature(null)}
-                      className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => handleSaveSignature(editingSignature)}
-                      disabled={isSavingSignatures || !editingSignature.name.trim()}
-                      className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
-                    >
-                      {isSavingSignatures ? "Saving..." : "Save Signature"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "prompts" && (
-          <div className="max-w-3xl space-y-6">
-            {isLoading ? (
-              <p className="text-gray-500 dark:text-gray-400">Loading settings...</p>
-            ) : (
-              <>
-                {/* Analysis Prompt */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Analysis Prompt
-                    </label>
-                    <button
-                      onClick={handleResetAnalysis}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
-                    >
-                      Reset to Default
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    Each email is categorized as SKIP (no reply), or HIGH / MEDIUM / LOW priority.
-                    Customize the rules below to control how emails are triaged. The required output
-                    format is handled automatically.
-                  </p>
-                  <textarea
-                    value={analysisPrompt}
-                    onChange={(e) => setAnalysisPrompt(e.target.value)}
-                    rows={12}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                  />
-                </div>
-
-                {/* Agent Drafter System Prompt */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Agent System Prompt
-                    </label>
-                    <button
-                      onClick={handleResetAgentDrafter}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
-                    >
-                      Reset to Default
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    System prompt for the AI agent that drafts replies. The agent can look up
-                    senders online, search your email history, and use other tools to gather context
-                    before writing the draft.
-                  </p>
-                  <textarea
-                    value={agentDrafterPrompt}
-                    onChange={(e) => setAgentDrafterPrompt(e.target.value)}
-                    rows={10}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                  />
-                  <div className="mt-3 flex items-center gap-3">
-                    <button
-                      onClick={async () => {
-                        setIsRerunningAll(true);
-                        setRerunResult(null);
-                        try {
-                          const result = (await window.api.drafts.rerunAllAgents()) as {
-                            success: boolean;
-                            data?: { clearedCount: number };
-                            error?: string;
-                          };
-                          if (result.success) {
-                            // Clear pending drafts from the store in a single atomic update
-                            // (not via buffered prompts:changed which races with agent:draft-saved)
-                            useAppStore.setState((state) => ({
-                              emails: state.emails.map((e) =>
-                                e.draft?.status === "pending" ? { ...e, draft: undefined } : e,
-                              ),
-                            }));
-                            setRerunResult(
-                              `Cleared ${result.data?.clearedCount ?? 0} drafts. Regeneration started.`,
-                            );
-                          } else {
-                            setRerunResult(`Error: ${result.error}`);
-                          }
-                        } catch (err) {
-                          setRerunResult(
-                            `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
-                          );
-                        } finally {
-                          setIsRerunningAll(false);
-                        }
-                      }}
-                      disabled={isRerunningAll}
-                      className="px-4 py-1.5 bg-orange-500 dark:bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-600 dark:hover:bg-orange-700 transition-colors disabled:opacity-50"
-                    >
-                      {isRerunningAll ? "Rerunning..." : "Rerun All Drafts"}
-                    </button>
-                    {rerunResult && (
-                      <p
-                        className={`text-sm ${rerunResult.startsWith("Error") ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
-                      >
-                        {rerunResult}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Draft Writing Prompt */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Draft Writing Prompt
-                    </label>
-                    <button
-                      onClick={handleResetDraft}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
-                    >
-                      Reset to Default
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    Used by the agent in the final step when it writes the actual reply text.
-                    Controls tone, structure, and style of the generated email. The output format is
-                    handled automatically.
-                  </p>
-                  <textarea
-                    value={draftPrompt}
-                    onChange={(e) => setDraftPrompt(e.target.value)}
-                    rows={8}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                  />
-                </div>
-
-                {/* Archive Ready Prompt */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Archive Ready Prompt
-                    </label>
-                    <button
-                      onClick={handleResetArchiveReady}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
-                    >
-                      Reset to Default
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    Each thread is classified as READY or NOT READY to archive. Customize the rules
-                    below to control what gets surfaced for archiving. The required output format is
-                    handled automatically.
-                  </p>
-                  <textarea
-                    value={archiveReadyPrompt}
-                    onChange={(e) => setArchiveReadyPrompt(e.target.value)}
-                    rows={12}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                  />
-                </div>
-
-                {/* Save button */}
-                <div className="flex items-center justify-end gap-3">
-                  {saveResult && (
-                    <p className="text-sm text-green-600 dark:text-green-400">{saveResult}</p>
-                  )}
-                  <button
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
-                  >
-                    {isSaving ? "Saving..." : "Save Changes"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {activeTab === "style" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                Writing Style
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Drafts automatically include examples of your past emails to this recipient (or
-                similar recipients) so the AI can match your tone and formality. No manual indexing
-                needed — it works from your synced sent emails.
-              </p>
-
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
-                  How it works:
-                </h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 list-decimal list-inside">
-                  <li>
-                    Finds sent emails to this recipient (or same domain, or similar formality)
-                  </li>
-                  <li>Includes 2-3 examples as few-shot context for the AI</li>
-                  <li>Computes a formality score per correspondent (greeting, sign-off, length)</li>
-                  <li>Your style prompt below guides how the AI uses these examples</li>
-                </ol>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Style Prompt
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleInferStyle}
-                      disabled={isInferring}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-                    >
-                      {isInferring ? "Analyzing..." : "Learn My Style"}
-                    </button>
-                    <button
-                      onClick={handleResetStylePrompt}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Reset to default
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  value={stylePrompt}
-                  onChange={(e) => setStylePrompt(e.target.value)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Describe your writing style..."
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  This prompt is prepended to your draft generation when style examples are
-                  available. It tells the AI how to interpret the examples of your past emails.
-                </p>
-                {inferError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{inferError}</p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 mt-4">
-                <button
-                  onClick={handleSaveStylePrompt}
-                  disabled={isSavingStyle}
-                  className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
-                >
-                  {isSavingStyle ? "Saving..." : "Save Style Prompt"}
-                </button>
-                {styleSaved && <p className="text-sm text-green-600 dark:text-green-400">Saved.</p>}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "assistant" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                Executive Assistant Integration
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                When enabled, AOS Mail will automatically CC your executive assistant on emails that
-                involve scheduling or calendar coordination. This lets your assistant handle
-                scheduling while you focus on the content of your response.
-              </p>
-
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
-                  How it works:
-                </h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 list-decimal list-inside">
-                  <li>When you generate a draft, AOS Mail detects scheduling language</li>
-                  <li>If scheduling is detected, your EA is automatically added to the CC</li>
-                  <li>The draft includes a note deferring scheduling to your EA</li>
-                  <li>Your EA can then coordinate directly with the sender</li>
-                </ol>
-              </div>
-
-              {/* Enable toggle */}
-              <div className="flex items-center space-x-3 mb-6">
-                <button
-                  onClick={() => setEaEnabled(!eaEnabled)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    eaEnabled ? "bg-blue-600 dark:bg-blue-500" : "bg-gray-200 dark:bg-gray-700"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      eaEnabled ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Enable EA integration for scheduling
-                </span>
-              </div>
-
-              {/* EA Details */}
-              {eaEnabled && (
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      EA Name
-                    </label>
-                    <input
-                      type="text"
-                      value={eaName}
-                      onChange={(e) => setEaName(e.target.value)}
-                      placeholder="e.g., Sarah"
-                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      This name will be used in the deferral message.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      EA Email
-                    </label>
-                    <input
-                      type="email"
-                      value={eaEmail}
-                      onChange={(e) => setEaEmail(e.target.value)}
-                      placeholder="e.g., sarah@company.com"
-                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Your EA will be CC'd on scheduling-related emails.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Save button */}
-              {eaError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{eaError}</p>}
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSaveEA}
-                  disabled={isSavingEA || eaSaved}
-                  className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
-                >
-                  {isSavingEA ? "Saving..." : eaSaved ? "Saved!" : "Save Changes"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "memories" && (
-          <MemoriesTab
-            accountId={
-              currentAccountId ||
-              accounts.find((a) => a.isPrimary)?.id ||
-              accounts[0]?.id ||
-              "default"
-            }
-            highlightMemoryIds={highlightMemoryIds}
-          />
-        )}
-
-        {activeTab === "queue" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                Background Processing Queue
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Monitor the background processing of email analysis, sender lookups, and draft
-                generation.
-              </p>
-
-              {/* Status indicator */}
-              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-3 h-3 rounded-full ${
-                        prefetchProgress.status === "running"
-                          ? "bg-green-500 animate-pulse"
-                          : prefetchProgress.status === "error"
-                            ? "bg-red-500"
-                            : "bg-gray-400 dark:bg-gray-500"
-                      }`}
-                    />
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
-                      {prefetchProgress.status === "running"
-                        ? "Processing"
-                        : prefetchProgress.status === "error"
-                          ? "Error"
-                          : "Idle"}
-                    </span>
-                  </div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {prefetchProgress.queueLength} items in queue
-                  </span>
-                </div>
-
-                {/* Current task */}
-                {prefetchProgress.currentTask && (
-                  <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg mb-4">
-                    <div className="flex items-center space-x-2">
-                      <svg
-                        className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        />
-                      </svg>
-                      <span className="text-sm text-blue-800 dark:text-blue-300">
-                        <span className="font-medium capitalize">
-                          {prefetchProgress.currentTask.type.replace("-", " ")}
-                        </span>
-                        <span className="text-blue-600 dark:text-blue-400 ml-2 font-mono text-xs">
-                          {prefetchProgress.currentTask.emailId.slice(0, 8)}...
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Progress bars */}
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-300">Analysis</span>
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">
-                        {prefetchProgress.processed.analysis}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(prefetchProgress.processed.analysis, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-300">Sender Profiles</span>
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">
-                        {prefetchProgress.processed.senderProfile}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-purple-600 dark:bg-purple-500 h-2 rounded-full transition-all duration-300"
-                        style={{
-                          width: `${Math.min(prefetchProgress.processed.senderProfile, 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-300">
-                        Extension Enrichments
-                      </span>
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">
-                        {prefetchProgress.processed.extensionEnrichment}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-green-600 dark:bg-green-500 h-2 rounded-full transition-all duration-300"
-                        style={{
-                          width: `${Math.min(prefetchProgress.processed.extensionEnrichment, 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-300">Drafts</span>
-                      <span className="text-gray-900 dark:text-gray-100 font-medium">
-                        {prefetchProgress.processed.draft}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-amber-600 dark:bg-amber-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(prefetchProgress.processed.draft, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Agent Draft Queue */}
-              {prefetchProgress.agentDrafts &&
-                (prefetchProgress.agentDrafts.running > 0 ||
-                  prefetchProgress.agentDrafts.queued > 0 ||
-                  prefetchProgress.agentDrafts.completed > 0) && (
-                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-                    <h5 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
-                      Agent Draft Queue
-                    </h5>
-                    <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400 mb-3">
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                        {prefetchProgress.agentDrafts.running} running
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-gray-400" />
-                        {prefetchProgress.agentDrafts.queued} queued
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        {prefetchProgress.agentDrafts.completed} done
-                      </span>
-                      {prefetchProgress.agentDrafts.failed > 0 && (
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-red-500" />
-                          {prefetchProgress.agentDrafts.failed} failed
-                        </span>
-                      )}
-                    </div>
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                      {prefetchProgress.agentDrafts.items.map((item) => (
-                        <div
-                          key={item.emailId}
-                          className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-gray-50 dark:bg-gray-700/50"
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              item.status === "running"
-                                ? "bg-blue-500 animate-pulse"
-                                : item.status === "queued"
-                                  ? "bg-gray-400"
-                                  : item.status === "completed"
-                                    ? "bg-green-500"
-                                    : "bg-red-500"
-                            }`}
-                          />
-                          <span className="truncate flex-1 text-gray-700 dark:text-gray-300">
-                            {item.subject}
-                          </span>
-                          <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">
-                            {
-                              item.from
-                                .replace(/<[^>]+>/, "")
-                                .trim()
-                                .split(" ")[0]
-                            }
-                          </span>
-                          <span
-                            className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              item.priority === "high"
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                : item.priority === "medium"
-                                  ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                                  : "bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300"
-                            }`}
-                          >
-                            {item.priority}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              {/* Info box */}
-              <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg text-sm text-gray-700 dark:text-gray-300">
-                <p className="font-medium mb-2">How it works:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>
-                    <strong>Analysis:</strong> Determines if emails need a reply and their priority
-                  </li>
-                  <li>
-                    <strong>Sender Profiles:</strong> Looks up sender information for all inbox
-                    emails
-                  </li>
-                  <li>
-                    <strong>Extension Enrichments:</strong> Runs extension plugins to enrich email
-                    data
-                  </li>
-                  <li>
-                    <strong>Drafts:</strong> Agent-mode drafts for prioritized emails (max 3
-                    concurrent)
-                  </li>
-                </ul>
-              </div>
             </div>
           </div>
         )}
@@ -3225,7 +2218,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           </div>
         )}
 
-        {activeTab === "extensions" && <ExtensionsTab />}
+        {activeTab === "memories" && (
+          <MemoriesTab
+            accountId={
+              currentAccountId ||
+              accounts.find((a) => a.isPrimary)?.id ||
+              accounts[0]?.id ||
+              "default"
+            }
+            highlightMemoryIds={highlightMemoryIds}
+          />
+        )}
 
         {activeTab === "analytics" && (
           <div className="max-w-3xl space-y-6">
@@ -3347,6 +2350,935 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             <UsageCostSection />
           </div>
         )}
+
+        {activeTab === "calendar" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Calendar Visibility
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Choose which calendars to show in the sidebar. Only visible calendars will have
+                their events displayed.
+              </p>
+
+              {calendarLoading ? (
+                <p className="text-gray-500 dark:text-gray-400">Loading calendars...</p>
+              ) : calendars.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-600 text-center text-gray-500 dark:text-gray-400">
+                  No calendars found. Calendar sync may not have completed yet.
+                </div>
+              ) : (
+                (() => {
+                  // Group calendars by account
+                  const grouped = new Map<string, typeof calendars>();
+                  for (const cal of calendars) {
+                    const list = grouped.get(cal.accountId) ?? [];
+                    list.push(cal);
+                    grouped.set(cal.accountId, list);
+                  }
+
+                  return Array.from(grouped.entries()).map(([accountId, cals]) => (
+                    <div key={accountId} className="mb-6">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                        {accountEmails[accountId] ?? accountId}
+                      </h3>
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700">
+                        {cals.map((cal) => (
+                          <div
+                            key={cal.calendarId}
+                            className="p-4 flex items-center justify-between"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div
+                                className="w-3 h-3 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: cal.calendarColor ?? "#4285f4" }}
+                              />
+                              <span className="text-gray-900 dark:text-gray-100 text-sm">
+                                {cal.calendarName ?? cal.calendarId}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() =>
+                                handleCalendarVisibility(
+                                  cal.accountId,
+                                  cal.calendarId,
+                                  !cal.visible,
+                                )
+                              }
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                cal.visible
+                                  ? "bg-blue-600 dark:bg-blue-500"
+                                  : "bg-gray-200 dark:bg-gray-700"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  cal.visible ? "translate-x-6" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "assistant" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Executive Assistant Integration
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                When enabled, AOS Mail will automatically CC your executive assistant on emails that
+                involve scheduling or calendar coordination. This lets your assistant handle
+                scheduling while you focus on the content of your response.
+              </p>
+
+              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
+                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
+                  How it works:
+                </h3>
+                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 list-decimal list-inside">
+                  <li>When you generate a draft, AOS Mail detects scheduling language</li>
+                  <li>If scheduling is detected, your EA is automatically added to the CC</li>
+                  <li>The draft includes a note deferring scheduling to your EA</li>
+                  <li>Your EA can then coordinate directly with the sender</li>
+                </ol>
+              </div>
+
+              {/* Enable toggle */}
+              <div className="flex items-center space-x-3 mb-6">
+                <button
+                  onClick={() => setEaEnabled(!eaEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    eaEnabled ? "bg-blue-600 dark:bg-blue-500" : "bg-gray-200 dark:bg-gray-700"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      eaEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Enable EA integration for scheduling
+                </span>
+              </div>
+
+              {/* EA Details */}
+              {eaEnabled && (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      EA Name
+                    </label>
+                    <input
+                      type="text"
+                      value={eaName}
+                      onChange={(e) => setEaName(e.target.value)}
+                      placeholder="e.g., Sarah"
+                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      This name will be used in the deferral message.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      EA Email
+                    </label>
+                    <input
+                      type="email"
+                      value={eaEmail}
+                      onChange={(e) => setEaEmail(e.target.value)}
+                      placeholder="e.g., sarah@company.com"
+                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Your EA will be CC'd on scheduling-related emails.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Save button */}
+              {eaError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{eaError}</p>}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSaveEA}
+                  disabled={isSavingEA || eaSaved}
+                  className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                >
+                  {isSavingEA ? "Saving..." : eaSaved ? "Saved!" : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "extensions" && <ExtensionsTab />}
+
+        {activeTab === "prompts" && (
+          <div className="max-w-3xl space-y-6">
+            {isLoading ? (
+              <p className="text-gray-500 dark:text-gray-400">Loading settings...</p>
+            ) : (
+              <>
+                {/* Analysis Prompt */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Analysis Prompt
+                    </label>
+                    <button
+                      onClick={handleResetAnalysis}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Each email is categorized as SKIP (no reply), or HIGH / MEDIUM / LOW priority.
+                    Customize the rules below to control how emails are triaged. The required output
+                    format is handled automatically.
+                  </p>
+                  <textarea
+                    value={analysisPrompt}
+                    onChange={(e) => setAnalysisPrompt(e.target.value)}
+                    rows={12}
+                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+
+                {/* Agent Drafter System Prompt */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Agent System Prompt
+                    </label>
+                    <button
+                      onClick={handleResetAgentDrafter}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    System prompt for the AI agent that drafts replies. The agent can look up
+                    senders online, search your email history, and use other tools to gather context
+                    before writing the draft.
+                  </p>
+                  <textarea
+                    value={agentDrafterPrompt}
+                    onChange={(e) => setAgentDrafterPrompt(e.target.value)}
+                    rows={10}
+                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                  />
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      onClick={async () => {
+                        setIsRerunningAll(true);
+                        setRerunResult(null);
+                        try {
+                          const result = (await window.api.drafts.rerunAllAgents()) as {
+                            success: boolean;
+                            data?: { clearedCount: number };
+                            error?: string;
+                          };
+                          if (result.success) {
+                            // Clear pending drafts from the store in a single atomic update
+                            // (not via buffered prompts:changed which races with agent:draft-saved)
+                            useAppStore.setState((state) => ({
+                              emails: state.emails.map((e) =>
+                                e.draft?.status === "pending" ? { ...e, draft: undefined } : e,
+                              ),
+                            }));
+                            setRerunResult(
+                              `Cleared ${result.data?.clearedCount ?? 0} drafts. Regeneration started.`,
+                            );
+                          } else {
+                            setRerunResult(`Error: ${result.error}`);
+                          }
+                        } catch (err) {
+                          setRerunResult(
+                            `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
+                          );
+                        } finally {
+                          setIsRerunningAll(false);
+                        }
+                      }}
+                      disabled={isRerunningAll}
+                      className="px-4 py-1.5 bg-orange-500 dark:bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-600 dark:hover:bg-orange-700 transition-colors disabled:opacity-50"
+                    >
+                      {isRerunningAll ? "Rerunning..." : "Rerun All Drafts"}
+                    </button>
+                    {rerunResult && (
+                      <p
+                        className={`text-sm ${rerunResult.startsWith("Error") ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
+                      >
+                        {rerunResult}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Draft Writing Prompt */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Draft Writing Prompt
+                    </label>
+                    <button
+                      onClick={handleResetDraft}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Used by the agent in the final step when it writes the actual reply text.
+                    Controls tone, structure, and style of the generated email. The output format is
+                    handled automatically.
+                  </p>
+                  <textarea
+                    value={draftPrompt}
+                    onChange={(e) => setDraftPrompt(e.target.value)}
+                    rows={8}
+                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+
+                {/* Archive Ready Prompt */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Archive Ready Prompt
+                    </label>
+                    <button
+                      onClick={handleResetArchiveReady}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Each thread is classified as READY or NOT READY to archive. Customize the rules
+                    below to control what gets surfaced for archiving. The required output format is
+                    handled automatically.
+                  </p>
+                  <textarea
+                    value={archiveReadyPrompt}
+                    onChange={(e) => setArchiveReadyPrompt(e.target.value)}
+                    rows={12}
+                    className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                  />
+                </div>
+
+                {/* Save button */}
+                <div className="flex items-center justify-end gap-3">
+                  {saveResult && (
+                    <p className="text-sm text-green-600 dark:text-green-400">{saveResult}</p>
+                  )}
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                  >
+                    {isSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeTab === "queue" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Background Processing Queue
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Monitor the background processing of email analysis, sender lookups, and draft
+                generation.
+              </p>
+
+              {/* Status indicator */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div
+                      className={`w-3 h-3 rounded-full ${
+                        prefetchProgress.status === "running"
+                          ? "bg-green-500 animate-pulse"
+                          : prefetchProgress.status === "error"
+                            ? "bg-red-500"
+                            : "bg-gray-400 dark:bg-gray-500"
+                      }`}
+                    />
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {prefetchProgress.status === "running"
+                        ? "Processing"
+                        : prefetchProgress.status === "error"
+                          ? "Error"
+                          : "Idle"}
+                    </span>
+                  </div>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    {prefetchProgress.queueLength} items in queue
+                  </span>
+                </div>
+
+                {/* Current task */}
+                {prefetchProgress.currentTask && (
+                  <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg mb-4">
+                    <div className="flex items-center space-x-2">
+                      <svg
+                        className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span className="text-sm text-blue-800 dark:text-blue-300">
+                        <span className="font-medium capitalize">
+                          {prefetchProgress.currentTask.type.replace("-", " ")}
+                        </span>
+                        <span className="text-blue-600 dark:text-blue-400 ml-2 font-mono text-xs">
+                          {prefetchProgress.currentTask.emailId.slice(0, 8)}...
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress bars */}
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-600 dark:text-gray-300">Analysis</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {prefetchProgress.processed.analysis}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(prefetchProgress.processed.analysis, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-600 dark:text-gray-300">Sender Profiles</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {prefetchProgress.processed.senderProfile}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-purple-600 dark:bg-purple-500 h-2 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(prefetchProgress.processed.senderProfile, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-600 dark:text-gray-300">
+                        Extension Enrichments
+                      </span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {prefetchProgress.processed.extensionEnrichment}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-green-600 dark:bg-green-500 h-2 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(prefetchProgress.processed.extensionEnrichment, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-600 dark:text-gray-300">Drafts</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {prefetchProgress.processed.draft}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-amber-600 dark:bg-amber-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(prefetchProgress.processed.draft, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Agent Draft Queue */}
+              {prefetchProgress.agentDrafts &&
+                (prefetchProgress.agentDrafts.running > 0 ||
+                  prefetchProgress.agentDrafts.queued > 0 ||
+                  prefetchProgress.agentDrafts.completed > 0) && (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
+                    <h5 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+                      Agent Draft Queue
+                    </h5>
+                    <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                        {prefetchProgress.agentDrafts.running} running
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-gray-400" />
+                        {prefetchProgress.agentDrafts.queued} queued
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        {prefetchProgress.agentDrafts.completed} done
+                      </span>
+                      {prefetchProgress.agentDrafts.failed > 0 && (
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          {prefetchProgress.agentDrafts.failed} failed
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {prefetchProgress.agentDrafts.items.map((item) => (
+                        <div
+                          key={item.emailId}
+                          className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-gray-50 dark:bg-gray-700/50"
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                              item.status === "running"
+                                ? "bg-blue-500 animate-pulse"
+                                : item.status === "queued"
+                                  ? "bg-gray-400"
+                                  : item.status === "completed"
+                                    ? "bg-green-500"
+                                    : "bg-red-500"
+                            }`}
+                          />
+                          <span className="truncate flex-1 text-gray-700 dark:text-gray-300">
+                            {item.subject}
+                          </span>
+                          <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            {
+                              item.from
+                                .replace(/<[^>]+>/, "")
+                                .trim()
+                                .split(" ")[0]
+                            }
+                          </span>
+                          <span
+                            className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              item.priority === "high"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                : item.priority === "medium"
+                                  ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                  : "bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300"
+                            }`}
+                          >
+                            {item.priority}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Info box */}
+              <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg text-sm text-gray-700 dark:text-gray-300">
+                <p className="font-medium mb-2">How it works:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>
+                    <strong>Analysis:</strong> Determines if emails need a reply and their priority
+                  </li>
+                  <li>
+                    <strong>Sender Profiles:</strong> Looks up sender information for all inbox
+                    emails
+                  </li>
+                  <li>
+                    <strong>Extension Enrichments:</strong> Runs extension plugins to enrich email
+                    data
+                  </li>
+                  <li>
+                    <strong>Drafts:</strong> Agent-mode drafts for prioritized emails (max 3
+                    concurrent)
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "signatures" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Email Signatures
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Create and manage email signatures. The default signature is automatically appended
+                when composing new emails.
+              </p>
+
+              {/* AOS Mail branding toggle */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4 mb-6">
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAOSMailBranding}
+                    onChange={(e) => handleToggleAOSMailBranding(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      Show &quot;Sent by AOS Mail&quot; branding
+                    </span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Appends a small &quot;Sent by AOS Mail&quot; line after your signature.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Signature list */}
+              {!editingSignature && (
+                <>
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700 mb-6">
+                    {signatures.length === 0 ? (
+                      <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                        No signatures yet. Click "Add Signature" to create one.
+                      </div>
+                    ) : (
+                      signatures.map((sig) => (
+                        <div key={sig.id} className="p-4 flex items-center justify-between">
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <div className="min-w-0">
+                              <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                                {sig.name || "Untitled"}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                                {sig.isDefault && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300">
+                                    Default
+                                  </span>
+                                )}
+                                {sig.accountId && (
+                                  <span className="text-xs">
+                                    {accounts.find((a) => a.id === sig.accountId)?.email ??
+                                      sig.accountId}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 flex-shrink-0">
+                            <button
+                              onClick={() => setEditingSignature(sig)}
+                              className="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSignature(sig.id)}
+                              className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                              title="Delete signature"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleAddSignature}
+                    className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                  >
+                    + Add Signature
+                  </button>
+                </>
+              )}
+
+              {/* Signature editor */}
+              {editingSignature && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Signature Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editingSignature.name}
+                      onChange={(e) =>
+                        setEditingSignature({ ...editingSignature, name: e.target.value })
+                      }
+                      placeholder="e.g., Work, Personal"
+                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Signature Content (HTML)
+                    </label>
+                    <textarea
+                      value={editingSignature.bodyHtml}
+                      onChange={(e) =>
+                        setEditingSignature({ ...editingSignature, bodyHtml: e.target.value })
+                      }
+                      rows={8}
+                      placeholder="<p>Best regards,<br>Your Name</p>"
+                      className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      You can use HTML tags for formatting (e.g., &lt;b&gt;, &lt;i&gt;, &lt;a
+                      href="..."&gt;).
+                    </p>
+                  </div>
+
+                  {/* Preview */}
+                  {editingSignature.bodyHtml.trim() && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Preview
+                      </label>
+                      <div
+                        className="p-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(editingSignature.bodyHtml),
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {accounts.length > 1 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Account (optional)
+                      </label>
+                      <select
+                        value={editingSignature.accountId ?? ""}
+                        onChange={(e) =>
+                          setEditingSignature({
+                            ...editingSignature,
+                            accountId: e.target.value || undefined,
+                          })
+                        }
+                        className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+                      >
+                        <option value="">All accounts (global)</option>
+                        {accounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.email}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Restrict this signature to a specific account, or leave as global.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() =>
+                        setEditingSignature({
+                          ...editingSignature,
+                          isDefault: !editingSignature.isDefault,
+                        })
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        editingSignature.isDefault
+                          ? "bg-blue-600 dark:bg-blue-500"
+                          : "bg-gray-200 dark:bg-gray-700"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          editingSignature.isDefault ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Set as default signature
+                    </span>
+                  </div>
+
+                  <div className="flex justify-end space-x-3 pt-2">
+                    <button
+                      onClick={() => setEditingSignature(null)}
+                      className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleSaveSignature(editingSignature)}
+                      disabled={isSavingSignatures || !editingSignature.name.trim()}
+                      className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                    >
+                      {isSavingSignatures ? "Saving..." : "Save Signature"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "snippets" && (
+          <div className="max-w-3xl">
+            <SnippetsEditor />
+          </div>
+        )}
+
+        {activeTab === "splits" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+                Splits
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                Splits are saved searches that filter the inbox view. Each split matches a
+                set of conditions (sender, subject, label, etc.) and shows up as its own
+                pane so you can triage messages of one kind at a time.
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Common patterns:{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-300">VIPs only</span>{" "}
+                (mail from a hand-picked sender list),{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-300">Newsletters</span>{" "}
+                (anything from <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">noreply@</code>{" "}
+                or marked as a list), or{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-300">From a specific domain</span>{" "}
+                (e.g. <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">*@acme.com</code>).
+              </p>
+            </div>
+            <SplitConfigEditor />
+          </div>
+        )}
+
+        {activeTab === "style" && (
+          <div className="max-w-3xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Writing Style
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Drafts automatically include examples of your past emails to this recipient (or
+                similar recipients) so the AI can match your tone and formality. No manual indexing
+                needed — it works from your synced sent emails.
+              </p>
+
+              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
+                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
+                  How it works:
+                </h3>
+                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 list-decimal list-inside">
+                  <li>
+                    Finds sent emails to this recipient (or same domain, or similar formality)
+                  </li>
+                  <li>Includes 2-3 examples as few-shot context for the AI</li>
+                  <li>Computes a formality score per correspondent (greeting, sign-off, length)</li>
+                  <li>Your style prompt below guides how the AI uses these examples</li>
+                </ol>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Style Prompt
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleInferStyle}
+                      disabled={isInferring}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                    >
+                      {isInferring ? "Analyzing..." : "Learn My Style"}
+                    </button>
+                    <button
+                      onClick={handleResetStylePrompt}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Reset to default
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={stylePrompt}
+                  onChange={(e) => setStylePrompt(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Describe your writing style..."
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  This prompt is prepended to your draft generation when style examples are
+                  available. It tells the AI how to interpret the examples of your past emails.
+                </p>
+                {inferError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{inferError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={handleSaveStylePrompt}
+                  disabled={isSavingStyle}
+                  className="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
+                >
+                  {isSavingStyle ? "Saving..." : "Save Style Prompt"}
+                </button>
+                {styleSaved && <p className="text-sm text-green-600 dark:text-green-400">Saved.</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
