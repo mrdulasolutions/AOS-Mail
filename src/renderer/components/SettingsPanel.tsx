@@ -18,6 +18,7 @@ import {
   type ModelConfig,
   type ModelTier,
   type CliToolConfig,
+  type IpcResponse,
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
 import { reconfigurePostHog, trackEvent } from "../services/posthog";
@@ -25,6 +26,7 @@ import { SplitConfigEditor } from "./SplitConfigEditor";
 import { SnippetsEditor } from "./SnippetsEditor";
 import { MemoriesTab } from "./MemoriesTab";
 import { ExtensionsTab } from "./ExtensionsTab";
+import { AddImapAccount } from "./AddImapAccount";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -90,6 +92,19 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [addAccountPhase, setAddAccountPhase] = useState("Connecting...");
   const [accountError, setAccountError] = useState<string | null>(null);
+  // Gmail credentials modal — opened when user clicks "+ Add Gmail Account"
+  // and we discover the sidecar has no Google client_id/secret yet (the
+  // production bug that surfaced as "Google OAuth credentials not configured").
+  // We collect creds inline, save them, then auto-chain into OAuth.
+  const [showGmailCredsModal, setShowGmailCredsModal] = useState(false);
+  const [gmailClientId, setGmailClientId] = useState("");
+  const [gmailClientSecret, setGmailClientSecret] = useState("");
+  const [gmailCredsError, setGmailCredsError] = useState<string | null>(null);
+  const [savingGmailCreds, setSavingGmailCreds] = useState(false);
+  // IMAP modal — hosts the existing AddImapAccount form (also reused by the
+  // SetupWizard) inside an in-place dialog so users with multiple non-Gmail
+  // mailboxes don't have to reset back through the wizard.
+  const [showImapModal, setShowImapModal] = useState(false);
   const [analysisPrompt, setAnalysisPrompt] = useState("");
   const [draftPrompt, setDraftPrompt] = useState("");
   const [archiveReadyPrompt, setArchiveReadyPrompt] = useState("");
@@ -673,14 +688,37 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     return unsubscribe;
   }, []);
 
-  const handleAddAccount = async () => {
-    // If already authorizing, cancel the current flow and restart
-    if (isAddingAccount) {
-      await window.api.accounts.cancelAdd();
-      // The in-progress add() call will reject with "Authorization cancelled",
-      // which resets isAddingAccount via the finally block. Wait briefly for that.
-      return;
-    }
+  // Reload the accounts table from the sidecar. Called after a successful
+  // Gmail OAuth or IMAP add so the new row is immediately visible without
+  // forcing the user to reload the panel. Uses the same shape App.tsx does.
+  const refreshAccounts = async () => {
+    type AccountRow = {
+      id: string;
+      email: string;
+      displayName?: string;
+      isPrimary: boolean;
+      provider?: string;
+    };
+    const res = (await window.api.accounts.list()) as IpcResponse<AccountRow[]>;
+    if (!res.success || !Array.isArray(res.data)) return;
+    setAccounts(
+      res.data.map((row) => ({
+        id: row.id,
+        email: row.email,
+        displayName: row.displayName,
+        isPrimary: row.isPrimary,
+        // accounts.list doesn't tell us live connectivity — assume connected
+        // for any row in the DB; the sync layer flips this if a token expires.
+        isConnected: true,
+        provider: row.provider ?? "gmail",
+      })),
+    );
+  };
+
+  // Run the Gmail OAuth flow proper. Split out from handleAddAccount so the
+  // credentials modal can chain into it after a saveCredentials() success
+  // without re-entering the hasCredentials gate.
+  const startGmailOAuth = async () => {
     setIsAddingAccount(true);
     setAddAccountPhase("Connecting...");
     setAccountError(null);
@@ -692,9 +730,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           email: result.data.email,
           isPrimary: accounts.length === 0,
           isConnected: result.data.isConnected,
+          provider: "gmail",
         };
         setAccounts([...accounts, newAccount]);
         trackEvent("account_added", { account_count: accounts.length + 1 });
+        // Sidecar truth is authoritative — pull provider + canonical row.
+        await refreshAccounts();
       } else if (!result.cancelled) {
         setAccountError(result.error || "Failed to add account");
       }
@@ -706,6 +747,73 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     } finally {
       setIsAddingAccount(false);
     }
+  };
+
+  const handleAddAccount = async () => {
+    // If already authorizing, cancel the current flow and restart
+    if (isAddingAccount) {
+      await window.api.accounts.cancelAdd();
+      // The in-progress add() call will reject with "Authorization cancelled",
+      // which resets isAddingAccount via the finally block. Wait briefly for that.
+      return;
+    }
+    setAccountError(null);
+    // Production bug: clicking "+ Add Gmail Account" went straight to the
+    // OAuth call which then exploded with "Google OAuth credentials not
+    // configured" — because Settings has no equivalent of the SetupWizard's
+    // first step. Pre-check now and gate behind a credentials modal when
+    // needed; on save we chain straight into OAuth so it's still one click.
+    const credsCheck = (await window.api.gmail.hasCredentials()) as
+      | { success: true; data: { configured: boolean } }
+      | { success: false; error: string };
+    if (credsCheck.success && !credsCheck.data.configured) {
+      setGmailClientId("");
+      setGmailClientSecret("");
+      setGmailCredsError(null);
+      setShowGmailCredsModal(true);
+      return;
+    }
+    // hasCredentials failed entirely — surface the error and bail before
+    // the OAuth attempt fails with the same root cause downstream.
+    if (!credsCheck.success) {
+      setAccountError(credsCheck.error || "Failed to check Google credentials");
+      return;
+    }
+    await startGmailOAuth();
+  };
+
+  const handleSaveGmailCreds = async () => {
+    if (!gmailClientId.trim() || !gmailClientSecret.trim()) {
+      setGmailCredsError("Both Client ID and Client Secret are required");
+      return;
+    }
+    setSavingGmailCreds(true);
+    setGmailCredsError(null);
+    try {
+      const result = (await window.api.gmail.saveCredentials(
+        gmailClientId.trim(),
+        gmailClientSecret.trim(),
+      )) as IpcResponse<unknown>;
+      if (!result.success) {
+        setGmailCredsError(result.error ?? "Failed to save credentials");
+        return;
+      }
+      // Hide the modal first so the OAuth-in-progress UI on the trigger
+      // button takes over without two competing spinners.
+      setShowGmailCredsModal(false);
+      await startGmailOAuth();
+    } finally {
+      setSavingGmailCreds(false);
+    }
+  };
+
+  const handleImapAdded = async (_account: { accountId: string; email: string }) => {
+    setShowImapModal(false);
+    setAccountError(null);
+    // The IMAP path doesn't go through accounts.add — pull the canonical
+    // row list so the new account appears in the table.
+    await refreshAccounts();
+    trackEvent("account_added", { account_count: accounts.length + 1 });
   };
 
   const handleRemoveAccount = async (accountId: string) => {
@@ -1358,8 +1466,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Connected Accounts
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Manage your connected Gmail accounts. You can add multiple accounts and switch
-                between them.
+                Manage your connected mailboxes. AOS Mail supports Gmail (via OAuth) and any
+                IMAP-compatible provider (iCloud, Fastmail, Yahoo, Outlook, AOL, custom).
               </p>
 
               {accountError && (
@@ -1372,96 +1480,264 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700 mb-6">
                 {accounts.length === 0 ? (
                   <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                    No accounts connected. Click "Add Account" to connect your first Gmail account.
+                    No accounts connected yet. Use the buttons below to add a Gmail or IMAP
+                    mailbox.
                   </div>
                 ) : (
-                  accounts.map((account) => (
-                    <div key={account.id} className="p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className={`w-3 h-3 rounded-full ${account.isConnected ? "bg-green-500" : "bg-gray-400 dark:bg-gray-500"}`}
-                        />
-                        <div>
-                          <div className="font-medium text-gray-900 dark:text-gray-100">
-                            {account.email}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {account.isPrimary && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-800/60 text-blue-800 dark:text-blue-200 mr-2">
-                                Primary
+                  accounts.map((account) => {
+                    const provider = account.provider ?? "gmail";
+                    const providerLabel = provider === "imap" ? "IMAP" : "Gmail";
+                    return (
+                      <div key={account.id} className="p-4 flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div
+                            className={`w-3 h-3 rounded-full ${account.isConnected ? "bg-green-500" : "bg-gray-400 dark:bg-gray-500"}`}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900 dark:text-gray-100">
+                                {account.email}
                               </span>
-                            )}
-                            {account.isConnected ? "Connected" : "Disconnected"}
+                              <span
+                                className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide"
+                                title={`Connected via ${providerLabel}`}
+                              >
+                                {providerLabel}
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {account.isPrimary && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-800/60 text-blue-800 dark:text-blue-200 mr-2">
+                                  Primary
+                                </span>
+                              )}
+                              {account.isConnected ? "Connected" : "Disconnected"}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {!account.isPrimary && (
+                        <div className="flex items-center space-x-2">
+                          {!account.isPrimary && (
+                            <button
+                              onClick={() => handleSetPrimary(account.id)}
+                              className="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                            >
+                              Set as Primary
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleSetPrimary(account.id)}
-                            className="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                            onClick={() => handleRemoveAccount(account.id)}
+                            className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                            title="Remove account"
                           >
-                            Set as Primary
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleRemoveAccount(account.id)}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                          title="Remove account"
-                        >
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
-                        </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
-              {/* Add account button */}
-              <button
-                onClick={handleAddAccount}
-                className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
-              >
-                {isAddingAccount ? (
-                  <span className="flex items-center justify-center space-x-2">
-                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      />
-                    </svg>
-                    <span>{addAccountPhase} — Click to cancel</span>
-                  </span>
-                ) : (
-                  "+ Add Gmail Account"
-                )}
-              </button>
+              {/* Add-account buttons — Gmail (OAuth) + IMAP (form) side by side */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={handleAddAccount}
+                  className="py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                >
+                  {isAddingAccount ? (
+                    <span className="flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span>{addAccountPhase} — Click to cancel</span>
+                    </span>
+                  ) : (
+                    "+ Add Gmail Account"
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setAccountError(null);
+                    setShowImapModal(true);
+                  }}
+                  disabled={isAddingAccount}
+                  className="py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  + Add IMAP Account
+                </button>
+              </div>
 
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Adding an account will open a Google sign-in window. You'll need to authorize AOS Mail to
-                access your emails.
+                Gmail uses Google sign-in. IMAP requires the server hostnames + an
+                app-specific password from your provider.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Gmail OAuth credentials modal — only shown when the sidecar
+            reports gmail.hasCredentials() === false on click. Saves and
+            chains straight into accounts.add OAuth on success. */}
+        {showGmailCredsModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+            onClick={() => !savingGmailCreds && setShowGmailCredsModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gmail-creds-title"
+          >
+            <div
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-baseline justify-between mb-2">
+                <h3
+                  id="gmail-creds-title"
+                  className="text-lg font-semibold text-gray-900 dark:text-gray-100"
+                >
+                  Connect Google Cloud
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowGmailCredsModal(false)}
+                  disabled={savingGmailCreds}
+                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                AOS Mail needs OAuth credentials from your own Google Cloud project. They live
+                only on this machine — we never see them.
+              </p>
+
+              <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 rounded-lg p-3 mb-4 text-sm">
+                <div className="font-semibold mb-1">Quick setup</div>
+                <ol className="list-decimal list-inside space-y-0.5">
+                  <li>
+                    Open the{" "}
+                    <a
+                      href="https://console.cloud.google.com/apis/credentials"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:no-underline"
+                    >
+                      Google Cloud Console
+                    </a>
+                  </li>
+                  <li>
+                    Create OAuth 2.0 Client ID → Application type:{" "}
+                    <strong>Desktop app</strong>
+                  </li>
+                  <li>
+                    Add{" "}
+                    <code className="px-1 py-0.5 bg-white/60 dark:bg-black/30 rounded text-xs">
+                      http://localhost:3847/oauth2callback
+                    </code>{" "}
+                    to <em>Authorized redirect URIs</em>
+                  </li>
+                  <li>Copy the Client ID + Secret here</li>
+                </ol>
+              </div>
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Client ID
+                  </label>
+                  <input
+                    type="text"
+                    value={gmailClientId}
+                    onChange={(e) => setGmailClientId(e.target.value)}
+                    placeholder="your-id.apps.googleusercontent.com"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoComplete="off"
+                    spellCheck="false"
+                    disabled={savingGmailCreds}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Client Secret
+                  </label>
+                  <input
+                    type="password"
+                    value={gmailClientSecret}
+                    onChange={(e) => setGmailClientSecret(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !savingGmailCreds) {
+                        void handleSaveGmailCreds();
+                      }
+                    }}
+                    placeholder="GOCSPX-…"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoComplete="off"
+                    disabled={savingGmailCreds}
+                  />
+                </div>
+              </div>
+
+              {gmailCredsError && (
+                <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-3 py-2 rounded-lg mb-3 text-sm">
+                  {gmailCredsError}
+                </div>
+              )}
+
+              <button
+                onClick={() => void handleSaveGmailCreds()}
+                disabled={
+                  savingGmailCreds || !gmailClientId.trim() || !gmailClientSecret.trim()
+                }
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 dark:disabled:bg-blue-900 text-white rounded-lg font-medium transition-colors"
+              >
+                {savingGmailCreds ? "Saving…" : "Save & continue to Google sign-in"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* IMAP add-account modal — wraps the same AddImapAccount form the
+            SetupWizard uses so the two paths can't drift. */}
+        {showImapModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+            onClick={() => setShowImapModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add IMAP account"
+          >
+            <div
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AddImapAccount
+                onCancel={() => setShowImapModal(false)}
+                onComplete={(account) => void handleImapAdded(account)}
+              />
             </div>
           </div>
         )}
