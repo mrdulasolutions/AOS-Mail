@@ -868,7 +868,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
             }`}
           >
-            Agents
+            Agent Tools
           </button>
           <button
             onClick={() => setActiveTab("extensions")}
@@ -2477,18 +2477,35 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                Agent Settings
+                Agent Tools
               </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                AOS Mail runs one inbox agent that triages every new email, looks up senders,
+                and drafts replies in your voice. This tab configures the tools and credentials
+                it can use.
+              </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                Configure AI agent capabilities including browser automation.
+                The agent&apos;s <em>behavior</em> (how it triages, what tone it drafts in) lives
+                in <button
+                  type="button"
+                  onClick={() => setActiveTab("prompts")}
+                  className="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                >
+                  Prompts
+                </button>.
               </p>
             </div>
 
             {/* Authentication */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
-              <h4 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-4">
-                Authentication
-              </h4>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                  Authentication
+                </h4>
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
+                  Active
+                </span>
+              </div>
 
               {/* Anthropic API Key */}
               <div className="mb-6">
@@ -2614,9 +2631,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-                    Browser Automation
-                  </h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                      Browser Automation
+                    </h4>
+                    <span
+                      className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                      title="Settings persist but the inbox agent doesn't drive a browser yet — comes online with the agent SDK lift in V2"
+                    >
+                      Saved · not yet active
+                    </span>
+                  </div>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     Allow agents to browse the web using Chrome DevTools Protocol. Requires Chrome
                     to be running with remote debugging enabled.
@@ -2712,9 +2737,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             {/* Custom MCP Servers */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
               <div className="mb-4">
-                <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-                  Custom MCP Servers
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                    Custom MCP Servers
+                  </h4>
+                  <span
+                    className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                    title="MCP server configs persist; the inbox agent uses Anthropic SDK directly today and gains MCP access when the agent SDK lift ships"
+                  >
+                    Saved · not yet active
+                  </span>
+                </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Add MCP servers to give the agent access to custom tools. Paste the JSON config
                   from your MCP server&apos;s docs.
@@ -2951,9 +2984,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             {/* CLI Tools */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
               <div className="mb-4">
-                <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-                  CLI Tools
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                    CLI Tools
+                  </h4>
+                  <span
+                    className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                    title="CLI tool allowlist persists; the inbox agent doesn't shell out to allow-listed commands yet — comes online with the agent SDK lift"
+                  >
+                    Saved · not yet active
+                  </span>
+                </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Allow the agent to run specific CLI commands. Each command becomes a dedicated
                   tool the agent can call.
@@ -3062,9 +3103,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             {/* Extra PATH Directories */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
               <div className="mb-4">
-                <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-                  Additional Tool Directories
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+                    Additional Tool Directories
+                  </h4>
+                  <span
+                    className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                    title="Persists alongside CLI Tools; both come online together when the agent SDK lift ships"
+                  >
+                    Saved · not yet active
+                  </span>
+                </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Extra directories to add to the system PATH so agents can find CLI tools installed
                   in non-standard locations.
