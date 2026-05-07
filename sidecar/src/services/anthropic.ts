@@ -74,7 +74,7 @@ export function setApiKey(key: string): void {
   // Stored in preferences.json — for production we should escalate to OS
   // Keychain. Note: this is plaintext on disk; ok for V1 dev, not ok for
   // shipping.
-  setPreference("anthropicApiKey" as never, key as never);
+  setPreference("anthropicApiKey", key);
   cachedKey = null;
   cachedClient = null;
 }
@@ -269,6 +269,25 @@ export async function createMessage(
     errMsg,
   );
   throw lastError;
+}
+
+/**
+ * Validate a candidate API key without persisting it. Used by the Settings
+ * UI before calling setApiKey: a quick round-trip surfaces 401s before we
+ * write a bad key to preferences.json.
+ */
+export async function validateApiKey(candidate: string): Promise<void> {
+  const key = candidate.trim();
+  if (!key) throw new Error("API key is empty");
+  const client = new Anthropic({ apiKey: key });
+  // 1-token reply keeps it cheap; we don't care about the content, only
+  // whether the auth handshake succeeds. Errors propagate with their
+  // Anthropic-supplied message (e.g. "invalid x-api-key").
+  await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1,
+    messages: [{ role: "user", content: "ok" }],
+  });
 }
 
 /** Probe call: returns the model's reply to a one-token "Reply with OK". */

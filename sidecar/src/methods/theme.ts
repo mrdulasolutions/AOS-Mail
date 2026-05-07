@@ -28,10 +28,14 @@ function isThemePreference(v: unknown): v is ThemePreference {
   return v === "light" || v === "dark" || v === "system";
 }
 
+function readThemePreference(): ThemePreference {
+  const v = getPreferences().theme;
+  return isThemePreference(v) ? v : "system";
+}
+
 export function registerThemeMethods(): void {
   registerMethod("theme.get", () => {
-    const preference = getPreferences().theme ?? "system";
-    return { preference };
+    return { preference: readThemePreference() };
   });
 
   registerMethod("theme.set", (params) => {
@@ -39,8 +43,8 @@ export function registerThemeMethods(): void {
     if (!isThemePreference(incoming)) {
       throw new Error(`theme.set: invalid preference ${JSON.stringify(incoming)}`);
     }
-    const next = setPreference("theme", incoming);
-    emit("theme:changed", { preference: next.theme ?? "system" });
-    return { preference: next.theme ?? "system" };
+    setPreference("theme", incoming);
+    emit("theme:changed", { preference: incoming });
+    return { preference: incoming };
   });
 }

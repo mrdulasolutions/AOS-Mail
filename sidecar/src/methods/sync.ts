@@ -23,6 +23,9 @@ import {
   listImapAccountIds,
 } from "../services/providers/imap-creds.js";
 import { listAccountIdsWithTokens } from "../services/oauth-gmail.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("sync-method");
 
 interface AccountInfoRow {
   id: string;
@@ -159,10 +162,46 @@ export function registerSyncMethods(): void {
     return getEmailsForAccount(accountId, { sent: true });
   });
 
-  // Renderer batches a body-prefetch after first inbox load. V1 stores
-  // empty bodies (fetched lazily on thread open), so this is a no-op
-  // that returns success so the renderer doesn't surface an error.
-  registerMethod("sync.prefetchBodies", () => ({ ok: true, fetched: 0 }));
+  // Renderer batches a body-prefetch after first inbox load — calls this
+  // with up to ~50 ids per batch. We fetch each via fetchBodyForEmail
+  // (which short-circuits when the body is already populated) and return
+  // [{id, body}, …] so the renderer can buffer the rows into the store.
+  //
+  // Concurrency is capped at 4 — IMAP servers don't like a flood, but
+  // strictly serial would take ~50s for a fresh inbox.
+  // Returns [{id, body}, …] — the renderer maps this directly into store
+  // updates. Empty array if no ids given. One bad message doesn't poison
+  // the batch; failures are logged and that id is simply omitted from the
+  // result, so clicking the email will retry via sync.fetchBody.
+  registerMethod("sync.prefetchBodies", async (params) => {
+    const rawIds = (params as { ids?: string[] })?.ids;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) return [];
+    const ids: string[] = rawIds;
+    const CONCURRENCY = 4;
+    const out: Array<{ id: string; body: string }> = [];
+    let cursor = 0;
+    async function worker(): Promise<void> {
+      while (cursor < ids.length) {
+        const i = cursor++;
+        const id = ids[i];
+        if (typeof id !== "string") continue;
+        try {
+          const row = await fetchBodyForEmail(id);
+          if (row && typeof row.body === "string") {
+            out.push({ id, body: row.body });
+          }
+        } catch (err) {
+          log.warn("prefetchBody skipped", {
+            emailId: id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+    const workers = Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker);
+    await Promise.all(workers);
+    return out;
+  });
 
   // On-demand body fetch — called when the renderer opens a thread.
   // Used by the renderer-side gmail.getEmail shim too, which routes

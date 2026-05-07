@@ -23,9 +23,15 @@ import { createLogger } from "./logger.js";
 
 const log = createLogger("prefs");
 
-export interface Preferences {
-  theme?: "light" | "dark" | "system";
-}
+// Preferences is an open-shape JSON map: callers (anthropic.ts, settings
+// methods, theme methods, ...) read/write whichever keys they own. Known
+// keys are documented inline so engineers can grep here for the contract.
+//   - theme: "light" | "dark" | "system"
+//   - anthropicApiKey: string (V1 plaintext on disk; will move to Keychain)
+//   - inboxDensity, undoSendDelay, keyboardBindings, signatures, ...
+//   - ea: { enabled, name, email }
+//   - prompts: { analysis, draft, ... }
+export type Preferences = Record<string, unknown>;
 
 let cache: Preferences | null = null;
 
@@ -38,9 +44,9 @@ function loadFromDisk(): Preferences {
   if (!existsSync(path)) return {};
   try {
     const raw = readFileSync(path, "utf8");
-    const parsed = JSON.parse(raw) as Preferences;
+    const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return {};
-    return parsed;
+    return parsed as Preferences;
   } catch (err) {
     log.warn("preferences.json unreadable, starting fresh", { err: String(err) });
     return {};
@@ -52,14 +58,33 @@ export function getPreferences(): Preferences {
   return { ...cache };
 }
 
-export function setPreference<K extends keyof Preferences>(
-  key: K,
-  value: Preferences[K],
-): Preferences {
+export function setPreference(key: string, value: unknown): Preferences {
   if (cache === null) cache = loadFromDisk();
-  cache = { ...cache, [key]: value };
+  if (value === undefined) {
+    const next = { ...cache };
+    delete next[key];
+    cache = next;
+  } else {
+    cache = { ...cache, [key]: value };
+  }
   // Atomic write: rename(2) into place so a crash mid-write can't leave a
   // partial file at the canonical path.
+  const path = prefsPath();
+  const tmp = `${path}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(tmp, JSON.stringify(cache, null, 2));
+  renameSync(tmp, path);
+  return { ...cache };
+}
+
+/** Apply a partial update — equivalent to looping setPreference per key. */
+export function patchPreferences(patch: Record<string, unknown>): Preferences {
+  if (cache === null) cache = loadFromDisk();
+  const next: Preferences = { ...cache };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete next[k];
+    else next[k] = v;
+  }
+  cache = next;
   const path = prefsPath();
   const tmp = `${path}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, JSON.stringify(cache, null, 2));

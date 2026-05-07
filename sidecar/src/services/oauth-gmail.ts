@@ -70,8 +70,8 @@ export function getCredentials(): GoogleCredentials | null {
 }
 
 export function setCredentials(creds: GoogleCredentials): void {
-  setPreference("googleClientId" as never, creds.clientId as never);
-  setPreference("googleClientSecret" as never, creds.clientSecret as never);
+  setPreference("googleClientId", creds.clientId);
+  setPreference("googleClientSecret", creds.clientSecret);
 }
 
 function tokensPath(accountId: string): string {

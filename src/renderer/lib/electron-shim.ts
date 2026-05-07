@@ -32,6 +32,10 @@ function looksLikeEventSubscription(method: string): boolean {
   );
 }
 
+// Track which auto-stubs we've already warned about so a chatty caller
+// doesn't flood the console — first hit per (ns, method) is enough signal.
+const warnedAutoStubs = new Set<string>();
+
 function stubMethod(ns: string, method: string) {
   if (looksLikeEventSubscription(method)) {
     // Return the unsubscribe pattern: caller invokes the returned fn to detach.
@@ -39,10 +43,23 @@ function stubMethod(ns: string, method: string) {
       return () => {};
     };
   }
-  return async (..._args: unknown[]): Promise<IpcResponse<null>> => ({
-    success: false,
-    error: `window.api.${ns}.${method}: not wired through Tauri yet`,
-  });
+  return async (..._args: unknown[]): Promise<IpcResponse<null>> => {
+    const key = `${ns}.${method}`;
+    if (!warnedAutoStubs.has(key)) {
+      warnedAutoStubs.add(key);
+      // Loud in dev: a missing wire here means a feature is silently broken.
+      // The error surfaces in IpcResponse for callers that check it; the
+      // console.warn surfaces it for callers that don't.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[shim] window.api.${key} hit auto-stub — namespace not lifted in installRealNamespaces`,
+      );
+    }
+    return {
+      success: false,
+      error: `window.api.${ns}.${method}: not wired through Tauri yet`,
+    };
+  };
 }
 
 function namespaceProxy(ns: string): unknown {
@@ -596,6 +613,17 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    getThread: async (
+      threadId: string,
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.getThread", { threadId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // compose — V1 wraps the sidecar's IMAP/SMTP send. Gmail send
@@ -635,11 +663,35 @@ function installRealNamespaces(): Record<string, unknown> {
     },
     listLocalDrafts: async (): Promise<IpcResponse<unknown[]>> => {
       try {
-        const result = (await bridge.call("compose.listLocalDrafts", {})) as {
-          success?: boolean;
-          data?: unknown[];
-        };
-        return { success: true, data: Array.isArray(result?.data) ? result.data : [] };
+        const data = (await bridge.call("compose.listLocalDrafts", {})) as unknown[];
+        return { success: true, data: Array.isArray(data) ? data : [] };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    saveLocalDraft: async (input: Record<string, unknown>): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("compose.saveLocalDraft", input);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    updateLocalDraft: async (
+      id: string,
+      patch: Record<string, unknown>,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("compose.updateLocalDraft", { id, ...patch });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    deleteLocalDraft: async (id: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("compose.deleteLocalDraft", { id });
+        return { success: true, data: null };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -1410,6 +1462,85 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // settings — generic Config persistence in preferences.json (sidecar) plus
+  // the EA / prompts subobjects. anthropicApiKey is special-cased on the
+  // sidecar to also reset the Anthropic client cache so the next createMessage
+  // picks up the new key without a restart.
+  real.settings = {
+    get: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("settings.get", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    set: async (patch: Record<string, unknown>): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("settings.set", patch ?? {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    validateApiKey: async (apiKey: string): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("settings.validateApiKey", { apiKey });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getEA: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("settings.getEA", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setEA: async (ea: unknown): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("settings.setEA", ea ?? {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getPrompts: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("settings.getPrompts", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setPrompts: async (prompts: Record<string, unknown>): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("settings.setPrompts", prompts ?? {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Hooks not yet wired through Tauri — return success-shaped no-ops so the
+    // UI doesn't break. Re-add when the underlying signals are implemented.
+    onPromptsChanged: (_cb: (..._args: unknown[]) => unknown): (() => void) => {
+      return () => {};
+    },
+    removePromptsChangedListener: (): void => {
+      // matched no-op for the imperative remove* form some components use
+    },
+    exportLogs: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "settings.exportLogs: not yet wired through Tauri",
+    }),
+    testOpenclawConnection: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "settings.testOpenclawConnection: not yet wired through Tauri",
+    }),
+  };
+
   // usage — Claude API cost + call history visibility.
   real.usage = {
     getStats: async (): Promise<IpcResponse<unknown>> => {
@@ -1684,6 +1815,192 @@ function installRealNamespaces(): Record<string, unknown> {
         }
       }
     },
+  };
+
+  // defaultMailApp — Mac "Set as default mail handler" UI in Settings.
+  // V1 is intentionally a typed no-op: registering as the default URL
+  // handler for mailto:// requires LSSetDefaultHandlerForURLScheme on a
+  // signed/notarized binary, which is a Phase 5 concern. Returning false
+  // from isDefault keeps the Settings card visible and accurate; setDefault
+  // surfaces a clear "not yet supported" error rather than the silent
+  // auto-stub failure the user was getting before.
+  real.defaultMailApp = {
+    isDefault: async (): Promise<boolean> => false,
+    setDefault: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "defaultMailApp.setDefault: requires a signed build (Phase 5)",
+    }),
+    onMailtoOpen: (_callback: (url: string) => void): (() => void) => {
+      // No mailto registration → no events to forward. Return a noop
+      // unsubscribe so the App.tsx subscription doesn't crash.
+      return () => {};
+    },
+  };
+
+  // calendar — V2 feature. SettingsPanel has a Calendar tab; until the
+  // calendar provider lifts we return an empty list so the tab renders
+  // a clean empty state instead of a perpetual spinner.
+  real.calendar = {
+    getCalendars: async (): Promise<{
+      success: boolean;
+      calendars?: unknown[];
+      accountEmails?: Record<string, string>;
+    }> => ({ success: true, calendars: [], accountEmails: {} }),
+    setVisibility: async (): Promise<IpcResponse<null>> => ({
+      success: true,
+      data: null,
+    }),
+  };
+
+  // attachments — composer attachment download/picker. Wired-up real
+  // implementation requires Tauri dialog + fs plugins; until then return
+  // typed errors so the composer fails loudly instead of silently.
+  real.attachments = {
+    pickFiles: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "attachments.pickFiles: not yet wired (needs tauri-plugin-dialog)",
+    }),
+    download: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "attachments.download: not yet wired",
+    }),
+    preview: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "attachments.preview: not yet wired",
+    }),
+  };
+
+  // agent — Claude agent panel + drafter. V2 surface; declaring it here so
+  // the Settings panel's "agents" tab renders without console-warn spam.
+  // claudeAuthStatus returns a clean "no Claude CLI" shape so the UI shows
+  // the install/login prompt rather than a perpetual checking spinner.
+  real.agent = {
+    claudeAuthStatus: async (): Promise<{
+      success: boolean;
+      data: { cliAvailable: boolean; authenticated: boolean; email?: string };
+    }> => ({
+      success: true,
+      data: { cliAvailable: false, authenticated: false },
+    }),
+    claudeLogin: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "agent.claudeLogin: Claude CLI integration is a V2 feature",
+    }),
+    providers: async (): Promise<IpcResponse<unknown[]>> => ({
+      success: true,
+      data: [],
+    }),
+    authenticate: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "agent.authenticate: V2",
+    }),
+    onProviders: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onEvent: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onDraftSaved: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onLocalDraftSaved: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    removeAllListeners: (): void => {},
+    removeDraftSavedListeners: (): void => {},
+  };
+
+  // extensions — V2 plugin system. SetupWizard's enterExtensionsStep checks
+  // getPendingAuths; returning an empty array makes the wizard skip the
+  // extensions step gracefully.
+  real.extensions = {
+    getPendingAuths: async (): Promise<IpcResponse<unknown[]>> => ({
+      success: true,
+      data: [],
+    }),
+    list: async (): Promise<IpcResponse<unknown[]>> => ({ success: true, data: [] }),
+    listInstalled: async (): Promise<IpcResponse<unknown[]>> => ({
+      success: true,
+      data: [],
+    }),
+    install: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "extensions.install: V2",
+    }),
+    uninstall: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "extensions.uninstall: V2",
+    }),
+    authenticate: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "extensions.authenticate: V2",
+    }),
+    checkProviderHealth: async (): Promise<IpcResponse<unknown>> => ({
+      success: true,
+      data: { healthy: false, reason: "no extensions installed" },
+    }),
+    enrichEmail: async (): Promise<IpcResponse<null>> => ({ success: true, data: null }),
+    getEnrichments: async (): Promise<IpcResponse<unknown[]>> => ({
+      success: true,
+      data: [],
+    }),
+    getPanels: async (): Promise<IpcResponse<unknown[]>> => ({
+      success: true,
+      data: [],
+    }),
+    getProviderSettings: async (): Promise<IpcResponse<unknown>> => ({
+      success: true,
+      data: {},
+    }),
+    saveProviderSettings: async (): Promise<IpcResponse<null>> => ({
+      success: true,
+      data: null,
+    }),
+    getRendererBundle: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "extensions.getRendererBundle: V2",
+    }),
+    onEnrichmentReady: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onInstalled: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onUninstalled: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    removeEnrichmentListeners: (): void => {},
+  };
+
+  // Background-sync / prefetch / outbox / scheduledSend / style — these
+  // expose progress events that the UI subscribes to. Phase 1 of the
+  // rebuild doesn't have the workers behind them yet; the renderer's
+  // subscriptions need a noop unsubscribe so they don't error, and any
+  // data-returning method needs a typed empty response.
+  const eventNoopNamespace = (): Record<string, unknown> => ({
+    onProgress: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onSent: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onFailed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onStatsChanged: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onEmailAnalyzed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    removeAllListeners: (): void => {},
+  });
+  real.backgroundSync = eventNoopNamespace();
+  real.prefetch = eventNoopNamespace();
+  real.outbox = {
+    ...eventNoopNamespace(),
+    getStats: async (): Promise<IpcResponse<unknown>> => ({
+      success: true,
+      data: { pending: 0, failed: 0 },
+    }),
+  };
+  real.scheduledSend = {
+    ...eventNoopNamespace(),
+    list: async (): Promise<IpcResponse<unknown[]>> => ({ success: true, data: [] }),
+    stats: async (): Promise<IpcResponse<unknown>> => ({
+      success: true,
+      data: { scheduled: 0 },
+    }),
+    create: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "scheduledSend.create: V2 (needs background scheduler)",
+    }),
+    cancel: async (): Promise<IpcResponse<null>> => ({
+      success: false,
+      error: "scheduledSend.cancel: V2",
+    }),
+  };
+  real.style = {
+    infer: async (): Promise<IpcResponse<unknown>> => ({
+      success: true,
+      data: { stylePrompt: "" },
+    }),
   };
 
   return real;

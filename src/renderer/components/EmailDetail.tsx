@@ -2362,13 +2362,24 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
 
   const storeEmail = emails.find((e) => e.id === selectedEmailId);
 
-  // Fallback: fetch from DB when email isn't in the store (e.g. search result from archived/sent mail)
+  // Body-fetch logic. Two cases trigger an on-demand fetch via gmail.getEmail
+  // (which the shim routes to sync.fetchBody):
+  //   1. The email isn't in the store at all (search result from archived/sent
+  //      mail, or a fresh open-by-id link).
+  //   2. The email is in the store but its body is empty/null. This happens
+  //      because IMAP sync only stores envelopes; bodies are filled in by
+  //      prefetchEmailBodies (App.tsx) or this on-demand fetch when the user
+  //      clicks faster than prefetch can keep up.
+  // Once the body comes back, it's pushed into the store via addEmails so
+  // every other thread feature sees it.
   const [fetchedEmail, setFetchedEmail] = useState<DashboardEmail | null>(null);
   const isFetchingFallbackEmailRef = useRef(false);
+  const needsBodyFetch = !!selectedEmailId && (!storeEmail || !storeEmail.body);
+
   useEffect(() => {
-    if (storeEmail || !selectedEmailId) {
+    if (!needsBodyFetch || !selectedEmailId) {
       isFetchingFallbackEmailRef.current = false;
-      setFetchedEmail(null);
+      if (storeEmail?.body) setFetchedEmail(null);
       return;
     }
     isFetchingFallbackEmailRef.current = true;
@@ -2384,7 +2395,6 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
       .then((result) => {
         if (!cancelled && result.success && result.data) {
           setFetchedEmail(result.data as DashboardEmail);
-          // Also add to store so thread view and other features work
           addEmails([result.data as DashboardEmail]);
         }
       })
@@ -2397,9 +2407,14 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedEmailId, storeEmail, addEmails]);
+  }, [selectedEmailId, storeEmail, addEmails, needsBodyFetch]);
 
-  const selectedEmail = storeEmail ?? fetchedEmail;
+  // Prefer the freshly fetched copy when the store row has no body — that
+  // way clicking a just-arrived email shows its content immediately.
+  const selectedEmail =
+    storeEmail && storeEmail.body
+      ? storeEmail
+      : (fetchedEmail ?? storeEmail ?? null);
 
   // Get current user email for "Me" detection
   const currentAccount = accounts.find((a) => a.id === currentAccountId);
