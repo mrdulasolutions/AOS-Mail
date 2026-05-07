@@ -88,6 +88,8 @@ export type Account = {
   displayName?: string;
   isPrimary: boolean;
   isConnected: boolean;
+  /** "gmail" | "imap" — drives the provider badge and per-row affordances */
+  provider?: string;
 };
 
 // Sync status per account

@@ -298,6 +298,8 @@ function installRealNamespaces(): Record<string, unknown> {
     displayName?: string;
     isPrimary: boolean;
     addedAt: number;
+    /** "gmail" | "imap" — surfaced as a small badge in Settings → Accounts */
+    provider?: string;
   };
   real.accounts = {
     list: async (): Promise<IpcResponse<AccountRecord[]>> => {
@@ -938,6 +940,19 @@ function installRealNamespaces(): Record<string, unknown> {
       try {
         await bridge.call("gmail.saveCredentials", { clientId, clientSecret });
         return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Cheap check used by Settings → Accounts to decide whether we can kick
+    // off OAuth directly or first need to prompt for a Client ID + Secret.
+    // Returning the same { configured } shape the sidecar provides.
+    hasCredentials: async (): Promise<IpcResponse<{ configured: boolean }>> => {
+      try {
+        const data = (await bridge.call("gmail.hasCredentials", {})) as {
+          configured: boolean;
+        };
+        return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }

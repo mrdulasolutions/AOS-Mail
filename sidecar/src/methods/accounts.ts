@@ -19,6 +19,10 @@ export interface AccountRecord {
   displayName?: string;
   isPrimary: boolean;
   addedAt: number;
+  /** "gmail" | "imap" (and Microsoft Graph later). Drives renderer-side
+   *  badging + per-row affordances (e.g. only Gmail has the OAuth re-link
+   *  flow). The column was added by the schema migration in db/index.ts. */
+  provider: string;
 }
 
 interface AccountRow {
@@ -27,12 +31,13 @@ interface AccountRow {
   display_name: string | null;
   is_primary: number;
   added_at: number;
+  provider: string | null;
 }
 
 function listAccounts(): AccountRecord[] {
   const rows = getDb()
     .prepare(
-      "SELECT id, email, display_name, is_primary, added_at FROM accounts ORDER BY added_at ASC",
+      "SELECT id, email, display_name, is_primary, added_at, provider FROM accounts ORDER BY added_at ASC",
     )
     .all() as AccountRow[];
   return rows.map((r) => ({
@@ -41,6 +46,7 @@ function listAccounts(): AccountRecord[] {
     displayName: r.display_name ?? undefined,
     isPrimary: r.is_primary === 1,
     addedAt: r.added_at,
+    provider: r.provider ?? "gmail",
   }));
 }
 
