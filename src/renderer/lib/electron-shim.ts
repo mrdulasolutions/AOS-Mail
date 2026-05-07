@@ -357,6 +357,107 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // sync — V1 surface that lets the renderer's existing initializeSync
+  // flow work against the sidecar. Most methods proxy 1:1; status/setInterval/
+  // start/stop are accepted-but-no-op for V1 (no background loop yet).
+  type SyncStatusEvent = { accountId: string; status: "idle" | "syncing" | "error" };
+  type NewEmailsEvent = { accountId: string; count: number; fetched: number };
+  const syncUnlisteners: Array<() => void> = [];
+  real.sync = {
+    init: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.init", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    now: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.now", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    start: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.start", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    stop: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.stop", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    setInterval: async (intervalMs: number): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.setInterval", { intervalMs });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    status: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.status", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getEmails: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.getEmails", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getSentEmails: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.getSentEmails", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    prefetchBodies: async (_ids: string[]): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.prefetchBodies", { ids: _ids });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    onNewEmails: (cb: (data: NewEmailsEvent) => void): void => {
+      bridge
+        .listen<NewEmailsEvent>("sync:new-emails", (p) => cb(p))
+        .then((un) => syncUnlisteners.push(un));
+    },
+    onSyncStatusChange: (cb: (data: SyncStatusEvent) => void): void => {
+      bridge
+        .listen<SyncStatusEvent>("sync:status-change", (p) => cb(p))
+        .then((un) => syncUnlisteners.push(un));
+    },
+    removeAllListeners: (): void => {
+      while (syncUnlisteners.length) {
+        const un = syncUnlisteners.pop();
+        try {
+          un?.();
+        } catch {
+          // best-effort
+        }
+      }
+    },
+  };
+
   // imap — full IMAP/SMTP provider surface for non-Gmail accounts.
   // The renderer's wizard / settings UI calls testConnection before
   // addAccount so the user gets an informative error before we persist
