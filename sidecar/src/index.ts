@@ -21,6 +21,7 @@ import { registerSnoozeMethods } from "./methods/snooze.js";
 import { registerSenderMethods } from "./methods/sender.js";
 import { registerSearchMethods } from "./methods/search.js";
 import { registerAnthropicMethods } from "./methods/anthropic.js";
+import { registerGmailMethods } from "./methods/gmail.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -41,6 +42,7 @@ registerSnoozeMethods();
 registerSenderMethods();
 registerSearchMethods();
 registerAnthropicMethods();
+registerGmailMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

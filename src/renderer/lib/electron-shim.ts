@@ -273,6 +273,87 @@ function installRealNamespaces(): Record<string, unknown> {
     }),
   };
 
+  // gmail — auth-side methods only (OAuth flow). API ops (fetch, send, etc.)
+  // lift later as gmail-client gets ported.
+  type AuthSuccess = { accountId: string; email: string; displayName: string | null };
+  const gmailAuthListeners: Array<() => void> = [];
+  real.gmail = {
+    saveCredentials: async (
+      clientId: string,
+      clientSecret: string,
+    ): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("gmail.saveCredentials", { clientId, clientSecret });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    checkAuth: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("gmail.checkAuth", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    startOAuth: async (): Promise<IpcResponse<AuthSuccess>> => {
+      try {
+        // Sidecar starts the loopback server + returns the OAuth URL.
+        const { url } = (await bridge.call("gmail.startOAuth", {})) as { url: string };
+        // Open the URL in the system browser via Tauri shell plugin. Under
+        // Electron the host preload would have done this; under Tauri the
+        // renderer drives it.
+        if (bridge.isTauri) {
+          const mod = await import("@tauri-apps/plugin-shell");
+          await mod.open(url);
+        } else {
+          // Best-effort fallback for the Electron parity path.
+          window.open(url, "_blank");
+        }
+        // Wait for the success or failure event the sidecar will emit when
+        // the OAuth callback fires. Match the Electron API which resolved
+        // when OAuth completed.
+        const account = await new Promise<AuthSuccess>((resolve, reject) => {
+          const cleanups: Array<() => void> = [];
+          const finish = (fn: () => void) => {
+            for (const c of cleanups) c();
+            fn();
+          };
+          bridge
+            .listen<AuthSuccess>("auth:gmail-connected", (payload) =>
+              finish(() => resolve(payload)),
+            )
+            .then((un) => cleanups.push(un));
+          bridge
+            .listen<{ error: string }>("auth:gmail-failed", (payload) =>
+              finish(() => reject(new Error(payload.error))),
+            )
+            .then((un) => cleanups.push(un));
+        });
+        return { success: true, data: account };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    cancelOAuth: async (): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("gmail.cancelOAuth", {});
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Gmail API ops (fetchUnread / createDraft / getEmail) require the
+    // gmail-client port — until then they auto-stub. Removed from the real
+    // namespace so window.api.gmail.fetchUnread() still goes through the
+    // not-yet-wired error path.
+  };
+  // Enrich the auto-stub-fallback's window.api.gmail with method mixin: the
+  // Proxy returns whichever real fields we set above and stubs the rest.
+  // (No additional code needed — installRealNamespaces() does this.)
+  void gmailAuthListeners; // reserved for future event subscriptions
+
   // search + contacts — local FTS5 search + contact autocomplete.
   type SearchResult = Record<string, unknown> & { id: string; threadId: string };
   type ContactSuggestion = { email: string; name: string; frequency: number };
@@ -631,6 +712,27 @@ export function installElectronShim(): void {
 
   const real = installRealNamespaces();
 
+  // For each real namespace, wrap it in a Proxy that falls through to the
+  // auto-stub for any method we haven't lifted yet. Lets a partially-lifted
+  // namespace coexist with the rest of the auto-stubbed surface — e.g.
+  // `gmail.startOAuth` is real, `gmail.fetchUnread` falls back to the
+  // "not wired through Tauri yet" stub instead of throwing TypeError.
+  function mergedNamespace(ns: string, realNs: Record<string, unknown>): unknown {
+    const stub = namespaceProxy(ns) as Record<string, unknown>;
+    return new Proxy(realNs, {
+      get(target, method) {
+        if (typeof method !== "string") return undefined;
+        if (method in target) return target[method];
+        return stub[method];
+      },
+    });
+  }
+
+  const wrappedReal: Record<string, unknown> = {};
+  for (const ns of Object.keys(real)) {
+    wrappedReal[ns] = mergedNamespace(ns, real[ns] as Record<string, unknown>);
+  }
+
   w.api = new Proxy(
     {},
     {
@@ -642,7 +744,7 @@ export function installElectronShim(): void {
             console.debug(`[bridge:debug] ${msg}`);
           };
         }
-        if (prop in real) return real[prop];
+        if (prop in wrappedReal) return wrappedReal[prop];
         return namespaceProxy(prop);
       },
     },
