@@ -77,36 +77,26 @@ function decodeHtmlEntities(text: string): string {
   return textarea.value;
 }
 
-// Get priority label info
+// Get priority label info — uses the .priority-* classes from index.css
+// so the palette is centralized.
 function getPriorityLabel(thread: EmailThread): { text: string; className: string } | null {
   if (thread.draft?.status === "created") {
-    return {
-      text: "Done",
-      className: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300",
-    };
+    return { text: "Done", className: "priority-done" };
   }
-  if (!thread.analysis) {
-    return null; // Unanalyzed - no label
-  }
-  // Note: the store's categorization uses effectiveUserReplied (with a grace period)
-  // while we check userReplied directly. During the ~3 min grace window, the badge
-  // may show "Skip" while the thread still sits in Priority. This is acceptable:
-  // the user just replied so "Skip" is the correct eventual state.
+  if (!thread.analysis) return null; // Unanalyzed - no label
   if (!thread.analysis.needsReply || thread.userReplied) {
-    return {
-      text: "Skip",
-      className: "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400",
-    };
+    return { text: "Skip", className: "priority-skipped" };
   }
   const priority = thread.analysis.priority || "medium";
-  const colors: Record<string, string> = {
-    high: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300",
-    medium: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300",
-    low: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
-  };
+  const className =
+    priority === "high"
+      ? "priority-high"
+      : priority === "low"
+        ? "priority-low"
+        : "priority-medium";
   return {
     text: priority.charAt(0).toUpperCase() + priority.slice(1),
-    className: colors[priority] || colors.medium,
+    className,
   };
 }
 
@@ -142,21 +132,42 @@ export const EmailRow = memo(
 
     const showChecked = isChecked || isMultiSelectActive;
 
+    // Three visual states: selected (filled black), checked (subtle tint),
+    // default (white with hover). Black-on-white selection keeps brand
+    // discipline; the previous blue-on-white fought the AOS palette.
+    const rowState =
+      isSelected && !isChecked
+        ? "bg-aos-text text-white"
+        : isChecked
+          ? "bg-aos-bg-sunk text-aos-text"
+          : "hover:bg-aos-bg-soft text-aos-text";
+    const senderColor =
+      isSelected && !isChecked
+        ? "text-white"
+        : isVisuallyUnread
+          ? "text-aos-text"
+          : "text-aos-text-muted";
+    const subjectColor =
+      isSelected && !isChecked
+        ? "text-white"
+        : isVisuallyUnread
+          ? "text-aos-text"
+          : "text-aos-text-soft";
+    const snippetColor = isSelected && !isChecked ? "text-white/70" : "text-aos-text-muted";
+    const dashColor =
+      isSelected && !isChecked ? "text-white/40" : "text-aos-line-strong";
+    const timeColor =
+      isSelected && !isChecked
+        ? "text-white/60"
+        : snoozeInfo
+          ? "text-aos-warning"
+          : "text-aos-text-muted";
+
     return (
       <div
         data-thread-id={thread.threadId}
         data-selected={isSelected ? "true" : undefined}
-        className={`
-        w-full ${ds.row} flex items-center text-left
-        border-b border-gray-100 dark:border-gray-700/50 transition-colors group
-        ${
-          isSelected && !isChecked
-            ? "bg-blue-600 text-white"
-            : isChecked
-              ? "bg-blue-50 dark:bg-blue-900/20 text-gray-900 dark:text-gray-100"
-              : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-900 dark:text-gray-100"
-        }
-      `}
+        className={`w-full ${ds.row} flex items-center text-left border-b border-aos-line/60 transition-colors group ${rowState}`}
       >
         {/* Checkbox / Unread indicator area */}
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
@@ -169,18 +180,24 @@ export const EmailRow = memo(
                 onCheckboxChange();
               }}
               onClick={(e) => e.stopPropagation()}
-              className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              className="w-3.5 h-3.5 rounded border-aos-line-strong text-aos-text focus:ring-aos-text cursor-pointer"
               data-testid="thread-checkbox"
             />
           ) : (
             <div className="w-2 flex items-center justify-center">
               {isRecentlyUnsnoozed ? (
                 <div
-                  className={`${ds.unreadDot} rounded-full ${isSelected ? "bg-white" : "bg-purple-500"}`}
+                  className={`${ds.unreadDot} rounded-full ${
+                    isSelected && !isChecked ? "bg-white" : "bg-aos-info"
+                  }`}
+                  title="Recently unsnoozed"
                 />
               ) : isUnread ? (
                 <div
-                  className={`${ds.unreadDot} rounded-full ${isSelected ? "bg-white" : "bg-blue-500"}`}
+                  className={`${ds.unreadDot} rounded-full ${
+                    isSelected && !isChecked ? "bg-white" : "bg-aos-text"
+                  }`}
+                  title="Unread"
                 />
               ) : null}
             </div>
@@ -194,13 +211,7 @@ export const EmailRow = memo(
         >
           {/* Sender name */}
           <div
-            className={`${ds.senderWidth} truncate font-medium flex-shrink-0 ${
-              isSelected && !isChecked
-                ? "text-white"
-                : isVisuallyUnread
-                  ? "text-gray-900 dark:text-gray-100"
-                  : "text-gray-600 dark:text-gray-400"
-            }`}
+            className={`${ds.senderWidth} truncate font-medium flex-shrink-0 ${senderColor}`}
           >
             {senderName}
           </div>
@@ -208,10 +219,9 @@ export const EmailRow = memo(
           {/* Priority label */}
           {priorityLabel && (
             <span
-              className={`
-          ${ds.priorityBadge} rounded flex-shrink-0 uppercase font-medium
-          ${isSelected && !isChecked ? "bg-white/20 text-white" : priorityLabel.className}
-        `}
+              className={`${ds.priorityBadge} rounded flex-shrink-0 uppercase font-medium tracking-wide ${
+                isSelected && !isChecked ? "bg-white/15 text-white" : priorityLabel.className
+              }`}
             >
               {priorityLabel.text}
             </span>
@@ -222,44 +232,34 @@ export const EmailRow = memo(
             className={`flex-1 min-w-0 flex items-center ${density === "compact" ? "gap-1.5" : "gap-2"}`}
           >
             <span
-              className={`font-medium truncate flex-shrink-0 max-w-[85%] ${
-                isSelected && !isChecked
-                  ? "text-white"
-                  : isVisuallyUnread
-                    ? "text-gray-900 dark:text-gray-100"
-                    : "text-gray-700 dark:text-gray-300"
-              }`}
+              className={`font-medium truncate flex-shrink-0 max-w-[85%] ${subjectColor}`}
             >
               {decodeHtmlEntities(thread.subject)}
             </span>
-            <span
-              className={`flex-shrink ${isSelected && !isChecked ? "text-white/40" : "text-gray-300 dark:text-gray-600"}`}
-            >
-              —
-            </span>
+            <span className={`flex-shrink ${dashColor}`}>—</span>
             {thread.draft ? (
               <>
                 <span
-                  className={`flex-shrink-0 ${isSelected && !isChecked ? "text-green-200" : "text-green-600 dark:text-green-400"}`}
+                  className={`flex-shrink-0 inline-flex items-center gap-1 ${
+                    isSelected && !isChecked ? "text-white" : "text-aos-success"
+                  }`}
                 >
                   <svg
-                    className="w-3 h-3 inline-block mr-0.5 -mt-px"
+                    className="w-3 h-3"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
+                    strokeWidth={2}
                   >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      strokeWidth={2}
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
                     />
                   </svg>
-                  Draft
+                  <span>Draft</span>
                 </span>
-                <span
-                  className={`truncate min-w-0 ${isSelected && !isChecked ? "text-white/60" : "text-gray-400"}`}
-                >
+                <span className={`truncate min-w-0 ${snippetColor}`}>
                   {(thread.draft.body ?? "")
                     .replace(/<[^>]*>/g, "")
                     .replace(/\n/g, " ")
@@ -267,13 +267,7 @@ export const EmailRow = memo(
                 </span>
               </>
             ) : (
-              <span
-                className={`truncate min-w-0 ${
-                  isSelected && !isChecked ? "text-white/60" : "text-gray-400"
-                }`}
-              >
-                {snippet}
-              </span>
+              <span className={`truncate min-w-0 ${snippetColor}`}>{snippet}</span>
             )}
           </div>
 
@@ -281,15 +275,20 @@ export const EmailRow = memo(
           {snoozeInfo && (
             <span
               className={`flex items-center gap-0.5 flex-shrink-0 ${
-                isSelected && !isChecked ? "text-white/60" : "text-amber-500 dark:text-amber-400"
+                isSelected && !isChecked ? "text-white/70" : "text-aos-warning"
               }`}
               title={`Snoozed until ${formatSnoozeTime(snoozeInfo.snoozeUntil)}`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth={2}
                   d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
@@ -298,13 +297,7 @@ export const EmailRow = memo(
 
           {/* Time */}
           <span
-            className={`${ds.time} text-right flex-shrink-0 tabular-nums ${
-              isSelected && !isChecked
-                ? "text-white/60"
-                : snoozeInfo
-                  ? "text-amber-500 dark:text-amber-400"
-                  : "text-gray-400"
-            }`}
+            className={`${ds.time} text-right flex-shrink-0 tabular-nums ${timeColor}`}
           >
             {snoozeInfo ? formatSnoozeCountdown(snoozeInfo.snoozeUntil) : time}
           </span>
@@ -312,14 +305,11 @@ export const EmailRow = memo(
           {/* Thread count badge */}
           {thread.hasMultipleEmails && (
             <span
-              className={`
-          ${ds.threadBadge} rounded-full flex items-center justify-center flex-shrink-0
-          ${
-            isSelected && !isChecked
-              ? "bg-white/20 text-white"
-              : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-          }
-        `}
+              className={`${ds.threadBadge} rounded-full flex items-center justify-center flex-shrink-0 ${
+                isSelected && !isChecked
+                  ? "bg-white/15 text-white"
+                  : "bg-aos-bg-sunk text-aos-text-muted"
+              }`}
             >
               {thread.emails.length}
             </span>
