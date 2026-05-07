@@ -97,6 +97,14 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    dbListAccounts: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("db.listAccounts", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // network — first lifted namespace. Mirrors the Electron `window.api.network`
