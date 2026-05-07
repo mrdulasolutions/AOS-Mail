@@ -64,11 +64,11 @@ export function registerSyncMethods(): void {
     try {
       const result = await syncAccountNow(accountId);
       emit("sync:status-change", { accountId, status: "idle" });
-      if (result.newRows > 0) {
+      if (result.newEmails.length > 0) {
+        // Match the renderer's contract: { accountId, emails }
         emit("sync:new-emails", {
           accountId,
-          count: result.newRows,
-          fetched: result.fetched,
+          emails: result.newEmails,
         });
       }
       return result;

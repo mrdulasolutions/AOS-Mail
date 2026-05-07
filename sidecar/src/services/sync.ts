@@ -17,6 +17,7 @@ export interface SyncResult {
   accountId: string;
   fetched: number;
   newRows: number;
+  newEmails: DashboardEmailRow[];
   errors: string[];
 }
 
@@ -122,7 +123,13 @@ function upsertEmail(row: UpsertEmail): boolean {
 export async function syncAccountNow(accountId: string): Promise<SyncResult> {
   const row = getAccountRow(accountId);
   if (!row) {
-    return { accountId, fetched: 0, newRows: 0, errors: ["account not found"] };
+    return {
+      accountId,
+      fetched: 0,
+      newRows: 0,
+      newEmails: [],
+      errors: ["account not found"],
+    };
   }
   if (row.provider === "gmail") {
     log.info("gmail sync not yet wired", { accountId });
@@ -130,15 +137,23 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
       accountId,
       fetched: 0,
       newRows: 0,
+      newEmails: [],
       errors: ["gmail sync via History API is not yet implemented in the sidecar"],
     };
   }
   if (row.provider !== "imap") {
-    return { accountId, fetched: 0, newRows: 0, errors: [`unknown provider: ${row.provider}`] };
+    return {
+      accountId,
+      fetched: 0,
+      newRows: 0,
+      newEmails: [],
+      errors: [`unknown provider: ${row.provider}`],
+    };
   }
 
   let fetched = 0;
   let newRows = 0;
+  const newEmails: DashboardEmailRow[] = [];
   const errors: string[] = [];
 
   try {
@@ -149,7 +164,7 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
         const labels = ["INBOX"];
         if (!h.isUnread) labels.push("READ");
         if (h.isStarred) labels.push("STARRED");
-        const inserted = upsertEmail({
+        const upsertRow: UpsertEmail = {
           id: h.id,
           account_id: accountId,
           thread_id: h.threadId,
@@ -167,9 +182,30 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
           attachments: null,
           message_id: h.messageId,
           in_reply_to: h.inReplyTo,
-        });
+        };
+        const inserted = upsertEmail(upsertRow);
         fetched++;
-        if (inserted) newRows++;
+        if (inserted) {
+          newRows++;
+          newEmails.push(
+            rowToDashboard({
+              id: upsertRow.id,
+              thread_id: upsertRow.thread_id,
+              account_id: upsertRow.account_id,
+              subject: upsertRow.subject,
+              from_address: upsertRow.from_address,
+              to_address: upsertRow.to_address,
+              cc_address: upsertRow.cc_address,
+              bcc_address: upsertRow.bcc_address,
+              date: upsertRow.date,
+              snippet: upsertRow.snippet,
+              body: upsertRow.body,
+              label_ids: upsertRow.label_ids,
+              message_id: upsertRow.message_id,
+              in_reply_to: upsertRow.in_reply_to,
+            }),
+          );
+        }
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
@@ -178,7 +214,7 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
     errors.push(err instanceof Error ? err.message : String(err));
   }
 
-  return { accountId, fetched, newRows, errors };
+  return { accountId, fetched, newRows, newEmails, errors };
 }
 
 export interface DashboardEmailRow {

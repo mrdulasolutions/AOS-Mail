@@ -361,7 +361,6 @@ function installRealNamespaces(): Record<string, unknown> {
   // flow work against the sidecar. Most methods proxy 1:1; status/setInterval/
   // start/stop are accepted-but-no-op for V1 (no background loop yet).
   type SyncStatusEvent = { accountId: string; status: "idle" | "syncing" | "error" };
-  type NewEmailsEvent = { accountId: string; count: number; fetched: number };
   const syncUnlisteners: Array<() => void> = [];
   real.sync = {
     init: async (): Promise<IpcResponse<unknown>> => {
@@ -436,16 +435,24 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    onNewEmails: (cb: (data: NewEmailsEvent) => void): void => {
+    onNewEmails: (
+      cb: (data: { accountId: string; emails: unknown[] }) => void,
+    ): void => {
       bridge
-        .listen<NewEmailsEvent>("sync:new-emails", (p) => cb(p))
+        .listen<{ accountId: string; emails: unknown[] }>("sync:new-emails", (p) => cb(p))
         .then((un) => syncUnlisteners.push(un));
     },
-    onSyncStatusChange: (cb: (data: SyncStatusEvent) => void): void => {
+    // Renderer calls this `onStatusChange` (not onSyncStatusChange).
+    onStatusChange: (cb: (data: SyncStatusEvent) => void): void => {
       bridge
         .listen<SyncStatusEvent>("sync:status-change", (p) => cb(p))
         .then((un) => syncUnlisteners.push(un));
     },
+    // The remaining listener methods (onNewSentEmails / onEmailsRemoved /
+    // onEmailsUpdated / onDraftsRemoved / onActionFailed / onActionSucceeded)
+    // fall through to the auto-stub for now — events never fire because the
+    // sidecar doesn't emit them yet, and the stubs return noop unsubscribes
+    // so the renderer's cleanup paths stay valid.
     removeAllListeners: (): void => {
       while (syncUnlisteners.length) {
         const un = syncUnlisteners.pop();

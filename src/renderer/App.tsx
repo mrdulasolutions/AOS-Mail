@@ -870,6 +870,17 @@ export default function App() {
       }));
       setAccounts(mergedAccounts);
 
+      // Step 2.5: kick off a sync.now for each connected account so new
+      // mail flows in on app boot. Run in parallel; don't await any
+      // single account so the cached-emails step doesn't block on a
+      // slow IMAP server.
+      for (const acc of accountList) {
+        if (!acc.isConnected) continue;
+        window.api.sync.now(acc.id).catch((err: unknown) => {
+          console.warn("[boot] sync.now failed for", acc.id, err);
+        });
+      }
+
       // Step 3: cached emails for connected accounts.
       const allEmails: DashboardEmail[] = [];
       const allSentEmails: DashboardEmail[] = [];
