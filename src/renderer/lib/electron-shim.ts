@@ -456,6 +456,68 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // archiveReady — Claude-powered thread completion detector. Mirrors
+  // the analysis namespace's shape: analyze / analyzeBatch / list /
+  // override. Renderer triggers analysis on threads in the inbox; the
+  // result lands in the archive_ready table and surfaces the thread in
+  // the "Archive Ready" tab.
+  real.archiveReady = {
+    analyze: async (
+      threadId: string,
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("archiveReady.analyze", { threadId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    analyzeBatch: async (
+      threadIds: string[],
+      accountId: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("archiveReady.analyzeBatch", {
+          threadIds,
+          accountId,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    list: async (
+      accountId?: string,
+      limit?: number,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("archiveReady.list", { accountId, limit });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    override: async (
+      threadId: string,
+      accountId: string,
+      isReady: boolean,
+      reason?: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("archiveReady.override", {
+          threadId,
+          accountId,
+          isReady,
+          reason,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // emails — inbox management verbs (archive, trash, star, read).
   // For IMAP these proxy through the sidecar to flag/move on the
   // server, then update the local store. Gmail provider paths in

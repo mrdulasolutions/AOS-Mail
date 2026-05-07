@@ -28,6 +28,7 @@ import { registerSyncMethods } from "./methods/sync.js";
 import { registerComposeMethods } from "./methods/compose.js";
 import { registerEmailsMethods } from "./methods/emails.js";
 import { registerAnalysisMethods } from "./methods/analysis.js";
+import { registerArchiveReadyMethods } from "./methods/archive-ready.js";
 import { registerDraftsMethods } from "./methods/drafts.js";
 
 // Built-in: pipe smoke test.
@@ -56,6 +57,7 @@ registerSyncMethods();
 registerComposeMethods();
 registerEmailsMethods();
 registerAnalysisMethods();
+registerArchiveReadyMethods();
 registerDraftsMethods();
 
 // stdio loop.
