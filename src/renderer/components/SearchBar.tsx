@@ -15,32 +15,6 @@ type SearchResult = {
   rank: number;
 };
 
-declare global {
-  interface Window {
-    api: {
-      search: {
-        query: (
-          query: string,
-          options?: { accountId?: string; limit?: number },
-        ) => Promise<IpcResponse<SearchResult[]>>;
-        suggestions: (query: string, limit?: number) => Promise<IpcResponse<string[]>>;
-      };
-      emails: {
-        search: (
-          query: string,
-          accountId: string,
-          maxResults?: number,
-        ) => Promise<IpcResponse<DashboardEmail[]>>;
-        searchRemote: (
-          query: string,
-          accountId: string,
-          maxResults?: number,
-          pageToken?: string,
-        ) => Promise<IpcResponse<{ emails: DashboardEmail[]; nextPageToken?: string }>>;
-      };
-    };
-  }
-}
 
 function decodeHtmlEntities(text: string): string {
   const textarea = document.createElement("textarea");

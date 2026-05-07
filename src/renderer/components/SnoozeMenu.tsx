@@ -2,29 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import type { IpcResponse, SnoozedEmail } from "../../shared/types";
 import { trackEvent } from "../services/posthog";
 
-declare global {
-  interface Window {
-    api: {
-      snooze: {
-        snooze: (
-          emailId: string,
-          threadId: string,
-          accountId: string,
-          snoozeUntil: number,
-        ) => Promise<IpcResponse<SnoozedEmail>>;
-        unsnooze: (threadId: string, accountId: string) => Promise<IpcResponse<void>>;
-        list: (accountId: string) => Promise<IpcResponse<SnoozedEmail[]>>;
-        get: (threadId: string, accountId: string) => Promise<IpcResponse<SnoozedEmail | null>>;
-        onUnsnoozed: (callback: (data: { emails: SnoozedEmail[] }) => void) => void;
-        onSnoozed: (callback: (data: { snoozedEmail: SnoozedEmail }) => void) => void;
-        onManuallyUnsnoozed: (
-          callback: (data: { threadId: string; accountId: string }) => void,
-        ) => void;
-        removeAllListeners: () => void;
-      };
-    };
-  }
-}
 
 interface SnoozeOption {
   label: string;

@@ -28,14 +28,6 @@ type ExtensionsAPI = {
   removeEnrichmentListeners: () => void;
 };
 
-declare global {
-  interface Window {
-    api: {
-      extensions: ExtensionsAPI;
-      [key: string]: unknown;
-    };
-  }
-}
 
 /**
  * Panel data with enrichment info

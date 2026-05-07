@@ -37,66 +37,6 @@ import { trackEvent } from "../services/posthog";
 import { draftBodyToHtml } from "../../shared/draft-utils";
 import { AnalysisPrioritySection } from "./AnalysisPrioritySection";
 
-declare global {
-  interface Window {
-    api: {
-      compose: {
-        send: (options: {
-          accountId: string;
-          to: string[];
-          cc?: string[];
-          bcc?: string[];
-          subject: string;
-          bodyText?: string;
-          bodyHtml?: string;
-          threadId?: string;
-          inReplyTo?: string;
-          references?: string;
-        }) => Promise<IpcResponse<{ id: string; threadId: string }>>;
-        getReplyInfo: (
-          emailId: string,
-          mode: "reply" | "reply-all" | "forward" | "new",
-          accountId: string,
-        ) => Promise<IpcResponse<ReplyInfo | null>>;
-      };
-      contacts: {
-        suggest: (
-          query: string,
-          limit?: number,
-          // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-        ) => Promise<IpcResponse<import("../../shared/types").ContactSuggestion[]>>;
-      };
-      sync: {
-        now: (accountId: string) => Promise<void>;
-      };
-      memory: {
-        save: (params: {
-          accountId: string;
-          scope: string;
-          scopeValue?: string | null;
-          content: string;
-          source?: string;
-          sourceEmailId?: string;
-        }) => Promise<IpcResponse<Memory>>;
-        classify: (params: {
-          content: string;
-          senderEmail: string;
-          senderDomain: string;
-        }) => Promise<
-          IpcResponse<{ scope: MemoryScope; scopeValue: string | null; content: string }>
-        >;
-      };
-      analysis: {
-        overridePriority: (
-          emailId: string,
-          newNeedsReply: boolean,
-          newPriority: string | null,
-          reason?: string,
-        ) => Promise<IpcResponse<{ analysisUpdated: boolean }>>;
-      };
-    };
-  }
-}
 
 /**
  * Escape HTML entities for safe display in quoted content.

@@ -1511,7 +1511,9 @@ function installRealNamespaces(): Record<string, unknown> {
     },
     setEA: async (ea: unknown): Promise<IpcResponse<null>> => {
       try {
-        await bridge.call("settings.setEA", ea ?? {});
+        const params: Record<string, unknown> =
+          ea && typeof ea === "object" ? (ea as Record<string, unknown>) : {};
+        await bridge.call("settings.setEA", params);
         return { success: true, data: null };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };

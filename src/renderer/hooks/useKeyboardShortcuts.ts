@@ -6,28 +6,6 @@ import { mergeAndThreadSearchResults } from "../utils/searchResults";
 import { draftMatchesSplit } from "../utils/split-conditions";
 import { trackEvent } from "../services/posthog";
 
-declare global {
-  interface Window {
-    api: {
-      emails: {
-        archive: (emailId: string, accountId: string) => Promise<unknown>;
-        archiveThread: (threadId: string, accountId: string) => Promise<unknown>;
-        trash: (emailId: string, accountId: string) => Promise<unknown>;
-        setStarred: (emailId: string, accountId: string, starred: boolean) => Promise<unknown>;
-        setRead: (emailId: string, accountId: string, read: boolean) => Promise<unknown>;
-      };
-      archiveReady: {
-        archiveThread: (threadId: string, accountId: string) => Promise<unknown>;
-      };
-      compose: {
-        deleteLocalDraft: (draftId: string) => Promise<unknown>;
-      };
-      sync: {
-        now: (accountId: string) => Promise<void>;
-      };
-    };
-  }
-}
 
 /** Custom event for navigating between messages within a thread (n/p keys). */
 export type ThreadNavDirection = "next" | "prev";

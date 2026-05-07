@@ -8,50 +8,33 @@
     "url": "https://github.com/mrdulasolutions/AOS-Mail.git"
   },
   "type": "module",
-  "main": "./out/main/index.js",
   "workspaces": [
     "src/extensions-private/*"
   ],
   "scripts": {
-    "dev": "npm run ensure-native && npm run build:worker && electron-vite dev",
-    "dev:demo": "npm run ensure-native && AOS_DEMO_MODE=true electron-vite dev",
+    "dev": "npm run tauri:dev",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
-    "build:worker": "vite build --config vite.worker.config.ts",
     "build:sidecar": "npm --prefix sidecar run build && npm --prefix sidecar run package",
-    "build:electron": "electron-vite build && npm run build:worker",
     "build": "npm run build:sidecar && npm run build:renderer && tauri build",
-    "preview": "electron-vite preview",
-    "ensure-native": "./scripts/ensure-native-modules.sh",
-    "postinstall": "electron-builder install-app-deps",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "release": "npm run build && electron-builder --publish always",
     "tauri": "tauri",
     "tauri:dev": "npm run build:sidecar && tauri dev",
     "tauri:build": "npm run build:sidecar && tauri build",
     "typecheck": "tsc --noEmit",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:sidecar": "npm --prefix sidecar run typecheck",
-    "test": "./scripts/run-tests.sh",
-    "test:unit": "./scripts/run-tests.sh unit",
-    "test:e2e": "./scripts/run-tests.sh e2e",
-    "test:integration": "./scripts/run-tests.sh integration",
+    "test:e2e": "playwright test --project=e2e",
     "test:problematic": "playwright test --project=problematic",
     "test:bench": "playwright test --project=benchmark",
     "test:headed": "playwright test --headed",
-    "test:quick": "playwright test --project=unit --project=integration",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write 'src/**/*.{ts,tsx}'",
-    "format:check": "prettier --check 'src/**/*.{ts,tsx}'",
+    "lint": "eslint src/ sidecar/src/",
+    "lint:fix": "eslint src/ sidecar/src/ --fix",
+    "format": "prettier --write 'src/**/*.{ts,tsx}' 'sidecar/src/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx}' 'sidecar/src/**/*.ts'",
     "eval": "npx tsx tests/evals/runner.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
     "@anthropic-ai/sdk": "^0.71.2",
-    "@electron-toolkit/utils": "^4.0.0",
     "@floating-ui/dom": "^1.7.6",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@tanstack/react-query": "^5.62.0",
@@ -78,8 +61,6 @@
     "algoliasearch": "^5.50.0",
     "better-sqlite3": "^12.8.0",
     "dompurify": "^3.3.1",
-    "electron-store": "^8.2.0",
-    "electron-updater": "^6.7.3",
     "googleapis": "^170.1.0",
     "mime-types": "^3.0.2",
     "nodemailer": "^8.0.4",
@@ -111,9 +92,6 @@
     "@typescript-eslint/parser": "^8.57.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "electron": "^39.8.5",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^3.0.0",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
@@ -125,57 +103,5 @@
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.57.2",
     "vite": "^6.0.5"
-  },
-  "build": {
-    "appId": "com.mrdulasolutions.aosmail",
-    "productName": "AOS Mail",
-    "artifactName": "${name}-${version}-${arch}-${os}.${ext}",
-    "protocols": [
-      {
-        "name": "Email",
-        "schemes": [
-          "mailto"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.productivity",
-      "icon": "resources/icon.icns",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": false,
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    },
-    "linux": {
-      "icon": "resources/icon.png",
-      "category": "Network;Email;"
-    },
-    "extraResources": [
-      {
-        "from": "resources/icon.png",
-        "to": "icon.png"
-      }
-    ],
-    "asarUnpack": [
-      "node_modules/@anthropic-ai/claude-agent-sdk/**"
-    ],
-    "files": [
-      "out/**/*",
-      "resources/**/*"
-    ],
-    "publish": {
-      "provider": "github",
-      "owner": "mrdulasolutions",
-      "repo": "AOS-Mail",
-      "private": true
-    },
-    "directories": {
-      "output": "release"
-    }
   }
 }

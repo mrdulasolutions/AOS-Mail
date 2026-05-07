@@ -1,34 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { Memory, DraftMemory, MemoryScope, IpcResponse } from "../../shared/types";
 
-declare global {
-  interface Window {
-    api: {
-      memory: {
-        list: (accountId: string) => Promise<IpcResponse<Memory[]>>;
-        save: (params: {
-          accountId: string;
-          scope: string;
-          scopeValue?: string | null;
-          content: string;
-          source?: string;
-          sourceEmailId?: string;
-        }) => Promise<IpcResponse<Memory>>;
-        update: (
-          id: string,
-          updates: { content?: string; enabled?: boolean },
-        ) => Promise<IpcResponse<Memory | null>>;
-        delete: (id: string) => Promise<IpcResponse<void>>;
-        categories: (accountId: string) => Promise<IpcResponse<string[]>>;
-        draftMemories: {
-          list: (accountId: string) => Promise<IpcResponse<DraftMemory[]>>;
-          promote: (id: string, accountId: string) => Promise<IpcResponse<Memory>>;
-          delete: (id: string) => Promise<IpcResponse<void>>;
-        };
-      };
-    };
-  }
-}
 
 const SCOPE_LABELS: Record<MemoryScope, string> = {
   global: "Global",

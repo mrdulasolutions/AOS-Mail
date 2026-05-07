@@ -1,32 +1,6 @@
 import React, { useState } from "react";
 import type { AttachmentMeta, IpcResponse } from "../../shared/types";
 
-declare global {
-  interface Window {
-    api: {
-      attachments: {
-        download: (
-          emailId: string,
-          attachmentId: string,
-          filename: string,
-          accountId: string,
-        ) => Promise<IpcResponse<{ filePath: string }>>;
-        preview: (
-          emailId: string,
-          attachmentId: string,
-          accountId: string,
-        ) => Promise<IpcResponse<{ data: string }>>;
-        pickFiles: () => Promise<
-          IpcResponse<Array<{ filename: string; path: string; mimeType: string; size: number }>>
-        >;
-        getForForward: (
-          emailId: string,
-          accountId: string,
-        ) => Promise<IpcResponse<Array<{ filename: string; mimeType: string; content: string }>>>;
-      };
-    };
-  }
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";

@@ -772,7 +772,8 @@ export default function App() {
     document.documentElement.style.colorScheme = "light";
   }, [resolvedTheme]);
 
-  // Load inbox splits on mount (stored in electron-store, independent of sync)
+  // Load inbox splits on mount (persisted in SQLite via the splits namespace,
+  // independent of sync).
   useEffect(() => {
     window.api.splits
       .getAll()
@@ -786,7 +787,8 @@ export default function App() {
       });
   }, [setSplits]);
 
-  // Load snippets on mount (stored in electron-store, independent of sync)
+  // Load snippets on mount (persisted in SQLite via the snippets namespace,
+  // independent of sync).
   useEffect(() => {
     window.api.snippets
       .getAll()
