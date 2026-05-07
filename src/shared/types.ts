@@ -306,54 +306,90 @@ export const CliToolConfigSchema = z.object({
 });
 export type CliToolConfig = z.infer<typeof CliToolConfigSchema>;
 
-// AI model tiers — user-facing names mapped to specific model IDs
+// ─── Model selection ──────────────────────────────────────────────────────
+//
+// Historically each feature picked a "tier" (haiku/sonnet/opus) and
+// resolveModelId mapped that to a concrete Claude model ID. With OpenRouter
+// support we let the user store an arbitrary model string per feature
+// (e.g. "claude-sonnet-4-5-20250929", "openai/gpt-4o-mini",
+// "meta-llama/llama-3.3-70b-instruct:free"). The legacy tier names still
+// validate as strings, so existing preferences.json files with `analysis:
+// "sonnet"` continue to load — resolveModelString() folds them back to a
+// concrete claude- id at the call site.
+
+// Legacy tiers — kept for back-compat in preferences and the UI's "Claude"
+// section. New code should pass concrete model strings.
 export const MODEL_TIERS = ["haiku", "sonnet", "opus"] as const;
 export const ModelTierSchema = z.enum(["haiku", "sonnet", "opus"]);
 export type ModelTier = z.infer<typeof ModelTierSchema>;
 
-// Centralized mapping from tier to model ID. Update these when new model versions ship.
-// Note: sonnet maps to 4.5 (not the legacy 4.0 default) — this is an intentional upgrade.
-// Opus uses the non-date-stamped alias because no pinned snapshot is available yet for 4.6.
-// Pin to a date-stamped ID (e.g. "claude-opus-4-6-YYYYMMDD") once Anthropic publishes one.
 export const MODEL_TIER_IDS: Record<ModelTier, string> = {
   haiku: "claude-haiku-4-5-20251001",
   sonnet: "claude-sonnet-4-5-20250929",
   opus: "claude-opus-4-6",
 };
 
-// Display labels for the UI
 export const MODEL_TIER_LABELS: Record<ModelTier, string> = {
   haiku: "Haiku (fast, lightweight)",
   sonnet: "Sonnet (balanced)",
   opus: "Opus (most capable)",
 };
 
-// Per-feature model configuration
+// Anthropic models offered in the model picker. These are concrete IDs the
+// router knows are Claude models (so they take the native SDK path).
+export const ANTHROPIC_MODEL_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (fast)" },
+  { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5 (balanced)" },
+  { id: "claude-opus-4-20250514", label: "Claude Opus 4 (most capable)" },
+];
+
+// Per-feature model configuration. Values are arbitrary model strings so
+// the user can pick anything from the Anthropic list above or any
+// OpenRouter model (free or paid). Defaults are concrete Claude IDs;
+// resolveModelString() also accepts the legacy tier names from old configs.
 export const ModelConfigSchema = z.object({
-  analysis: ModelTierSchema.default("sonnet"),
-  drafts: ModelTierSchema.default("sonnet"),
-  refinement: ModelTierSchema.default("sonnet"),
-  calendaring: ModelTierSchema.default("sonnet"),
-  archiveReady: ModelTierSchema.default("sonnet"),
-  senderLookup: ModelTierSchema.default("haiku"),
-  agentDrafter: ModelTierSchema.default("sonnet"),
-  agentChat: ModelTierSchema.default("opus"),
+  analysis: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  drafts: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  refinement: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  calendaring: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  archiveReady: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  senderLookup: z.string().min(1).default("claude-haiku-4-5-20251001"),
+  agentDrafter: z.string().min(1).default("claude-sonnet-4-5-20250929"),
+  agentChat: z.string().min(1).default("claude-opus-4-20250514"),
+  summary: z.string().min(1).default("claude-haiku-4-5-20251001"),
 });
 
 export type ModelConfig = z.infer<typeof ModelConfigSchema>;
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
-  analysis: "sonnet",
-  drafts: "sonnet",
-  refinement: "sonnet",
-  calendaring: "sonnet",
-  archiveReady: "sonnet",
-  senderLookup: "haiku",
-  agentDrafter: "sonnet",
-  agentChat: "opus",
+  analysis: "claude-sonnet-4-5-20250929",
+  drafts: "claude-sonnet-4-5-20250929",
+  refinement: "claude-sonnet-4-5-20250929",
+  calendaring: "claude-sonnet-4-5-20250929",
+  archiveReady: "claude-sonnet-4-5-20250929",
+  senderLookup: "claude-haiku-4-5-20251001",
+  agentDrafter: "claude-sonnet-4-5-20250929",
+  agentChat: "claude-opus-4-20250514",
+  summary: "claude-haiku-4-5-20251001",
 };
 
-/** Resolve a model tier to its concrete model ID string. */
+/**
+ * Resolve a model selection (which may be a legacy tier name like "sonnet"
+ * or a concrete model id like "openai/gpt-4o-mini") to a concrete model id.
+ * Legacy tier names map via MODEL_TIER_IDS; everything else passes through
+ * unchanged so OpenRouter ids round-trip.
+ */
+export function resolveModelString(selection: string): string {
+  if (selection === "haiku" || selection === "sonnet" || selection === "opus") {
+    return MODEL_TIER_IDS[selection];
+  }
+  return selection;
+}
+
+/**
+ * Legacy: resolve a tier-typed value. Kept for callers that still hand
+ * around ModelTier values; new code should use resolveModelString.
+ */
 export function resolveModelId(tier: ModelTier): string {
   return MODEL_TIER_IDS[tier];
 }

@@ -1,18 +1,26 @@
-// Lifted from src/main/services/anthropic-service.ts.
+// LLM router for the sidecar.
 //
-// Three responsibilities, same as the Electron version:
-//   1. WRAP    — thin wrapper over anthropic.messages.create()
-//   2. RETRY   — exponential backoff on transient errors
-//   3. RECORD  — write each call to llm_calls for cost tracking
+// Originally lifted from src/main/services/anthropic-service.ts as a thin
+// wrapper over @anthropic-ai/sdk. With OpenRouter support added, this file
+// now plays two roles:
+//
+//   1. ROUTER  — `createMessage` inspects `params.model` and dispatches to
+//                either the native Anthropic SDK path (for `claude-*` model
+//                ids) or the OpenAI-compatible OpenRouter path (everything
+//                else, when an OpenRouter key is configured). Both providers
+//                go through `recordCall` so cost-tracking stays uniform.
+//   2. RECORD  — every call (success or failure) lands in `llm_calls` for
+//                the usage dashboard. Pricing for non-Anthropic models comes
+//                from OpenRouter's /models response in cents-per-million-
+//                tokens; today we record 0 cost for free-tier models since
+//                that's what they actually cost.
 //
 // Differences from the Electron version:
-//   - DB handle resolved lazily via getDb() (no setAnthropicServiceDb step;
-//     llm_calls table is created by the sidecar opener).
-//   - API key strictly from env var ANTHROPIC_API_KEY for now. Renderer can
-//     write the key into preferences.json via settings.setApiKey, which we
-//     load on first call (see resolveApiKey).
+//   - DB handle resolved lazily via getDb().
+//   - API key strictly from env var ANTHROPIC_API_KEY first, then prefs.
+//   - OpenRouter key resolution lives in providers/openrouter.ts and is
+//     analogous (env OPENROUTER_API_KEY → prefs).
 //   - Streaming-call recording omitted — no current sidecar caller needs it.
-//     Add back when agent streaming arrives.
 
 import Anthropic from "@anthropic-ai/sdk";
 import type {
@@ -23,6 +31,10 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "../db/index.js";
 import { getPreferences, setPreference } from "../lib/preferences.js";
 import { createLogger } from "../lib/logger.js";
+import {
+  createMessageOpenRouter,
+  getOpenRouterApiKey,
+} from "./providers/openrouter.js";
 
 const log = createLogger("anthropic");
 
@@ -186,7 +198,44 @@ function getRetryCategory(error: unknown): string | null {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Provider selector: claude-* models go to Anthropic, anything else to OpenRouter. */
+function isClaudeModel(model: string): boolean {
+  return model.startsWith("claude-");
+}
+
 export async function createMessage(
+  params: MessageCreateParamsNonStreaming,
+  options: CreateOptions,
+): Promise<Message> {
+  if (isClaudeModel(params.model)) {
+    return createMessageAnthropic(params, options);
+  }
+  // Anything else routes to OpenRouter. We require an API key here so the
+  // failure mode is "tell the user to configure one" rather than silently
+  // falling back to Anthropic and producing surprising bills/costs.
+  if (!getOpenRouterApiKey()) {
+    const err = new Error(
+      `Model "${params.model}" requires an OpenRouter API key. Open Settings → Agent Tools → AI Models to configure one, or pick a Claude model.`,
+    );
+    recordCall(
+      params.model,
+      options.caller,
+      options.emailId ?? null,
+      options.accountId ?? null,
+      0,
+      0,
+      0,
+      0,
+      0,
+      false,
+      err.message,
+    );
+    throw err;
+  }
+  return createMessageViaOpenRouter(params, options);
+}
+
+async function createMessageAnthropic(
   params: MessageCreateParamsNonStreaming,
   options: CreateOptions,
 ): Promise<Message> {
@@ -269,6 +318,49 @@ export async function createMessage(
     errMsg,
   );
   throw lastError;
+}
+
+async function createMessageViaOpenRouter(
+  params: MessageCreateParamsNonStreaming,
+  options: CreateOptions,
+): Promise<Message> {
+  const { caller, emailId, accountId, timeoutMs } = options;
+  const model = params.model;
+  const startTime = Date.now();
+  try {
+    const response = await createMessageOpenRouter(params, { timeoutMs });
+    const usage = response.usage as unknown as Record<string, number>;
+    recordCall(
+      model,
+      caller,
+      emailId ?? null,
+      accountId ?? null,
+      usage.input_tokens || 0,
+      usage.output_tokens || 0,
+      0,
+      0,
+      Date.now() - startTime,
+      true,
+      null,
+    );
+    return response;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    recordCall(
+      model,
+      caller,
+      emailId ?? null,
+      accountId ?? null,
+      0,
+      0,
+      0,
+      0,
+      Date.now() - startTime,
+      false,
+      errMsg,
+    );
+    throw err;
+  }
 }
 
 /**

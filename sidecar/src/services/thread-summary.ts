@@ -16,8 +16,32 @@ import {
   wrapUntrustedEmail,
 } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
+import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("thread-summary");
+
+// Default model for thread summaries when modelConfig.summary is not set.
+// Haiku is plenty for this — extraction over a small context. ~$0.0001/thread.
+const DEFAULT_SUMMARY_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Read modelConfig.summary from preferences.json. Resolves legacy tier
+ * names ("haiku"/"sonnet"/"opus") to concrete model ids so old configs
+ * keep working even though the call site only deals in strings now.
+ */
+function resolveSummaryModel(): string {
+  const prefs = getPreferences() as {
+    modelConfig?: { summary?: unknown };
+  };
+  const raw = prefs.modelConfig?.summary;
+  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_SUMMARY_MODEL;
+  const trimmed = raw.trim();
+  // Back-compat: tier names from old configs.
+  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
+  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
+  if (trimmed === "opus") return "claude-opus-4-20250514";
+  return trimmed;
+}
 
 export interface ThreadSummaryInput {
   threadId: string;
@@ -96,9 +120,11 @@ export async function summarizeThread(
 
   const response = await createMessage(
     {
-      // Haiku is plenty for this — extraction over a small context.
-      // 4-tier pricing keeps the cost ~$0.0001 per thread.
-      model: "claude-haiku-4-5-20251001",
+      // Default to Haiku, but honor modelConfig.summary if the user picked
+      // an OpenRouter free model (or another Claude model) in Settings →
+      // Agent Tools → AI Models. The router in services/anthropic.ts
+      // dispatches based on the model id prefix.
+      model: resolveSummaryModel(),
       max_tokens: 600,
       system: [
         {
