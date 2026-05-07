@@ -357,6 +357,64 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // drafts — Claude-powered reply drafting + DB-backed save.
+  real.drafts = {
+    save: async (
+      emailId: string,
+      body: string,
+      composeMode?: string,
+      to?: string[],
+      cc?: string[],
+      bcc?: string[],
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("drafts.save", {
+          emailId,
+          body,
+          composeMode,
+          to,
+          cc,
+          bcc,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    refine: async (
+      emailId: string,
+      currentDraft: string,
+      critique: string,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("drafts.refine", {
+          emailId,
+          currentDraft,
+          critique,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    rerunAgent: async (emailId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("drafts.rerunAgent", { emailId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    rerunAllAgents: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("drafts.rerunAllAgents", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // analysis — Claude-powered triage. Each call hits the Anthropic API
   // through the lifted anthropic-service. Renderer triggers analysis on
   // each new email; result lands in the analyses table and bubbles up
