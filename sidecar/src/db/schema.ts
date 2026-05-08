@@ -364,7 +364,16 @@ CREATE INDEX IF NOT EXISTS idx_draft_memories_account ON draft_memories(account_
 CREATE INDEX IF NOT EXISTS idx_draft_memories_last_voted ON draft_memories(last_voted_at);
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
+-- (account_id, thread_id) composite. Hot path: every thread fetch in
+-- sync.ts/getEmailsForThread, archive-ready, awaiting-reply, and the
+-- argmax correlated subquery in awaiting-reply all filter
+-- "WHERE thread_id = ? AND account_id = ?". Column order is account_id
+-- first because almost every query also filters by account first; the
+-- composite covers both the (account_id, thread_id) pair and bare
+-- "WHERE account_id = ?" lookups via leftmost-prefix.
+-- The standalone idx_emails_thread is intentionally dropped at startup
+-- (db/index.ts) because no remaining query filters by thread_id alone.
+CREATE INDEX IF NOT EXISTS idx_emails_account_thread ON emails(account_id, thread_id);
 CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date);
 CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id);
 CREATE INDEX IF NOT EXISTS idx_analyses_needs_reply ON analyses(needs_reply);
@@ -378,7 +387,13 @@ CREATE INDEX IF NOT EXISTS idx_local_drafts_account ON local_drafts(account_id);
 CREATE INDEX IF NOT EXISTS idx_local_drafts_updated ON local_drafts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_labels_account ON labels(account_id);
 CREATE INDEX IF NOT EXISTS idx_snoozed_emails_account ON snoozed_emails(account_id);
-CREATE INDEX IF NOT EXISTS idx_snoozed_emails_thread ON snoozed_emails(thread_id);
+-- (account_id, thread_id) composite. The awaiting-reply correlated
+-- subquery does a NOT EXISTS lookup against snoozed_emails for every
+-- email row in the outer scan; without a composite, SQLite falls back
+-- to the single-column thread_id index and post-filters account_id.
+-- The standalone idx_snoozed_emails_thread is dropped at startup
+-- (db/index.ts) since no remaining query filters by thread_id alone.
+CREATE INDEX IF NOT EXISTS idx_snoozed_emails_account_thread ON snoozed_emails(account_id, thread_id);
 CREATE INDEX IF NOT EXISTS idx_snoozed_emails_until ON snoozed_emails(snooze_until);
 CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status);
 CREATE INDEX IF NOT EXISTS idx_outbox_account ON outbox(account_id);

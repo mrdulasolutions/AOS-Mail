@@ -137,6 +137,18 @@ export function initDatabase(): DatabaseInstance {
   ensureCascadeOnEmailIdFK(db, "analyses");
   ensureCascadeOnEmailIdFK(db, "drafts");
 
+  // Drop standalone single-column indexes that the new composites now
+  // supersede. Hot-path query audit (see post-mortem item #3): every
+  // remaining "WHERE thread_id = ?" query in the sidecar also filters by
+  // account_id, so the composite (account_id, thread_id) covers them via
+  // SQLite's leftmost-prefix rule and the standalone indexes just burn
+  // disk and write amplification. DROP INDEX IF EXISTS is idempotent —
+  // a second startup is a no-op.
+  db.exec(`
+    DROP INDEX IF EXISTS idx_emails_thread;
+    DROP INDEX IF EXISTS idx_snoozed_emails_thread;
+  `);
+
   return db;
 }
 
