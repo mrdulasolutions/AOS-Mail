@@ -562,6 +562,38 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // awaitingReply — threads where the user spoke last and has been waiting
+  // for a reply. `list` is a pure-SQL detector capped at 50 rows; the
+  // companion `draftNudge` writes a short follow-up via the regular
+  // draft-generator with composeMode: "nudge".
+  real.awaitingReply = {
+    list: async (
+      accountId: string,
+      opts?: { thresholdDays?: number },
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("awaitingReply.list", {
+          accountId,
+          thresholdDays: opts?.thresholdDays,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    draftNudge: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("awaitingReply.draftNudge", {
+          threadId,
+          accountId,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   // emails — inbox management verbs (archive, trash, star, read).
   // For IMAP these proxy through the sidecar to flag/move on the
   // server, then update the local store. Gmail provider paths in
@@ -2101,10 +2133,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Settings → Extensions and by the boot path to hydrate enabled state.
     list: async (): Promise<IpcResponse<ExtensionManifestSummary[]>> => {
       try {
-        const data = (await bridge.call(
-          "extensions.list",
-          {},
-        )) as ExtensionManifestSummary[];
+        const data = (await bridge.call("extensions.list", {})) as ExtensionManifestSummary[];
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -2253,7 +2282,9 @@ function installRealNamespaces(): Record<string, unknown> {
         }
       };
     },
-    onEmailAnalyzed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onEmailAnalyzed:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
     removeAllListeners: (): void => {
       while (prefetchUnlisteners.length) {
         const un = prefetchUnlisteners.pop();

@@ -248,6 +248,24 @@ export interface SenderProfile {
   isAutomated: boolean;
 }
 
+// ── awaiting reply ──────────────────────────────────────────────────────
+//
+// Nudge V1 surfaces threads where the user's last message is older than
+// thresholdDays. The renderer maps these directly into a "Awaiting Reply"
+// inbox view; clicking the per-row Draft a Nudge button calls draftNudge
+// to compose a short follow-up via the regular draft-generator.
+
+export interface AwaitingReplyThreadRow {
+  threadId: string;
+  accountId: string;
+  /** ISO timestamp of the most recent SENT message in the thread. */
+  lastSentAt: string;
+  subject: string;
+  /** Bare email addresses extracted from the To header. */
+  recipientEmails: string[];
+  daysSince: number;
+}
+
 export interface ExtensionManifestSummary {
   id: string;
   name: string;
@@ -607,6 +625,20 @@ export interface SidecarMethods {
   "learnedRules.reset": {
     params: { accountId?: string } | void;
     result: { deletedRules: number; deletedObservations: number };
+  };
+
+  // ── awaiting reply ────────────────────────────────────────────────────
+  // List threads where the user sent the latest message and has been
+  // waiting on a reply for at least `thresholdDays` (default 3). The
+  // renderer treats this as a smart inbox view; drafting a nudge composes
+  // a short follow-up via the regular draft pipeline.
+  "awaitingReply.list": {
+    params: { accountId: string; thresholdDays?: number };
+    result: AwaitingReplyThreadRow[];
+  };
+  "awaitingReply.draftNudge": {
+    params: { threadId: string; accountId: string };
+    result: { body: string };
   };
 }
 

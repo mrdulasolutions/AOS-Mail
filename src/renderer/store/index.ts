@@ -238,7 +238,9 @@ interface AppState {
   // - "split": email list + detail (default inbox view)
   // - "full":  full-window email detail (single-thread immersion)
   // - "calendar": Calendar V1 list view, replaces the email surface
-  viewMode: "split" | "full" | "calendar";
+  // - "awaiting-reply": smart inbox of threads where the user sent the
+  //   latest message and is waiting on a reply (with one-click nudge).
+  viewMode: "split" | "full" | "calendar" | "awaiting-reply";
 
   // Sidebar tab state — which sidebar panel group is active
   sidebarTab: "sender" | "email" | "agent";
@@ -415,7 +417,7 @@ interface AppState {
   setRemoteSearchLoadingMore: (loading: boolean) => void;
 
   // View mode actions
-  setViewMode: (mode: "split" | "full" | "calendar") => void;
+  setViewMode: (mode: "split" | "full" | "calendar" | "awaiting-reply") => void;
 
   // Sidebar tab actions
   setSidebarTab: (tab: "sender" | "email" | "agent") => void;

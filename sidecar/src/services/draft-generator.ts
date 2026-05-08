@@ -66,6 +66,13 @@ export interface DraftInput {
   /** When set, used to refine an existing draft per a critique. */
   currentDraft?: string;
   critique?: string;
+  /**
+   * Optional drafting mode. "nudge" produces a short polite follow-up
+   * referencing the original ask without re-stating it; the default is
+   * a normal reply. Other values are reserved for future use and fall
+   * through to the default reply behavior.
+   */
+  composeMode?: "reply" | "nudge";
 }
 
 const DRAFT_SYSTEM_PROMPT = `You draft email replies for the user.
@@ -79,7 +86,10 @@ OUTPUT RULES:
 - 2–4 short paragraphs at most.
 - Address questions in the email directly. If the email asks for a decision, default to "yes" unless the email content suggests otherwise.
 - If a meeting time is requested, propose two options; don't decline outright.
-- If the email is a marketing/automated message, decline politely or skip — but if asked to draft anyway, keep it brief.`;
+- If the email is a marketing/automated message, decline politely or skip — but if asked to draft anyway, keep it brief.
+
+NUDGE MODE:
+- If composeMode is 'nudge', the user is following up on a thread where THEY sent the last message and never heard back. The "email" passed in is their original outbound message, not an inbound reply. Write a SHORT polite follow-up that references the original ask without re-stating it in full. Maximum 2 sentences. Match the casual tone of the original. Open with something like "Just bumping this", "Wanted to circle back on", or "Following up on" — pick whichever fits the original tone. Do not apologize for following up.`;
 
 const REFINE_SYSTEM_PROMPT = `You revise email-reply drafts based on feedback.
 
@@ -99,6 +109,14 @@ export async function generateDraft(input: DraftInput): Promise<string> {
   const wrapped = wrapUntrustedEmail(
     `From: ${input.email.from}\nTo: ${input.email.to}\nSubject: ${input.email.subject}\nDate: ${input.email.date}\n\n${body}`,
   );
+  const composeMode = input.composeMode ?? "reply";
+  // The user-turn instruction differs by mode so the model knows whether
+  // it's writing a reply (input is an inbound email) or a nudge (input is
+  // the user's own original outbound message that was never answered).
+  const userInstruction =
+    composeMode === "nudge"
+      ? `composeMode: nudge\n\nThe message below is a NOTE THE USER SENT that has not received a reply. Draft a short follow-up nudge they can send to the same recipient — see NUDGE MODE in the system prompt for the rules.\n\n${wrapped}`
+      : `Draft a reply to this email:\n\n${wrapped}`;
   const response = await createMessage(
     {
       // Honor modelConfig.drafts; defaults to Sonnet. Same router behavior
@@ -112,11 +130,15 @@ export async function generateDraft(input: DraftInput): Promise<string> {
       messages: [
         {
           role: "user",
-          content: `Draft a reply to this email:\n\n${wrapped}`,
+          content: userInstruction,
         },
       ],
     },
-    { caller: "draft-generator", emailId: input.emailId, accountId: input.accountId },
+    {
+      caller: composeMode === "nudge" ? "draft-nudge" : "draft-generator",
+      emailId: input.emailId,
+      accountId: input.accountId,
+    },
   );
   const block = response.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") throw new Error("No text response from Claude");

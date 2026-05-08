@@ -19,6 +19,8 @@ import { CommandPalette } from "./components/CommandPalette";
 import { AgentCommandPalette } from "./components/AgentCommandPalette";
 import { AgentsSidebar } from "./components/AgentsSidebar";
 import { FolderRail } from "./components/FolderRail";
+import { AwaitingReplyRail } from "./components/AwaitingReplyRail";
+import { AwaitingReplyView } from "./components/AwaitingReplyView";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { KeyboardHints } from "./components/KeyboardHints";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -2434,13 +2436,27 @@ export default function App() {
         {isAgentsSidebarOpen && <AgentsSidebar />}
 
         {/* Folder/label picker — kept mounted so the user can flip
-            folders without losing scroll position in the email list. */}
-        <FolderRail />
+            folders without losing scroll position in the email list.
+            The Awaiting Reply rail entry sits as a sibling above the
+            FolderRail; clicking it pivots into the awaiting-reply view. */}
+        <aside
+          className="w-48 flex-shrink-0 bg-aos-bg-soft border-r border-aos-line overflow-y-auto py-2 flex flex-col"
+          data-testid="left-rail-shell"
+        >
+          <AwaitingReplyRail />
+          <FolderRail />
+        </aside>
+
+        {/* Awaiting Reply view: smart inbox of threads waiting on a
+            response. Replaces the email surface in the same way calendar
+            mode does. */}
+        {viewMode === "awaiting-reply" && <AwaitingReplyView />}
 
         {/* Search results view (shown when search is active and not viewing a specific email) */}
-        {activeSearchQuery && viewMode !== "full" && viewMode !== "calendar" && (
-          <SearchResultsView />
-        )}
+        {activeSearchQuery &&
+          viewMode !== "full" &&
+          viewMode !== "calendar" &&
+          viewMode !== "awaiting-reply" && <SearchResultsView />}
 
         {/* Split mode: dense email list — kept mounted (hidden) in full and
            calendar modes AND during search to preserve useMemo caches
@@ -2466,10 +2482,10 @@ export default function App() {
 
         {/* Preview sidebar — kept mounted across view mode transitions to avoid
             expensive unmount/remount of agent trace timelines. Hidden in
-            calendar mode since there's no email to preview. */}
-        {viewMode !== "calendar" && (!activeSearchQuery || viewMode === "full") && (
-          <EmailPreviewSidebar />
-        )}
+            calendar and awaiting-reply modes since there's no email to preview. */}
+        {viewMode !== "calendar" &&
+          viewMode !== "awaiting-reply" &&
+          (!activeSearchQuery || viewMode === "full") && <EmailPreviewSidebar />}
       </div>
 
       {/* Keyboard hints bar */}
