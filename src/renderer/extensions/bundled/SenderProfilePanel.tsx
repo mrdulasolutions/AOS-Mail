@@ -2,16 +2,32 @@ import React from "react";
 import type { DashboardEmail } from "../../../shared/types";
 import type { ExtensionEnrichmentResult } from "../../../shared/extension-types";
 
-// Types for the enrichment data from web-search extension
-interface SenderProfileData {
-  email: string;
-  name: string;
-  summary: string;
-  linkedinUrl?: string;
+// Two enrichment shapes we accept:
+//
+//  - V1 sidecar shape (current): { name, role, company, summary, linkedinUrl,
+//    sources, cachedAt, isAutomated }
+//  - Legacy Electron shape: { name, title, company, summary, linkedinUrl,
+//    lookupAt, isReminder }
+//
+// We normalize them through one local view-model so the JSX below stays
+// simple. Field aliases handled: role↔title, cachedAt↔lookupAt.
+
+interface SourceLink {
+  title: string;
+  url: string;
+}
+
+interface SenderProfileViewModel {
+  email?: string;
+  name?: string;
+  role?: string;
   company?: string;
-  title?: string;
-  lookupAt: number;
-  isReminder: boolean;
+  summary?: string;
+  linkedinUrl?: string;
+  sources?: SourceLink[];
+  cachedAt?: number;
+  isAutomated?: boolean;
+  isReminder?: boolean;
 }
 
 interface SenderProfilePanelProps {
@@ -21,29 +37,67 @@ interface SenderProfilePanelProps {
   isLoading: boolean;
 }
 
+function asProfile(raw: unknown): SenderProfileViewModel | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const sources: SourceLink[] = [];
+  if (Array.isArray(r.sources)) {
+    for (const s of r.sources) {
+      if (s && typeof s === "object") {
+        const sr = s as Record<string, unknown>;
+        if (typeof sr.title === "string" && typeof sr.url === "string") {
+          sources.push({ title: sr.title, url: sr.url });
+        }
+      }
+    }
+  }
+  return {
+    email: typeof r.email === "string" ? r.email : undefined,
+    name: typeof r.name === "string" ? r.name : undefined,
+    role: typeof r.role === "string" ? r.role : typeof r.title === "string" ? r.title : undefined,
+    company: typeof r.company === "string" ? r.company : undefined,
+    summary: typeof r.summary === "string" ? r.summary : undefined,
+    linkedinUrl: typeof r.linkedinUrl === "string" ? r.linkedinUrl : undefined,
+    sources,
+    cachedAt:
+      typeof r.cachedAt === "number"
+        ? r.cachedAt
+        : typeof r.lookupAt === "number"
+          ? r.lookupAt
+          : undefined,
+    isAutomated: typeof r.isAutomated === "boolean" ? r.isAutomated : undefined,
+    isReminder: typeof r.isReminder === "boolean" ? r.isReminder : undefined,
+  };
+}
+
 /**
- * Sender Profile Panel - displays information about the email sender
+ * Sender Profile Panel - displays information about the email sender.
  */
 export function SenderProfilePanel({
   email,
   enrichment,
   isLoading,
 }: SenderProfilePanelProps): React.ReactElement {
-  const profile = enrichment?.data as SenderProfileData | undefined;
-  const isReminder = profile?.isReminder ?? false;
+  const profile = asProfile(enrichment?.data);
   const linkedInUrl =
-    typeof profile?.linkedinUrl === "string" ? parseProfileLink(profile.linkedinUrl) : undefined;
+    profile && typeof profile.linkedinUrl === "string"
+      ? parseProfileLink(profile.linkedinUrl)
+      : undefined;
 
-  // Fallback values if no enrichment
+  // Fallback values if no enrichment.
   const senderName = profile?.name || extractDisplayName(email.from);
   const senderEmail = profile?.email || extractEmailAddress(email.from);
 
   return (
     <div className="p-4">
-      {/* Reminder indicator */}
-      {isReminder && (
+      {profile?.isReminder && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs px-2 py-1 rounded mb-3">
           Returned via reminder - showing original sender
+        </div>
+      )}
+      {profile?.isAutomated && (
+        <div className="bg-gray-50 dark:bg-gray-900/30 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-2 py-1 rounded mb-3">
+          Automated sender - skipping web lookup
         </div>
       )}
 
@@ -85,12 +139,11 @@ export function SenderProfilePanel({
       {/* Profile Info */}
       {!isLoading && profile && (
         <div className="space-y-4">
-          {/* Company & Title */}
-          {(profile.company || profile.title) && (
+          {(profile.company || profile.role) && (
             <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-              {profile.title && (
+              {profile.role && (
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {profile.title}
+                  {profile.role}
                 </p>
               )}
               {profile.company && (
@@ -99,17 +152,17 @@ export function SenderProfilePanel({
             </div>
           )}
 
-          {/* Summary */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-              About
-            </h4>
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-              {profile.summary}
-            </p>
-          </div>
+          {profile.summary && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                About
+              </h4>
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                {profile.summary}
+              </p>
+            </div>
+          )}
 
-          {/* LinkedIn Link */}
           {linkedInUrl && (
             <a
               href={linkedInUrl}
@@ -124,10 +177,37 @@ export function SenderProfilePanel({
             </a>
           )}
 
-          {/* Last updated */}
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            Last updated: {new Date(profile.lookupAt).toLocaleDateString()}
-          </p>
+          {profile.sources && profile.sources.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Sources
+              </h4>
+              <ul className="space-y-1">
+                {profile.sources.map((s, i) => {
+                  const safe = parseProfileLink(s.url);
+                  if (!safe) return null;
+                  return (
+                    <li key={`${s.url}-${i}`}>
+                      <a
+                        href={safe}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate block"
+                      >
+                        {s.title}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {profile.cachedAt && (
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Last updated: {new Date(profile.cachedAt).toLocaleDateString()}
+            </p>
+          )}
         </div>
       )}
 
