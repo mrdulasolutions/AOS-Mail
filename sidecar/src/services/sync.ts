@@ -32,6 +32,23 @@ export interface SyncResult {
   errors: string[];
 }
 
+export interface LoadMoreResult {
+  accountId: string;
+  fetched: number;
+  newRows: number;
+  newEmails: DashboardEmailRow[];
+  hasMore: boolean;
+  errors: string[];
+}
+
+/**
+ * Per-page size for "Load more" — same as the initial inbox window so
+ * users always see ~100 more rows per click. The DB-side LIMIT in
+ * getEmailsForAccount stays at 500 for now; that's the cap on what the
+ * renderer sees in one shot.
+ */
+const LOAD_MORE_PAGE_SIZE = 100;
+
 interface AccountRow {
   id: string;
   email: string;
@@ -161,7 +178,7 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
   const errors: string[] = [];
 
   try {
-    const { headers } = await listImapMessageHeaders(accountId, "INBOX", { limit: 50 });
+    const { headers } = await listImapMessageHeaders(accountId, "INBOX", { limit: 100 });
     const now = Date.now();
     for (const h of headers) {
       try {
@@ -227,12 +244,15 @@ interface SyncStateRow {
   account_id: string;
   history_id: string;
   last_sync_at: number;
+  load_more_token?: string | null;
 }
 
 function getGmailSyncState(accountId: string): SyncStateRow | null {
   return (
     (getDb()
-      .prepare("SELECT account_id, history_id, last_sync_at FROM sync_state WHERE account_id = ?")
+      .prepare(
+        "SELECT account_id, history_id, last_sync_at, load_more_token FROM sync_state WHERE account_id = ?",
+      )
       .get(accountId) as SyncStateRow | undefined) ?? null
   );
 }
@@ -247,6 +267,28 @@ function setGmailSyncState(accountId: string, historyId: string): void {
          last_sync_at = excluded.last_sync_at`,
     )
     .run(accountId, historyId, Date.now());
+}
+
+function setGmailLoadMoreToken(accountId: string, token: string | null): void {
+  // Update only the load_more_token column; if the row doesn't exist yet
+  // we insert a placeholder history_id so the schema's NOT NULL holds. In
+  // practice this is always called after a sync has happened, so the row
+  // should already exist.
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT account_id FROM sync_state WHERE account_id = ?")
+    .get(accountId) as { account_id: string } | undefined;
+  if (existing) {
+    db.prepare("UPDATE sync_state SET load_more_token = ? WHERE account_id = ?").run(
+      token,
+      accountId,
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO sync_state (account_id, history_id, last_sync_at, load_more_token)
+       VALUES (?, ?, ?, ?)`,
+    ).run(accountId, "", Date.now(), token);
+  }
 }
 
 function gmailHeaderToUpsert(
@@ -401,7 +443,7 @@ async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
   if (useFullSync) {
     try {
       const { messageIds, historyId } = await listGmailMessages(accountId, {
-        maxResults: 50,
+        maxResults: 100,
       });
       if (messageIds.length > 0) {
         const headers = await getGmailHeaders(
@@ -446,6 +488,267 @@ async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
   }
 
   return { accountId, fetched, newRows, newEmails, errors };
+}
+
+// ── Load more (older emails) ────────────────────────────────────────────
+//
+// Pagination model:
+//   - IMAP: each row's id encodes its UID (imap:<account>:<folder>:<uid>).
+//     Find the smallest UID in DB for this account+inbox, then ask IMAP
+//     for the next 100 with `beforeUid: minUid`. Stop when the server
+//     returns fewer than `limit` headers (we've reached the start of the
+//     mailbox).
+//   - Gmail: persist `nextPageToken` from messages.list in sync_state.
+//     Each call passes the stored token; the server returns the next 100
+//     and a fresh token. When the server returns no token we set hasMore
+//     to false and clear the persisted token.
+//
+// Both paths upsert into the same emails table, so the existing
+// getEmailsForAccount LIMIT 500 keeps the renderer's data set bounded.
+export async function loadMoreAccountNow(accountId: string): Promise<LoadMoreResult> {
+  const row = getAccountRow(accountId);
+  if (!row) {
+    return {
+      accountId,
+      fetched: 0,
+      newRows: 0,
+      newEmails: [],
+      hasMore: false,
+      errors: ["account not found"],
+    };
+  }
+  if (row.provider === "gmail") return loadMoreGmail(accountId);
+  if (row.provider === "imap") return loadMoreImap(accountId);
+  return {
+    accountId,
+    fetched: 0,
+    newRows: 0,
+    newEmails: [],
+    hasMore: false,
+    errors: [`unknown provider: ${row.provider}`],
+  };
+}
+
+function lowestImapUidForAccount(accountId: string, folder: string): number | null {
+  // Pull the lowest UID from the encoded id. Parsing in SQL via SUBSTR is
+  // brittle across folder names with separators, so do it in JS — the
+  // count is bounded by what the renderer has already loaded (≤500).
+  const rows = getDb()
+    .prepare("SELECT id FROM emails WHERE account_id = ? AND id LIKE ?")
+    .all(accountId, `imap:${accountId}:${folder}:%`) as Array<{ id: string }>;
+  let min: number | null = null;
+  for (const r of rows) {
+    const m = /^imap:[^:]+:[^:]+:(\d+)$/.exec(r.id);
+    if (!m || !m[1]) continue;
+    const uid = Number(m[1]);
+    if (!Number.isFinite(uid)) continue;
+    if (min === null || uid < min) min = uid;
+  }
+  return min;
+}
+
+async function loadMoreImap(accountId: string): Promise<LoadMoreResult> {
+  const errors: string[] = [];
+  const newEmails: DashboardEmailRow[] = [];
+  let fetched = 0;
+  let newRows = 0;
+  let hasMore = false;
+
+  const folder = "INBOX";
+  try {
+    const minUid = lowestImapUidForAccount(accountId, folder);
+    // No stored emails yet — fall through to a regular sync.
+    if (minUid === null) {
+      const r = await syncAccountNow(accountId);
+      return {
+        accountId,
+        fetched: r.fetched,
+        newRows: r.newRows,
+        newEmails: r.newEmails,
+        // First page; assume more exists if we filled the window.
+        hasMore: r.fetched >= LOAD_MORE_PAGE_SIZE,
+        errors: r.errors,
+      };
+    }
+    if (minUid <= 1) {
+      return { accountId, fetched: 0, newRows: 0, newEmails: [], hasMore: false, errors: [] };
+    }
+    const { headers } = await listImapMessageHeaders(accountId, folder, {
+      limit: LOAD_MORE_PAGE_SIZE,
+      beforeUid: minUid,
+    });
+    // If the server returned a full page we likely have more; if it
+    // returned fewer we've hit the start of the mailbox.
+    hasMore = headers.length >= LOAD_MORE_PAGE_SIZE;
+    const now = Date.now();
+    for (const h of headers) {
+      try {
+        const labels = ["INBOX"];
+        if (!h.isUnread) labels.push("READ");
+        if (h.isStarred) labels.push("STARRED");
+        const upsertRow: UpsertEmail = {
+          id: h.id,
+          account_id: accountId,
+          thread_id: h.threadId,
+          subject: h.subject,
+          from_address: h.from,
+          to_address: h.to,
+          cc_address: h.cc,
+          bcc_address: h.bcc,
+          body: "",
+          body_text: null,
+          snippet: h.snippet,
+          date: h.date,
+          fetched_at: now,
+          label_ids: JSON.stringify(labels),
+          attachments: null,
+          message_id: h.messageId,
+          in_reply_to: h.inReplyTo,
+        };
+        const inserted = upsertEmail(upsertRow);
+        fetched++;
+        if (inserted) {
+          newRows++;
+          newEmails.push(
+            rowToDashboard({
+              id: upsertRow.id,
+              thread_id: upsertRow.thread_id,
+              account_id: upsertRow.account_id,
+              subject: upsertRow.subject,
+              from_address: upsertRow.from_address,
+              to_address: upsertRow.to_address,
+              cc_address: upsertRow.cc_address,
+              bcc_address: upsertRow.bcc_address,
+              date: upsertRow.date,
+              snippet: upsertRow.snippet,
+              body: upsertRow.body,
+              label_ids: upsertRow.label_ids,
+              message_id: upsertRow.message_id,
+              in_reply_to: upsertRow.in_reply_to,
+            }),
+          );
+        }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  return { accountId, fetched, newRows, newEmails, hasMore, errors };
+}
+
+async function loadMoreGmail(accountId: string): Promise<LoadMoreResult> {
+  const errors: string[] = [];
+  const newEmails: DashboardEmailRow[] = [];
+  let fetched = 0;
+  let newRows = 0;
+  let hasMore = false;
+
+  try {
+    const stored = getGmailSyncState(accountId);
+    const pageToken = stored?.load_more_token ?? undefined;
+    // No prior token: list the first page (which should already be in DB
+    // from the initial sync). The fresh nextPageToken becomes our cursor
+    // for the *next* "Load more" click. If the user has zero stored emails,
+    // a regular sync is the right entry point.
+    if (!pageToken) {
+      const { messageIds, nextPageToken } = await listGmailMessages(accountId, {
+        maxResults: LOAD_MORE_PAGE_SIZE,
+      });
+      // Most/all of these are likely already in the DB from the initial
+      // sync; the upsert path handles dedup. We still walk them so the
+      // labels stay fresh.
+      if (messageIds.length > 0) {
+        const headers = await getGmailHeaders(
+          accountId,
+          messageIds.map((m) => m.id),
+        );
+        for (const h of headers) {
+          try {
+            const upsertRow = gmailHeaderToUpsert(accountId, h);
+            const inserted = upsertEmail(upsertRow);
+            fetched++;
+            if (inserted) {
+              newRows++;
+              newEmails.push(
+                rowToDashboard({
+                  id: upsertRow.id,
+                  thread_id: upsertRow.thread_id,
+                  account_id: upsertRow.account_id,
+                  subject: upsertRow.subject,
+                  from_address: upsertRow.from_address,
+                  to_address: upsertRow.to_address,
+                  cc_address: upsertRow.cc_address,
+                  bcc_address: upsertRow.bcc_address,
+                  date: upsertRow.date,
+                  snippet: upsertRow.snippet,
+                  body: upsertRow.body,
+                  label_ids: upsertRow.label_ids,
+                  message_id: upsertRow.message_id,
+                  in_reply_to: upsertRow.in_reply_to,
+                }),
+              );
+            }
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+      setGmailLoadMoreToken(accountId, nextPageToken);
+      hasMore = !!nextPageToken;
+      return { accountId, fetched, newRows, newEmails, hasMore, errors };
+    }
+
+    // Have a token from a prior page — fetch the *next* page.
+    const { messageIds, nextPageToken } = await listGmailMessages(accountId, {
+      maxResults: LOAD_MORE_PAGE_SIZE,
+      pageToken,
+    });
+    if (messageIds.length > 0) {
+      const headers = await getGmailHeaders(
+        accountId,
+        messageIds.map((m) => m.id),
+      );
+      for (const h of headers) {
+        try {
+          const upsertRow = gmailHeaderToUpsert(accountId, h);
+          const inserted = upsertEmail(upsertRow);
+          fetched++;
+          if (inserted) {
+            newRows++;
+            newEmails.push(
+              rowToDashboard({
+                id: upsertRow.id,
+                thread_id: upsertRow.thread_id,
+                account_id: upsertRow.account_id,
+                subject: upsertRow.subject,
+                from_address: upsertRow.from_address,
+                to_address: upsertRow.to_address,
+                cc_address: upsertRow.cc_address,
+                bcc_address: upsertRow.bcc_address,
+                date: upsertRow.date,
+                snippet: upsertRow.snippet,
+                body: upsertRow.body,
+                label_ids: upsertRow.label_ids,
+                message_id: upsertRow.message_id,
+                in_reply_to: upsertRow.in_reply_to,
+              }),
+            );
+          }
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+    setGmailLoadMoreToken(accountId, nextPageToken);
+    hasMore = !!nextPageToken;
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  return { accountId, fetched, newRows, newEmails, hasMore, errors };
 }
 
 export interface DashboardEmailRow {

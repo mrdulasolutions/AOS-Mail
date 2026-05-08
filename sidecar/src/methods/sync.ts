@@ -18,7 +18,12 @@
 
 import { registerMethod, emit } from "../rpc.js";
 import { getDb } from "../db/index.js";
-import { syncAccountNow, getEmailsForAccount, fetchBodyForEmail } from "../services/sync.js";
+import {
+  syncAccountNow,
+  loadMoreAccountNow,
+  getEmailsForAccount,
+  fetchBodyForEmail,
+} from "../services/sync.js";
 import {
   listImapAccountIds,
 } from "../services/providers/imap-creds.js";
@@ -31,6 +36,21 @@ interface AccountInfoRow {
   id: string;
   email: string;
   provider: string;
+}
+
+// Shape of the prefetch:progress event the renderer's Queue tab consumes.
+// Matches src/renderer/store/index.ts PrefetchProgress closely enough that
+// setPrefetchProgress(progress) accepts it directly.
+function emptyProgress(): {
+  status: "idle";
+  queueLength: 0;
+  processed: { analysis: 0; senderProfile: 0; draft: 0; extensionEnrichment: 0 };
+} {
+  return {
+    status: "idle",
+    queueLength: 0,
+    processed: { analysis: 0, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
+  };
 }
 
 function listAccountsWithProvider(): AccountInfoRow[] {
@@ -73,6 +93,27 @@ export function registerSyncMethods(): void {
           accountId,
           emails: result.newEmails,
         });
+      }
+      return result;
+    } catch (err) {
+      emit("sync:status-change", { accountId, status: "error" });
+      throw err;
+    }
+  });
+
+  // sync.loadMore — fetch the next 100 older emails for an account. The
+  // renderer wires this to a "Load more" button at the bottom of the
+  // inbox list. Returns { fetched, newRows, hasMore } so the renderer
+  // can hide the button when the server says we're at the bottom.
+  registerMethod("sync.loadMore", async (params) => {
+    const { accountId } = (params as { accountId?: string }) ?? {};
+    if (!accountId) throw new Error("sync.loadMore: requires { accountId }");
+    emit("sync:status-change", { accountId, status: "syncing" });
+    try {
+      const result = await loadMoreAccountNow(accountId);
+      emit("sync:status-change", { accountId, status: "idle" });
+      if (result.newEmails.length > 0) {
+        emit("sync:new-emails", { accountId, emails: result.newEmails });
       }
       return result;
     } catch (err) {
@@ -175,16 +216,40 @@ export function registerSyncMethods(): void {
   // result, so clicking the email will retry via sync.fetchBody.
   registerMethod("sync.prefetchBodies", async (params) => {
     const rawIds = (params as { ids?: string[] })?.ids;
-    if (!Array.isArray(rawIds) || rawIds.length === 0) return [];
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      // Emit a final idle so the Queue tab clears any "running" state.
+      emit("prefetch:progress", emptyProgress());
+      return [];
+    }
     const ids: string[] = rawIds;
     const CONCURRENCY = 4;
     const out: Array<{ id: string; body: string }> = [];
     let cursor = 0;
+    let processed = 0;
+    // Initial "running" snapshot — the Settings → Queue tab subscribes
+    // to prefetch:progress and uses queueLength to render the chip.
+    // TODO(V2): richer progress (per-stage counters: analysis / sender
+    // profile / draft / extension enrichment) once those workers move
+    // into the sidecar. For V1 we only do body prefetch, so this is the
+    // single "running" surface the user sees in this tab.
+    emit("prefetch:progress", {
+      status: "running",
+      queueLength: ids.length,
+      processed: { analysis: 0, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
+    });
     async function worker(): Promise<void> {
       while (cursor < ids.length) {
         const i = cursor++;
         const id = ids[i];
         if (typeof id !== "string") continue;
+        // Tell subscribers which id is in flight so the Queue tab shows
+        // it as the "current task".
+        emit("prefetch:progress", {
+          status: "running",
+          queueLength: Math.max(0, ids.length - processed),
+          currentTask: { emailId: id, type: "analysis" as const },
+          processed: { analysis: processed, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
+        });
         try {
           const row = await fetchBodyForEmail(id);
           if (row && typeof row.body === "string") {
@@ -195,11 +260,19 @@ export function registerSyncMethods(): void {
             emailId: id,
             err: err instanceof Error ? err.message : String(err),
           });
+        } finally {
+          processed += 1;
         }
       }
     }
     const workers = Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker);
     await Promise.all(workers);
+    // Final idle.
+    emit("prefetch:progress", {
+      status: "idle",
+      queueLength: 0,
+      processed: { analysis: processed, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
+    });
     return out;
   });
 

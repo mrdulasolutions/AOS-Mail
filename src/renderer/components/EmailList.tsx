@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import type { InboxDensity, SnoozedEmail, DashboardEmail, LocalDraft } from "../../shared/types";
 import { useAppStore, useSplitFilteredThreads, type EmailThread } from "../store";
 import { EmailRow } from "./EmailRow";
@@ -74,6 +74,69 @@ export function EmailList() {
     () => allLocalDrafts.filter((d) => !currentAccountId || d.accountId === currentAccountId),
     [allLocalDrafts, currentAccountId],
   );
+
+  // "Load more" state. We assume more is available until the sidecar tells
+  // us otherwise (sync.loadMore returns hasMore=false). Reset on account
+  // switch so a new account starts assuming-more again.
+  const [loadMoreState, setLoadMoreState] = useState<{
+    isLoading: boolean;
+    hasMore: boolean;
+    fetchedCount: number;
+  }>({ isLoading: false, hasMore: true, fetchedCount: 0 });
+  useEffect(() => {
+    setLoadMoreState({ isLoading: false, hasMore: true, fetchedCount: 0 });
+  }, [currentAccountId]);
+
+  const setEmails = useAppStore((s) => s.setEmails);
+  const handleLoadMore = useCallback(async () => {
+    if (!currentAccountId || loadMoreState.isLoading || !loadMoreState.hasMore) return;
+    setLoadMoreState((s) => ({ ...s, isLoading: true }));
+    try {
+      const resp = await window.api.sync.loadMore(currentAccountId);
+      // Whether or not new rows were fetched, re-pull the inbox so the
+      // store reflects the freshly-upserted older messages. Other accounts'
+      // emails are preserved from the current store snapshot.
+      const data =
+        resp && typeof resp === "object" && "data" in resp ? (resp as { data?: unknown }).data : null;
+      const hasMore = !!(
+        data &&
+        typeof data === "object" &&
+        "hasMore" in (data as Record<string, unknown>) &&
+        (data as { hasMore?: boolean }).hasMore
+      );
+      const fetched =
+        data && typeof data === "object" && "fetched" in (data as Record<string, unknown>)
+          ? Number((data as { fetched?: number }).fetched ?? 0)
+          : 0;
+      const refreshed = await window.api.sync.getEmails(currentAccountId);
+      if (refreshed?.success && refreshed.data) {
+        const otherAccountEmails = useAppStore
+          .getState()
+          .emails.filter((e) => e.accountId !== currentAccountId);
+        setEmails([...otherAccountEmails, ...refreshed.data]);
+      }
+      setLoadMoreState((s) => ({
+        isLoading: false,
+        hasMore,
+        fetchedCount: s.fetchedCount + fetched,
+      }));
+    } catch (err) {
+      console.error("[load-more] failed", err);
+      setLoadMoreState((s) => ({ ...s, isLoading: false }));
+    }
+  }, [currentAccountId, loadMoreState.isLoading, loadMoreState.hasMore, setEmails]);
+
+  // Show the "Load more" control only in inbox-derived views (not Sent /
+  // Drafts / Archive-Ready / Snoozed — those have their own data sources).
+  // Priority/Other/All splits all read from the same inbox set, so the
+  // button still applies there.
+  const showLoadMore =
+    !isDraftsView &&
+    !isSnoozedView &&
+    !isArchiveReadyView &&
+    !isSentView &&
+    threads.length > 0 &&
+    loadMoreState.hasMore;
 
   // Threads with AI-generated drafts (for the Drafts tab).
   // Filter to drafts with body content — excludes placeholder shells still being generated.
@@ -787,6 +850,45 @@ export function EmailList() {
               </p>
             </div>
           )
+        )}
+        {/* Load more control. Lives below the virtualized list (sibling,
+             not inside, so it isn't affected by the absolute-positioned
+             rows). Visible only in inbox-derived views with at least one
+             thread, and only while the sidecar reports hasMore=true. */}
+        {showLoadMore && (
+          <div className="flex items-center justify-center py-3 border-t border-gray-100 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => {
+                void handleLoadMore();
+              }}
+              disabled={loadMoreState.isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none"
+            >
+              {loadMoreState.isLoading ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  Loading…
+                </>
+              ) : (
+                <>Load 100 more</>
+              )}
+            </button>
+          </div>
         )}
       </div>
     </div>

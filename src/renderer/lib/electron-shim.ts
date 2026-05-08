@@ -745,6 +745,14 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    loadMore: async (accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.loadMore", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
     start: async (accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("sync.start", { accountId });
@@ -2042,7 +2050,41 @@ function installRealNamespaces(): Record<string, unknown> {
     removeAllListeners: (): void => {},
   });
   real.backgroundSync = eventNoopNamespace();
-  real.prefetch = eventNoopNamespace();
+
+  // prefetch — the sidecar emits `prefetch:progress` events from
+  // sync.prefetchBodies so the Settings → Queue tab shows live activity.
+  // The renderer's onEmailAnalyzed wire is unrelated (analysis events
+  // come over `analysis:email-analyzed`); we keep its no-op fallback.
+  const prefetchUnlisteners: Array<() => void> = [];
+  real.prefetch = {
+    onProgress: (cb: (progress: unknown) => void): (() => void) => {
+      let attached: (() => void) | null = null;
+      void bridge
+        .listen<unknown>("prefetch:progress", (p) => cb(p))
+        .then((un) => {
+          attached = un;
+          prefetchUnlisteners.push(un);
+        });
+      return () => {
+        if (attached) {
+          attached();
+          const idx = prefetchUnlisteners.indexOf(attached);
+          if (idx >= 0) prefetchUnlisteners.splice(idx, 1);
+        }
+      };
+    },
+    onEmailAnalyzed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    removeAllListeners: (): void => {
+      while (prefetchUnlisteners.length) {
+        const un = prefetchUnlisteners.pop();
+        try {
+          un?.();
+        } catch {
+          // best-effort
+        }
+      }
+    },
+  };
   real.outbox = {
     ...eventNoopNamespace(),
     getStats: async (): Promise<IpcResponse<unknown>> => ({

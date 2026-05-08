@@ -72,6 +72,10 @@ export function initDatabase(): DatabaseInstance {
     "ALTER TABLE accounts ADD COLUMN smtp_host TEXT",
     "ALTER TABLE accounts ADD COLUMN smtp_port INTEGER",
     "ALTER TABLE accounts ADD COLUMN tls_enabled INTEGER NOT NULL DEFAULT 1",
+    // load-more pagination cursor for the inbox window. Gmail stores its
+    // nextPageToken so the next "Load more" click resumes mid-list; IMAP
+    // doesn't need a cursor (it derives from the current min UID in DB).
+    "ALTER TABLE sync_state ADD COLUMN load_more_token TEXT",
   ]) {
     try {
       db.exec(ddl);

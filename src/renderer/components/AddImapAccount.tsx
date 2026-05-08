@@ -341,7 +341,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
               Connecting…
             </span>
           ) : (
-            "Test &amp; add account"
+            <>{"Test & add account"}</>
           )}
         </button>
       </div>
