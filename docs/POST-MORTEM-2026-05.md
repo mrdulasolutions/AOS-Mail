@@ -523,59 +523,69 @@ Top issues by user-visible impact, ranked:
 
 These are NOT bugs but coupled patterns that future work will fight against.
 
-1. **`window.api` is `any`-shaped at the renderer boundary.** The shim
-   builds the surface with Proxy + auto-stub, but the renderer reads
-   via `(window as any).api` casts in many call-sites
-   (`useKeyboardShortcuts.ts:797`, `AwaitingReplyView.tsx:34`,
-   `EmailDetail.tsx` x4, etc.). Renaming an RPC method or changing a
-   param shape is a silent breaking change. The contract typing in
-   `bridge.call` works end-to-end but it's not what most consumers
-   use. **Fix:** type `window.api` from the contract by generating a
-   declaration file — e.g. a `WindowApi` namespace mirroring
-   `SidecarMethods`. The shim's `installRealNamespaces` would consume
-   it as the source of truth.
+**Status: 0 of 5 remaining.** All five items closed in Sprint-9 / Sprint-10
+(see resolution notes inline).
 
-2. **Three error-toast surfaces (`UndoActionToast`, `SmartActionToast`,
-   `UndoSendToast`) overlap.** They share an undo timer concept but
-   reinvent expiration, the Cmd+Z handler, and the cancellation
-   path. The smart-action toast bolts onto undo via the
-   `smartActionToastId` cross-link. Future undo features will pile
-   on more bespoke surfaces. **Fix:** unify around a single
-   `Toast` queue/dispatcher with kind-specific renderers.
+1. **[CLOSED — Sprint-9 typed-bridge]** `window.api` is `any`-shaped at the
+   renderer boundary. *Resolution:* `src/shared/window-api.ts` now generates
+   `WindowApi` from `SidecarMethods` via mapped/conditional types; the shim's
+   `installRealNamespaces` consumes it via `satisfies WindowApi`; every
+   `(window as any).api` cast deleted. Renaming an RPC method or changing
+   a param shape is now a typecheck failure at every call site.
 
-3. **`emails` schema mixes IMAP + Gmail rows under one PRIMARY KEY
-   (id) but assumes account_id is implicit.** Several queries filter
-   by `account_id` *separately* from the id (`getEmailsForThread`,
-   `archiveThread`). The id format prevents collisions today, but
-   per-account thread tables would be a cleaner model for the
-   "switch account → instant" UX path. The current `WHERE thread_id
-   = ? AND account_id = ?` works but the index is `(thread_id)`
-   only — secondary by account is on disk twice (`(account_id)`).
-   **Fix:** add a composite `(account_id, thread_id)` index, or shard
-   by account.
+2. **[CLOSED — Sprint-10 toast-unify]** Three error-toast surfaces
+   (`UndoActionToast`, `SmartActionToast`, `UndoSendToast`,
+   `TriageStatusToast` — actually four) overlapped. *Resolution:* one
+   `src/renderer/components/Toast.tsx` (`<ToastStack />`) backed by
+   `lib/toast-store.ts` (Zustand queue with tagged union ToastSpec) +
+   `lib/undo-toasts.ts` call-site helpers. The four legacy components
+   (1150 lines net) deleted; ~25 call sites migrated; one global Cmd+Z
+   handler walks the queue most-recent-first; email-suppression in
+   `setEmails`/`addEmails`/`useSyncBuffer` reads
+   `getSuppressedEmailIds()` from the toast store. +11 unit tests.
 
-4. **No `service` boundary for retries — analyzer/drafter/summary all
-   open-code their model resolution.** `resolveAnalysisModel`,
-   `resolveDraftModel`, `resolveRefineModel`, `resolveSummaryModel`,
-   `resolveArchiveReadyModel`, `resolveSenderLookupModel`,
-   `resolveClassifyModel` (in learned-rules) all do the same
-   "preferences → tier-name → concrete-id" dance. Five places to
-   change when a tier name flips. **Fix:** one helper in
-   `services/anthropic.ts` taking the prefs key (`"analysis" |
-   "drafts" | "summary" | …`) and returning the resolved id.
+3. **[CLOSED — Sprint-10 composite-index]** `emails` table had only
+   `(thread_id)` index — every `WHERE thread_id=? AND account_id=?` query
+   paid double. *Resolution:* added `idx_emails_account_thread (account_id,
+   thread_id)` and `idx_snoozed_emails_account_thread`; dropped the
+   redundant single-column variants. Bench (`scripts/index-bench.ts`,
+   10k emails / 3 accounts): the awaiting-reply argmax subquery is **2.66x
+   faster avg (18.5 ms → 6.9 ms), ~2.64x at p95**. EXPLAIN confirms the
+   planner picks the composite. (`archive_ready` and `thread_summaries`
+   already have `(thread_id, account_id)` PRIMARY KEYs that cover their
+   hot paths.)
 
-5. **Tests against IPC ergonomics, not behavior.** `tests/sidecar/*`
-   skews toward "throws when missing X" assertions (`requires {
-   accountId }`), which is valuable for the contract surface but
-   doesn't catch the kind of bugs in this audit. The Gmail
-   `historyId` string-compare bug (issue 5), the missing
-   `archiveReady.dismiss` (issue 4), the auto-stub fall-throughs
-   (issue 1) — all would have been caught by an integration test that
-   walks the full archive→list→dismiss flow with seeded fixtures.
-   **Fix:** add behavior-level tests around the highest-stakes
-   cross-feature compositions (smart-action → archive → learned
-   rule → next-email-skipped, awaiting-reply → snooze interaction,
-   etc).
+4. **[CLOSED — Sprint-10 model-resolver]** Eight per-feature helpers
+   (`resolveAnalysisModel`, `resolveDraftModel`, `resolveRefineModel`,
+   `resolveSummaryModel`, `resolveArchiveReadyModel`,
+   `resolveSenderLookupModel`, `resolveClassifyModel`,
+   plus a duplicate in `methods/memory.ts`) all did the same
+   "preferences → tier-name → concrete-id" dance. *Resolution:*
+   `sidecar/src/services/model-config.ts` exports one
+   `resolveModelFor(feature: ModelFeature): string` with a 9-key
+   `ModelFeature` union, single `TIER_NAME_MAP`, defaults table, and
+   refinement→drafts + classify→summary fallback chains. All eight
+   call sites refactored. Sender-lookup keeps its Claude-only guard
+   at the call site (web_search tool requirement). +26 unit tests.
+
+5. **[CLOSED — Sprint-10 behavior-tests]** Tests skewed toward
+   "throws when missing X" arg-validation assertions and missed
+   cross-feature regressions. *Resolution:* +6 behavior-level
+   integration tests under `tests/sidecar/integration/`:
+   `smart-action-archive-flow`, `awaiting-reply-snooze-flow`,
+   `thread-summary-cache-bust-flow`, `compose-send-partial-failure-flow`,
+   `gmail-history-watermark-flow`, `folder-switch-load-more-flow`.
+   +29 tests. Side-effect: caught and fixed a quietly broken
+   `scripts/run-sidecar-tests.sh` glob that masked all top-level tests
+   on macOS bash 3.2 (no globstar) once the integration subdir
+   existed. Also added a `COMPOSE_TEST_HOOKS` env (mirrors
+   `LEARNED_RULES_TEST_HOOKS`) so partial-send paths can be driven
+   without a real SMTP server.
+
+**Final scoreboard (post-mortem catalog as of 2026-05-08):** 0 P0 / 0 P1 /
+0 P2 / 0 P3 bugs and 0/5 architectural-debt items. Test count went from
+the post-Sprint-9 baseline of 167 to **233 sidecar tests** (167 + 26 +
+29 + 11) all passing.
 
 ## Shipped quality assessment
 
