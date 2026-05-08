@@ -1,6 +1,6 @@
 [package]
 name = "aos-mail"
-version = "0.1.1"
+version = "0.1.2"
 description = "AOS Mail — Agent Operated System for Mail"
 authors = ["MR Dula Solutions"]
 edition = "2021"
