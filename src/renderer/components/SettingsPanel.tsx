@@ -2096,9 +2096,15 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         description: "Writing reply drafts",
                       },
                       {
+                        key: "refinement" as const,
+                        label: "Draft Refinement",
+                        description:
+                          "Iterating on a draft from your feedback (falls back to Draft Generation)",
+                      },
+                      {
                         key: "summary" as const,
                         label: "Thread Summary",
-                        description: "Multi-message thread summaries (wired)",
+                        description: "Multi-message thread summaries",
                       },
                       {
                         key: "archiveReady" as const,
@@ -2151,10 +2157,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   ))}
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                  Today only Thread Summary is wired through this picker. Email Analysis,
-                  Draft Generation, and Archive-Ready Analysis still use hardcoded models pending
-                  a separate migration; the dropdown saves your preference but won&apos;t take
-                  effect for those features yet.
+                  All five pickers are wired into the sidecar. Picking a non-Anthropic model
+                  routes that feature through OpenRouter — make sure an OpenRouter API key is
+                  configured above, otherwise the call will surface a clear &ldquo;OpenRouter API
+                  key required&rdquo; error.
                 </p>
               </div>
             </div>

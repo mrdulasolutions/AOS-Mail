@@ -28,8 +28,27 @@ import {
   wrapUntrustedEmail,
 } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
+import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("archive-ready");
+
+// Default model for archive-ready analysis when modelConfig.archiveReady
+// is not set. Sonnet preserves current behavior.
+const DEFAULT_ARCHIVE_READY_MODEL = "claude-sonnet-4-5-20250929";
+
+/** Read modelConfig.archiveReady from preferences.json. Mirrors resolveSummaryModel(). */
+function resolveArchiveReadyModel(): string {
+  const prefs = getPreferences() as {
+    modelConfig?: { archiveReady?: unknown };
+  };
+  const raw = prefs.modelConfig?.archiveReady;
+  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_ARCHIVE_READY_MODEL;
+  const trimmed = raw.trim();
+  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
+  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
+  if (trimmed === "opus") return "claude-opus-4-20250514";
+  return trimmed;
+}
 
 export interface ThreadEmailForAnalysis {
   id: string;
@@ -168,7 +187,9 @@ export async function analyzeThread(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      // Honor modelConfig.archiveReady. Same router behavior as
+      // thread-summary — claude-* → Anthropic SDK, else OpenRouter.
+      model: resolveArchiveReadyModel(),
       max_tokens: 256,
       system: [
         {
