@@ -17,9 +17,11 @@
 //
 // Differences from the Electron version:
 //   - DB handle resolved lazily via getDb().
-//   - API key strictly from env var ANTHROPIC_API_KEY first, then prefs.
+//   - API key strictly from env var ANTHROPIC_API_KEY first, then in-memory
+//     secrets store (lib/secrets.ts) — backed by the OS Keychain via the
+//     Rust shell at the renderer boundary.
 //   - OpenRouter key resolution lives in providers/openrouter.ts and is
-//     analogous (env OPENROUTER_API_KEY → prefs).
+//     analogous (env OPENROUTER_API_KEY → secrets).
 //   - Streaming-call recording omitted — no current sidecar caller needs it.
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -29,12 +31,9 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db/index.js";
-import { getPreferences, setPreference } from "../lib/preferences.js";
+import { getSecret, setSecret } from "../lib/secrets.js";
 import { createLogger } from "../lib/logger.js";
-import {
-  createMessageOpenRouter,
-  getOpenRouterApiKey,
-} from "./providers/openrouter.js";
+import { createMessageOpenRouter, getOpenRouterApiKey } from "./providers/openrouter.js";
 
 const log = createLogger("anthropic");
 
@@ -74,19 +73,18 @@ export interface CreateOptions {
 let cachedClient: Anthropic | null = null;
 let cachedKey: string | null = null;
 
-/** Order: env var, then preferences.json. */
+/** Order: env var, then keychain-backed secrets store. */
 function resolveApiKey(): string | null {
-  const fromEnv = process.env.ANTHROPIC_API_KEY?.trim();
-  if (fromEnv) return fromEnv;
-  const stored = (getPreferences() as { anthropicApiKey?: string }).anthropicApiKey;
-  return stored?.trim() || null;
+  return getSecret("anthropicApiKey");
 }
 
+/**
+ * Update the in-memory key. Persistence is owned by the renderer via the
+ * OS keychain — this just keeps the live sidecar process in sync after
+ * the user changes the key in Settings.
+ */
 export function setApiKey(key: string): void {
-  // Stored in preferences.json — for production we should escalate to OS
-  // Keychain. Note: this is plaintext on disk; ok for V1 dev, not ok for
-  // shipping.
-  setPreference("anthropicApiKey", key);
+  setSecret("anthropicApiKey", key);
   cachedKey = null;
   cachedClient = null;
 }
@@ -187,10 +185,7 @@ function getRetryCategory(error: unknown): string | null {
   if (error instanceof Anthropic.RateLimitError) return "rate_limit";
   if (error instanceof Anthropic.InternalServerError) return "server_error";
   if (error instanceof Anthropic.APIConnectionError) return "connection";
-  if (
-    error instanceof Anthropic.APIError &&
-    (error as { status?: number }).status === 529
-  ) {
+  if (error instanceof Anthropic.APIError && (error as { status?: number }).status === 529) {
     return "server_error";
   }
   return null;
@@ -246,9 +241,7 @@ async function createMessageAnthropic(
   const client = getClient();
   let lastError: unknown = null;
 
-  const maxPossibleRetries = Math.max(
-    ...Object.values(RETRY_CONFIGS).map((c) => c.maxRetries),
-  );
+  const maxPossibleRetries = Math.max(...Object.values(RETRY_CONFIGS).map((c) => c.maxRetries));
 
   for (let attempt = 0; attempt <= maxPossibleRetries; attempt++) {
     let abortController: AbortController | undefined;
@@ -284,10 +277,7 @@ async function createMessageAnthropic(
       if (!category) break;
       const config = RETRY_CONFIGS[category];
       if (!config || attempt >= config.maxRetries) break;
-      const baseDelay = Math.min(
-        config.initialDelayMs * Math.pow(2, attempt),
-        config.maxDelayMs,
-      );
+      const baseDelay = Math.min(config.initialDelayMs * Math.pow(2, attempt), config.maxDelayMs);
       const delay = baseDelay + baseDelay * 0.1 * Math.random();
       log.warn("LLM call failed, retrying", {
         caller,

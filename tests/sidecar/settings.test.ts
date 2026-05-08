@@ -3,6 +3,13 @@
 // untyped: it accepts any patch and writes it through to preferences.json.
 // These tests pin that behavior down so a future ConfigSchema migration
 // can't silently drop fields the renderer relies on.
+//
+// Note (post p2-keychain): secret values (anthropicApiKey, openRouterApiKey,
+// googleClientId, googleClientSecret) are no longer in preferences.json.
+// They live in the in-memory secrets store, backed by the OS Keychain via
+// the renderer. settings.get returns boolean `hasAnthropicApiKey` etc. so
+// the UI can render its "configured" badges without the secret value
+// crossing the wire.
 
 import { describe, it, after, before } from "node:test";
 import assert from "node:assert/strict";
@@ -27,12 +34,18 @@ describe("settings.get / settings.set roundtrip", () => {
     await h.close();
   });
 
-  it("returns an empty object on a fresh data dir", async () => {
+  it("returns only the secret-presence flags on a fresh data dir", async () => {
     const prefs = await h.call<Record<string, unknown>>("settings.get");
     assert.equal(typeof prefs, "object");
     assert.equal(prefs === null, false);
-    // Fresh prefs file is just {}; no defaults injected at this layer.
-    assert.deepEqual(prefs, {});
+    // Fresh prefs file is empty — settings.get layers the secret-presence
+    // flags on top so the renderer can render "configured" badges. None
+    // of the secrets are set on a fresh data dir.
+    assert.deepEqual(prefs, {
+      hasAnthropicApiKey: false,
+      hasOpenRouterApiKey: false,
+      hasGoogleCredentials: false,
+    });
   });
 
   it("persists a single primitive key (theme)", async () => {
@@ -71,19 +84,26 @@ describe("settings.get / settings.set roundtrip", () => {
     assert.deepEqual(prefs.cliTools, ["gh", "kubectl"]);
   });
 
-  it("anthropicApiKey is special-cased: stored, then cleared on empty", async () => {
+  it("anthropicApiKey is routed to secrets, not preferences", async () => {
     await h.call<OkResult>("settings.set", { anthropicApiKey: "sk-test-stored" });
-    const after1 = await h.call<{ anthropicApiKey?: string }>("settings.get");
-    assert.equal(after1.anthropicApiKey, "sk-test-stored");
+    const after1 = await h.call<{
+      anthropicApiKey?: string;
+      hasAnthropicApiKey?: boolean;
+    }>("settings.get");
+    // Critical: the secret VALUE never appears in the response. Only the
+    // boolean presence flag does. This is the security guarantee of the
+    // p2-keychain change.
+    assert.equal("anthropicApiKey" in after1, false);
+    assert.equal(after1.hasAnthropicApiKey, true);
 
-    // Empty string clears it (matches the comment in settings.ts).
+    // Empty string clears it. Flag flips back to false.
     await h.call<OkResult>("settings.set", { anthropicApiKey: "" });
-    const after2 = await h.call<{ anthropicApiKey?: string }>("settings.get");
-    // The current implementation calls setApiKey("") which writes "" via
-    // setPreference; we accept either "" or absent. Both signal "no key".
-    if ("anthropicApiKey" in after2) {
-      assert.equal(after2.anthropicApiKey, "");
-    }
+    const after2 = await h.call<{
+      anthropicApiKey?: string;
+      hasAnthropicApiKey?: boolean;
+    }>("settings.get");
+    assert.equal("anthropicApiKey" in after2, false);
+    assert.equal(after2.hasAnthropicApiKey, false);
   });
 });
 
@@ -163,10 +183,7 @@ describe("settings EA + prompts CRUD", () => {
   });
 
   it("setEA throws on non-object params", async () => {
-    await assert.rejects(
-      () => h.call("settings.setEA", null),
-      /requires EAConfig object/,
-    );
+    await assert.rejects(() => h.call("settings.setEA", null), /requires EAConfig object/);
   });
 
   it("getPrompts returns {} when nothing is stored", async () => {

@@ -24,6 +24,10 @@ import {
 import { useAppStore, type Account, type SettingsTab } from "../store";
 import { reconfigurePostHog, trackEvent } from "../services/posthog";
 import { testNotification } from "../services/notifications";
+import {
+  setSecret as setKeychainSecret,
+  deleteSecret as deleteKeychainSecret,
+} from "../lib/secrets";
 import { SplitConfigEditor } from "./SplitConfigEditor";
 import { SnippetsEditor } from "./SnippetsEditor";
 import { MemoriesTab } from "./MemoriesTab";
@@ -705,12 +709,22 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     }
   };
 
-  // Agent authentication handlers
+  // Agent authentication handlers.
+  //
+  // API keys live in the OS Keychain — we route through `setKeychainSecret`
+  // which writes the keychain AND forwards to the sidecar's in-memory
+  // store, so the next createMessage call picks up the new key without a
+  // restart. Empty/cleared input deletes the keychain entry.
   const handleSaveApiKey = async () => {
     setIsSavingApiKey(true);
     setApiKeySaved(false);
     try {
-      await window.api.settings.set({ anthropicApiKey: anthropicApiKey || undefined });
+      const trimmed = anthropicApiKey.trim();
+      if (trimmed) {
+        await setKeychainSecret("anthropicApiKey", trimmed);
+      } else {
+        await deleteKeychainSecret("anthropicApiKey");
+      }
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
       setApiKeySaved(true);
       setTimeout(() => setApiKeySaved(false), 3000);
@@ -738,12 +752,16 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
           return;
         }
       }
-      const setResult = (await window.api.openrouter.setApiKey(trimmed)) as {
-        success: boolean;
-        error?: string;
-      };
-      if (!setResult.success) {
-        setOpenRouterError(setResult.error || "Save failed");
+      // Keychain write first so a sidecar crash mid-save can't lose the
+      // key — keychain is the source of truth, the sidecar gets a copy.
+      try {
+        if (trimmed) {
+          await setKeychainSecret("openRouterApiKey", trimmed);
+        } else {
+          await deleteKeychainSecret("openRouterApiKey");
+        }
+      } catch (err) {
+        setOpenRouterError(err instanceof Error ? err.message : "Save failed");
         return;
       }
       setOpenRouterConfigured(!!trimmed);
@@ -4713,9 +4731,9 @@ function LearnedRulesSection() {
         </div>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        When you keep archiving (or trashing) emails the analyzer marks as needing a reply, we
-        learn the pattern and start handling similar mail automatically — skipping the LLM
-        entirely. Rules promote after 3 consistent overrides with no recent disagreements.
+        When you keep archiving (or trashing) emails the analyzer marks as needing a reply, we learn
+        the pattern and start handling similar mail automatically — skipping the LLM entirely. Rules
+        promote after 3 consistent overrides with no recent disagreements.
       </p>
 
       {visible.length === 0 ? (

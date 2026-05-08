@@ -21,16 +21,23 @@
 // shim and SettingsPanel are stable we can tighten the boundary.
 
 import { registerMethod } from "../rpc.js";
-import {
-  getPreferences,
-  patchPreferences,
-  setPreference,
-} from "../lib/preferences.js";
-import {
-  setApiKey,
-  resetClient,
-  validateApiKey,
-} from "../services/anthropic.js";
+import { getPreferences, patchPreferences, setPreference } from "../lib/preferences.js";
+import { setApiKey, resetClient, validateApiKey } from "../services/anthropic.js";
+import { getSecret, setSecret } from "../lib/secrets.js";
+
+/**
+ * Keys that the renderer occasionally bundles into a `settings.set`
+ * call but which are owned by the keychain-backed secrets store, NOT
+ * preferences.json. We special-case them: forward to the secrets store
+ * and skip the preferences write so they never land on disk in
+ * cleartext.
+ */
+const SECRET_KEYS = new Set<string>([
+  "anthropicApiKey",
+  "openRouterApiKey",
+  "googleClientId",
+  "googleClientSecret",
+]);
 
 interface EAConfig {
   enabled: boolean;
@@ -60,15 +67,29 @@ export function registerSettingsMethods(): void {
   // ─── Generic config ────────────────────────────────────────────────────
 
   registerMethod("settings.get", () => {
-    return getPreferences();
+    // Compose the renderer-visible config object: prefs blob + a
+    // dedicated `hasAnthropicApiKey` flag so the Settings UI can render
+    // its "configured" badge without exposing the secret. Secret values
+    // themselves are NEVER returned here — they live in the OS keychain
+    // and are read by the renderer via the keychain commands directly
+    // when it needs to display a masked-input "edit existing key"
+    // experience.
+    const prefs = getPreferences();
+    return {
+      ...prefs,
+      hasAnthropicApiKey: !!getSecret("anthropicApiKey"),
+      hasOpenRouterApiKey: !!getSecret("openRouterApiKey"),
+      hasGoogleCredentials: !!getSecret("googleClientId") && !!getSecret("googleClientSecret"),
+    };
   });
 
   registerMethod("settings.set", (params) => {
     const patch = (params ?? {}) as Record<string, unknown>;
 
     // anthropicApiKey is the only field that requires side effects beyond
-    // writing JSON: setApiKey() also clears the Anthropic client cache so
-    // the next createMessage() picks up the new key without a restart.
+    // forwarding to the secrets store: setApiKey() also clears the
+    // Anthropic client cache so the next createMessage() picks up the new
+    // key without a restart.
     if ("anthropicApiKey" in patch) {
       const v = patch.anthropicApiKey;
       if (typeof v === "string" && v.trim()) {
@@ -78,9 +99,21 @@ export function registerSettingsMethods(): void {
         setApiKey("");
         resetClient();
       }
-      // setApiKey already writes preferences. Drop it from the patch so
-      // patchPreferences doesn't double-write a stale value.
       delete patch.anthropicApiKey;
+    }
+
+    // Other secret fields: forward to the in-memory secrets store and
+    // strip from the patch so patchPreferences never persists them to
+    // disk. Renderers should ideally write keychain → call secrets.set
+    // directly, but this back-compat path covers any legacy callers.
+    for (const key of SECRET_KEYS) {
+      if (key in patch) {
+        const v = patch[key];
+        if (typeof v === "string") {
+          setSecret(key, v.trim());
+        }
+        delete patch[key];
+      }
     }
 
     if (Object.keys(patch).length > 0) {

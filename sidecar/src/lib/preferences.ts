@@ -27,10 +27,14 @@ const log = createLogger("prefs");
 // methods, theme methods, ...) read/write whichever keys they own. Known
 // keys are documented inline so engineers can grep here for the contract.
 //   - theme: "light" | "dark" | "system"
-//   - anthropicApiKey: string (V1 plaintext on disk; will move to Keychain)
 //   - inboxDensity, undoSendDelay, keyboardBindings, signatures, ...
 //   - ea: { enabled, name, email }
 //   - prompts: { analysis, draft, ... }
+//
+// Secrets do NOT live here — they're routed through `lib/secrets.ts`,
+// which keeps them in memory only and is bootstrapped from the OS
+// Keychain by the renderer at app boot. The `settings.set` RPC strips
+// any inbound secret keys before patching this map.
 export type Preferences = Record<string, unknown>;
 
 let cache: Preferences | null = null;

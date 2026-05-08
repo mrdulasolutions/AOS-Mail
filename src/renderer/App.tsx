@@ -54,6 +54,7 @@ import {
 import { initNotifications, notifyNewEmails } from "./services/notifications";
 import { runTriageCatchUp } from "./lib/triage-catchup";
 import { setDockBadge, onMailtoOpen, getPendingMailto } from "./lib/mac-polish";
+import { migrateLegacySecrets, bootstrapSidecarSecrets } from "./lib/secrets";
 import { LocalDraftSchema } from "../shared/types";
 import type {
   DashboardEmail,
@@ -697,6 +698,44 @@ export default function App() {
       registerBundledExtensions();
       extensionsRegistered.current = true;
     }
+  }, []);
+
+  // One-time secrets migration + per-boot bootstrap.
+  //
+  // The sidecar holds API keys / OAuth client_secret / IMAP passwords in
+  // memory only; the OS Keychain (via Tauri commands) is the persistent
+  // store. Two responsibilities here:
+  //
+  //   1. migrateLegacySecrets() — for users upgrading from a pre-keychain
+  //      build that wrote keys to plaintext preferences.json, lift those
+  //      values into the Keychain on first boot. Idempotent.
+  //   2. bootstrapSidecarSecrets() — read every keychain entry and push
+  //      it to the sidecar via `secrets.bootstrap`. From then on the
+  //      sidecar serves keys from memory without touching disk.
+  //
+  // Both run before the boot-triage gate (`apiKeyConfigured`) probes the
+  // sidecar, so OpenRouter-only / Anthropic-only / dev-env-var users all
+  // see the right gate state on the first probe instead of after a
+  // 5-second poll cycle.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const migrated = await migrateLegacySecrets();
+        if (cancelled) return;
+        if (migrated.length > 0) {
+          console.info("[secrets] migrated legacy plaintext keys to keychain:", migrated);
+        }
+        await bootstrapSidecarSecrets();
+      } catch (err) {
+        // Non-fatal: a missing/locked keychain just means the user types
+        // their key on next Settings open. Don't crash the boot path.
+        console.warn("[secrets] migration/bootstrap failed:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Initialize theme and density from main process and listen for OS theme changes
