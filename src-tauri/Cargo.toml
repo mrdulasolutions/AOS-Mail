@@ -34,6 +34,8 @@ thiserror = "2"
 window-vibrancy = "0.5"
 cocoa = "0.26"
 objc = "0.2"
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
 
 [profile.release]
 panic = "abort"

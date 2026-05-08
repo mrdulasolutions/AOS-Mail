@@ -19,9 +19,7 @@
 
 import bridge from "./bridge";
 
-type IpcResponse<T = unknown> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+type IpcResponse<T = unknown> = { success: true; data: T } | { success: false; error: string };
 
 const EVENT_SUBSCRIPTION_PREFIXES = ["on", "listenTo", "subscribe", "watch"];
 
@@ -308,10 +306,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    update: async (
-      id: string,
-      updates: Partial<Snippet>,
-    ): Promise<IpcResponse<Snippet>> => {
+    update: async (id: string, updates: Partial<Snippet>): Promise<IpcResponse<Snippet>> => {
       try {
         const data = (await bridge.call("snippets.update", { id, updates })) as Snippet;
         return { success: true, data };
@@ -373,9 +368,9 @@ function installRealNamespaces(): Record<string, unknown> {
             .listen("auth:gmail-connected", (payload) => finish(() => resolve(payload)))
             .then((un) => cleanups.push(un));
           bridge
-            .listen<{ error: string }>("auth:gmail-failed", (p) =>
-              finish(() => reject(new Error(p.error))),
-            )
+            .listen<{
+              error: string;
+            }>("auth:gmail-failed", (p) => finish(() => reject(new Error(p.error))))
             .then((un) => cleanups.push(un));
         });
         return { success: true, data: account };
@@ -520,10 +515,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // result lands in the archive_ready table and surfaces the thread in
   // the "Archive Ready" tab.
   real.archiveReady = {
-    analyze: async (
-      threadId: string,
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    analyze: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("archiveReady.analyze", { threadId, accountId });
         return { success: true, data };
@@ -531,10 +523,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    analyzeBatch: async (
-      threadIds: string[],
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    analyzeBatch: async (threadIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("archiveReady.analyzeBatch", {
           threadIds,
@@ -545,10 +534,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    list: async (
-      accountId?: string,
-      limit?: number,
-    ): Promise<IpcResponse<unknown>> => {
+    list: async (accountId?: string, limit?: number): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("archiveReady.list", { accountId, limit });
         return { success: true, data };
@@ -589,10 +575,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    batchArchive: async (
-      emailIds: string[],
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    batchArchive: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.batchArchive", { emailIds, accountId });
         return { success: true, data };
@@ -600,10 +583,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    archiveThread: async (
-      threadId: string,
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    archiveThread: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.archiveThread", { threadId, accountId });
         return { success: true, data };
@@ -619,10 +599,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    batchTrash: async (
-      emailIds: string[],
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    batchTrash: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.batchTrash", { emailIds, accountId });
         return { success: true, data };
@@ -654,10 +631,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getThread: async (
-      threadId: string,
-      accountId: string,
-    ): Promise<IpcResponse<unknown>> => {
+    getThread: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.getThread", { threadId, accountId });
         return { success: true, data };
@@ -737,9 +711,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getSendAsAliases: async (
-      _accountId: string,
-    ): Promise<IpcResponse<{ aliases: unknown[] }>> => {
+    getSendAsAliases: async (_accountId: string): Promise<IpcResponse<{ aliases: unknown[] }>> => {
       try {
         const data = (await bridge.call("compose.getSendAsAliases", {
           accountId: _accountId,
@@ -829,9 +801,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    onNewEmails: (
-      cb: (data: { accountId: string; emails: unknown[] }) => void,
-    ): void => {
+    onNewEmails: (cb: (data: { accountId: string; emails: unknown[] }) => void): void => {
       bridge
         .listen<{ accountId: string; emails: unknown[] }>("sync:new-emails", (p) => cb(p))
         .then((un) => syncUnlisteners.push(un));
@@ -893,9 +863,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    suggestForEmail: async (
-      email: string,
-    ): Promise<IpcResponse<{ preset: ImapPreset | null }>> => {
+    suggestForEmail: async (email: string): Promise<IpcResponse<{ preset: ImapPreset | null }>> => {
       try {
         const data = (await bridge.call("imap.suggestForEmail", { email })) as {
           preset: ImapPreset | null;
@@ -972,10 +940,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    saveCredentials: async (
-      clientId: string,
-      clientSecret: string,
-    ): Promise<IpcResponse<null>> => {
+    saveCredentials: async (clientId: string, clientSecret: string): Promise<IpcResponse<null>> => {
       try {
         await bridge.call("gmail.saveCredentials", { clientId, clientSecret });
         return { success: true, data: null };
@@ -1033,9 +998,9 @@ function installRealNamespaces(): Record<string, unknown> {
             )
             .then((un) => cleanups.push(un));
           bridge
-            .listen<{ error: string }>("auth:gmail-failed", (payload) =>
-              finish(() => reject(new Error(payload.error))),
-            )
+            .listen<{
+              error: string;
+            }>("auth:gmail-failed", (payload) => finish(() => reject(new Error(payload.error))))
             .then((un) => cleanups.push(un));
         });
         return { success: true, data: account };
@@ -1055,9 +1020,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // panel uses this to keep an in-progress message visible from the
     // user's other Gmail clients (web, mobile). Pass `gmailDraftId` to
     // update an existing draft, omit to create a new one.
-    createDraft: async (
-      input: Record<string, unknown>,
-    ): Promise<IpcResponse<unknown>> => {
+    createDraft: async (input: Record<string, unknown>): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("gmail.createDraft", input);
         return { success: true, data };
@@ -1104,10 +1067,7 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
   real.contacts = {
-    suggest: async (
-      query: string,
-      limit?: number,
-    ): Promise<IpcResponse<ContactSuggestion[]>> => {
+    suggest: async (query: string, limit?: number): Promise<IpcResponse<ContactSuggestion[]>> => {
       try {
         const data = (await bridge.call("contacts.suggest", {
           query,
@@ -1135,22 +1095,15 @@ function installRealNamespaces(): Record<string, unknown> {
   real.sender = {
     getProfile: async (email: string): Promise<IpcResponse<SenderProfile | null>> => {
       try {
-        const data = (await bridge.call("sender.getProfile", { email })) as
-          | SenderProfile
-          | null;
+        const data = (await bridge.call("sender.getProfile", { email })) as SenderProfile | null;
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    lookup: async (
-      from: string,
-      email: string,
-    ): Promise<IpcResponse<SenderProfile | null>> => {
+    lookup: async (from: string, email: string): Promise<IpcResponse<SenderProfile | null>> => {
       try {
-        const data = (await bridge.call("sender.lookup", { from, email })) as
-          | SenderProfile
-          | null;
+        const data = (await bridge.call("sender.lookup", { from, email })) as SenderProfile | null;
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -1210,10 +1163,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    get: async (
-      threadId: string,
-      accountId: string,
-    ): Promise<IpcResponse<SnoozedEmail | null>> => {
+    get: async (threadId: string, accountId: string): Promise<IpcResponse<SnoozedEmail | null>> => {
       try {
         const data = (await bridge.call("snooze.get", {
           threadId,
@@ -1238,10 +1188,11 @@ function installRealNamespaces(): Record<string, unknown> {
       callback: (data: { threadId: string; accountId: string; snoozeUntil: number }) => void,
     ): void => {
       bridge
-        .listen<{ threadId: string; accountId: string; snoozeUntil: number }>(
-          "snooze:manually-unsnoozed",
-          (payload) => callback(payload),
-        )
+        .listen<{
+          threadId: string;
+          accountId: string;
+          snoozeUntil: number;
+        }>("snooze:manually-unsnoozed", (payload) => callback(payload))
         .then((un) => snoozeUnlisteners.push(un));
     },
     removeAllListeners: (): void => {
@@ -1335,10 +1286,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getForEmail: async (
-      senderEmail: string,
-      accountId: string,
-    ): Promise<IpcResponse<Memory[]>> => {
+    getForEmail: async (senderEmail: string, accountId: string): Promise<IpcResponse<Memory[]>> => {
       try {
         const data = (await bridge.call("memory.getForEmail", {
           senderEmail,
@@ -1400,9 +1348,7 @@ function installRealNamespaces(): Record<string, unknown> {
       content: string;
       senderEmail: string;
       senderDomain: string;
-    }): Promise<
-      IpcResponse<{ scope: string; scopeValue: string | null; content: string }>
-    > => {
+    }): Promise<IpcResponse<{ scope: string; scopeValue: string | null; content: string }>> => {
       try {
         const data = (await bridge.call("memory.classify", params)) as {
           scope: string;
@@ -1876,21 +1822,35 @@ function installRealNamespaces(): Record<string, unknown> {
   };
 
   // defaultMailApp — Mac "Set as default mail handler" UI in Settings.
-  // V1 is intentionally a typed no-op: registering as the default URL
-  // handler for mailto:// requires LSSetDefaultHandlerForURLScheme on a
-  // signed/notarized binary, which is a Phase 5 concern. Returning false
-  // from isDefault keeps the Settings card visible and accurate; setDefault
-  // surfaces a clear "not yet supported" error rather than the silent
-  // auto-stub failure the user was getting before.
+  // Wired to the Tauri commands defined in src-tauri/src/lib.rs:
+  // `set_default_mail_app` calls LSSetDefaultHandlerForURLScheme via the
+  // mac_polish module, `is_default_mail_app` reads the current handler back.
+  // This works in unsigned dev builds too — the binding just doesn't survive
+  // rebuilds because each rebuild has a different code-signing identity.
+  //
+  // App.tsx uses the direct `lib/mac-polish` exports for the live mailto
+  // event subscription; this shim is kept for the SettingsPanel toggle.
   real.defaultMailApp = {
-    isDefault: async (): Promise<boolean> => false,
-    setDefault: async (): Promise<IpcResponse<null>> => ({
-      success: false,
-      error: "defaultMailApp.setDefault: requires a signed build (Phase 5)",
-    }),
+    isDefault: async (): Promise<boolean> => {
+      const { isDefaultMailApp } = await import("./mac-polish");
+      return await isDefaultMailApp();
+    },
+    setDefault: async (makeDefault: boolean): Promise<IpcResponse<boolean>> => {
+      const { setDefaultMailApp } = await import("./mac-polish");
+      try {
+        const ok = await setDefaultMailApp(Boolean(makeDefault));
+        return { success: true, data: ok };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : "defaultMailApp.setDefault: unknown failure",
+        };
+      }
+    },
+    // Legacy onMailtoOpen surface — App.tsx no longer uses this (it calls
+    // the bridge directly). Keeping the shape stable for any other callers
+    // and returning a noop so they don't crash.
     onMailtoOpen: (_callback: (url: string) => void): (() => void) => {
-      // No mailto registration → no events to forward. Return a noop
-      // unsubscribe so the App.tsx subscription doesn't crash.
       return () => {};
     },
   };
@@ -1952,10 +1912,18 @@ function installRealNamespaces(): Record<string, unknown> {
       success: false,
       error: "agent.authenticate: V2",
     }),
-    onProviders: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onEvent: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onDraftSaved: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onLocalDraftSaved: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onProviders:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onEvent:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onDraftSaved:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onLocalDraftSaved:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
     removeAllListeners: (): void => {},
     removeDraftSavedListeners: (): void => {},
   };
@@ -2010,9 +1978,15 @@ function installRealNamespaces(): Record<string, unknown> {
       success: false,
       error: "extensions.getRendererBundle: V2",
     }),
-    onEnrichmentReady: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onInstalled: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onUninstalled: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onEnrichmentReady:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onInstalled:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onUninstalled:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
     removeEnrichmentListeners: (): void => {},
   };
 
@@ -2022,11 +1996,21 @@ function installRealNamespaces(): Record<string, unknown> {
   // subscriptions need a noop unsubscribe so they don't error, and any
   // data-returning method needs a typed empty response.
   const eventNoopNamespace = (): Record<string, unknown> => ({
-    onProgress: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onSent: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onFailed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onStatsChanged: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
-    onEmailAnalyzed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onProgress:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onSent:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onFailed:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onStatsChanged:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
+    onEmailAnalyzed:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
     removeAllListeners: (): void => {},
   });
   real.backgroundSync = eventNoopNamespace();

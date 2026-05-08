@@ -80,6 +80,8 @@ name = "aos-mail"
 version = "0.0.0"
 dependencies = [
  "cocoa",
+ "core-foundation",
+ "core-foundation-sys",
  "log",
  "objc",
  "serde",

@@ -283,6 +283,9 @@ interface AppState {
   undoSendDelaySeconds: number;
   undoSendQueue: UndoSendItem[];
 
+  // Native notifications
+  notificationsEnabled: boolean;
+
   // Draft-edit learned notifications
   draftEditLearned: {
     promoted: Array<{ id: string; content: string; scope: string; scopeValue: string | null }>;
@@ -477,6 +480,9 @@ interface AppState {
   addUndoSend: (item: UndoSendItem) => void;
   removeUndoSend: (id: string) => void;
 
+  // Native notification preference
+  setNotificationsEnabled: (enabled: boolean) => void;
+
   // Undo archive/delete actions
   addUndoAction: (item: UndoActionItem) => void;
   removeUndoAction: (id: string) => void;
@@ -648,6 +654,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Undo send state
   undoSendDelaySeconds: 5,
   undoSendQueue: [],
+
+  // Native notifications — persists in config; default true
+  notificationsEnabled: true,
 
   // Undo archive/delete state
   undoActionQueue: [],
@@ -1193,6 +1202,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   addUndoSend: (item) => set((state) => ({ undoSendQueue: [...state.undoSendQueue, item] })),
   removeUndoSend: (id) =>
     set((state) => ({ undoSendQueue: state.undoSendQueue.filter((i) => i.id !== id) })),
+
+  // Native notification preference. Persists separately via window.api.settings;
+  // this state is the renderer-side mirror used by services/notifications.ts.
+  setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
 
   // Undo archive/delete actions — merges rapid-fire operations of the same
   // type into a single undo action so one toast shows "N threads archived"

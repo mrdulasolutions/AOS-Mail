@@ -46,6 +46,7 @@
     "macOS": {
       "minimumSystemVersion": "12.0",
       "entitlements": "../build/entitlements.mac.plist",
+      "infoPlist": "../build/Info.plist",
       "hardenedRuntime": true
     },
     "externalBin": [

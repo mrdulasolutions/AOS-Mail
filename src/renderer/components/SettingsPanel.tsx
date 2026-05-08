@@ -87,6 +87,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setKeyboardBindings,
     undoSendDelaySeconds,
     setUndoSendDelay,
+    notificationsEnabled,
+    setNotificationsEnabled,
     currentAccountId,
     highlightMemoryIds,
   } = useAppStore();
@@ -450,6 +452,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const handleUndoSendDelayChange = async (seconds: number) => {
     setUndoSendDelay(seconds);
     await window.api.settings.set({ undoSendDelay: seconds });
+  };
+
+  const handleNotificationsEnabledChange = async (enabled: boolean) => {
+    setNotificationsEnabled(enabled);
+    await window.api.settings.set({ notificationsEnabled: enabled });
   };
 
   const handleKeyboardBindingsChange = async (bindings: "superhuman" | "gmail") => {
@@ -1015,9 +1022,9 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="mb-1">
                   <h3 className="font-semibold text-aos-text">Appearance</h3>
                   <p className="text-sm text-aos-text-soft mt-1">
-                    AOS Mail uses a single day theme — white and black surfaces with red,
-                    amber, and green accents. Dark mode is intentionally omitted to keep
-                    the agent UI legible at a glance.
+                    AOS Mail uses a single day theme — white and black surfaces with red, amber, and
+                    green accents. Dark mode is intentionally omitted to keep the agent UI legible
+                    at a glance.
                   </p>
                 </div>
               </div>
@@ -1134,8 +1141,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       Default Mail App
                     </h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      Register AOS Mail as the default handler for mailto: links. Clicking email links in
-                      other apps will open a compose window here.
+                      Register AOS Mail as the default handler for mailto: links. Clicking email
+                      links in other apps will open a compose window here.
                     </p>
                   </div>
                   <button
@@ -1150,8 +1157,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         const actual = await window.api.defaultMailApp.isDefault();
                         setIsDefaultMailApp(actual);
                         if (actual !== desired) {
+                          // macOS won't always honor LSSetDefaultHandlerForURLScheme
+                          // for unsigned dev builds — the binding may flicker back
+                          // to the previous handler after a rebuild. The packaged,
+                          // signed build registers cleanly.
                           setDefaultMailAppError(
-                            "Could not register as default mail app. This requires the packaged app — it won't work in dev mode.",
+                            "macOS did not accept the change. This usually happens in dev builds; the packaged app registers cleanly.",
                           );
                         }
                       } catch (e) {
@@ -1181,6 +1192,39 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     {defaultMailAppError}
                   </p>
                 )}
+              </div>
+
+              {/* Notifications */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                      Notifications
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                      Show macOS notifications when new mail arrives. Five or more new messages in
+                      one sync collapse into a single summary.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      void handleNotificationsEnabledChange(!notificationsEnabled);
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      notificationsEnabled
+                        ? "bg-blue-600 dark:bg-blue-500"
+                        : "bg-gray-200 dark:bg-gray-700"
+                    }`}
+                    aria-pressed={notificationsEnabled}
+                    aria-label="Enable native notifications"
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        notificationsEnabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
 
               {/* AI Models */}
@@ -1565,8 +1609,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 divide-y divide-gray-200 dark:divide-gray-700 mb-6">
                 {accounts.length === 0 ? (
                   <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                    No accounts connected yet. Use the buttons below to add a Gmail or IMAP
-                    mailbox.
+                    No accounts connected yet. Use the buttons below to add a Gmail or IMAP mailbox.
                   </div>
                 ) : (
                   accounts.map((account) => {
@@ -1677,8 +1720,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </div>
 
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                Gmail uses Google sign-in. IMAP requires the server hostnames + an
-                app-specific password from your provider.
+                Gmail uses Google sign-in. IMAP requires the server hostnames + an app-specific
+                password from your provider.
               </p>
             </div>
           </div>
@@ -1716,8 +1759,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 </button>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                AOS Mail needs OAuth credentials from your own Google Cloud project. They live
-                only on this machine — we never see them.
+                AOS Mail needs OAuth credentials from your own Google Cloud project. They live only
+                on this machine — we never see them.
               </p>
 
               <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 rounded-lg p-3 mb-4 text-sm">
@@ -1735,8 +1778,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     </a>
                   </li>
                   <li>
-                    Create OAuth 2.0 Client ID → Application type:{" "}
-                    <strong>Desktop app</strong>
+                    Create OAuth 2.0 Client ID → Application type: <strong>Desktop app</strong>
                   </li>
                   <li>
                     Add{" "}
@@ -1794,9 +1836,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
               <button
                 onClick={() => void handleSaveGmailCreds()}
-                disabled={
-                  savingGmailCreds || !gmailClientId.trim() || !gmailClientSecret.trim()
-                }
+                disabled={savingGmailCreds || !gmailClientId.trim() || !gmailClientSecret.trim()}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 dark:disabled:bg-blue-900 text-white rounded-lg font-medium transition-colors"
               >
                 {savingGmailCreds ? "Saving…" : "Save & continue to Google sign-in"}
@@ -1834,19 +1874,20 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Agent Tools
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                AOS Mail runs one inbox agent that triages every new email, looks up senders,
-                and drafts replies in your voice. This tab configures the tools and credentials
-                it can use.
+                AOS Mail runs one inbox agent that triages every new email, looks up senders, and
+                drafts replies in your voice. This tab configures the tools and credentials it can
+                use.
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                The agent&apos;s <em>behavior</em> (how it triages, what tone it drafts in) lives
-                in <button
+                The agent&apos;s <em>behavior</em> (how it triages, what tone it drafts in) lives in{" "}
+                <button
                   type="button"
                   onClick={() => setActiveTab("prompts")}
                   className="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                 >
                   Prompts
-                </button>.
+                </button>
+                .
               </p>
             </div>
 
@@ -1996,9 +2037,9 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 </span>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                Pick which model handles each AI feature. Anthropic models go through your
-                Anthropic key; OpenRouter models go through OpenRouter. Free OpenRouter models
-                cost $0 but are rate-limited and may be slower.
+                Pick which model handles each AI feature. Anthropic models go through your Anthropic
+                key; OpenRouter models go through OpenRouter. Free OpenRouter models cost $0 but are
+                rate-limited and may be slower.
               </p>
 
               {/* OpenRouter API Key */}
@@ -2007,9 +2048,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   OpenRouter API Key
                 </h5>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  Optional. Required only if you want to route any feature through OpenRouter.
-                  Get one at{" "}
-                  <span className="font-mono text-xs">https://openrouter.ai/keys</span>.
+                  Optional. Required only if you want to route any feature through OpenRouter. Get
+                  one at <span className="font-mono text-xs">https://openrouter.ai/keys</span>.
                   {openRouterConfigured && (
                     <span className="ml-1 text-green-700 dark:text-green-400">
                       A key is currently configured.
@@ -2033,17 +2073,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         : "bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600"
                     }`}
                   >
-                    {isSavingOpenRouter
-                      ? "Saving..."
-                      : openRouterSaved
-                        ? "Saved"
-                        : "Save"}
+                    {isSavingOpenRouter ? "Saving..." : openRouterSaved ? "Saved" : "Save"}
                   </button>
                 </div>
                 {openRouterError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                    {openRouterError}
-                  </p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">{openRouterError}</p>
                 )}
               </div>
 
@@ -2071,9 +2105,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   </button>
                 </div>
                 {modelsLoadError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                    {modelsLoadError}
-                  </p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">{modelsLoadError}</p>
                 )}
               </div>
 
@@ -2115,9 +2147,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                           {label}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {description}
-                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
                       </div>
                       <select
                         value={modelConfig[key]}
@@ -2151,10 +2181,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   ))}
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                  Today only Thread Summary is wired through this picker. Email Analysis,
-                  Draft Generation, and Archive-Ready Analysis still use hardcoded models pending
-                  a separate migration; the dropdown saves your preference but won&apos;t take
-                  effect for those features yet.
+                  Today only Thread Summary is wired through this picker. Email Analysis, Draft
+                  Generation, and Archive-Ready Analysis still use hardcoded models pending a
+                  separate migration; the dropdown saves your preference but won&apos;t take effect
+                  for those features yet.
                 </p>
               </div>
             </div>
@@ -2776,8 +2806,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Analytics
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                Help improve AOS Mail by sharing usage data and error reports. No email content is ever
-                sent.
+                Help improve AOS Mail by sharing usage data and error reports. No email content is
+                ever sent.
               </p>
             </div>
 
@@ -3718,23 +3748,30 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         {activeTab === "splits" && (
           <div className="max-w-3xl space-y-6">
             <div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                Splits
-              </h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Splits</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                Splits are saved searches that filter the inbox view. Each split matches a
-                set of conditions (sender, subject, label, etc.) and shows up as its own
-                pane so you can triage messages of one kind at a time.
+                Splits are saved searches that filter the inbox view. Each split matches a set of
+                conditions (sender, subject, label, etc.) and shows up as its own pane so you can
+                triage messages of one kind at a time.
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
                 Common patterns:{" "}
                 <span className="font-medium text-gray-700 dark:text-gray-300">VIPs only</span>{" "}
                 (mail from a hand-picked sender list),{" "}
                 <span className="font-medium text-gray-700 dark:text-gray-300">Newsletters</span>{" "}
-                (anything from <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">noreply@</code>{" "}
+                (anything from{" "}
+                <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">
+                  noreply@
+                </code>{" "}
                 or marked as a list), or{" "}
-                <span className="font-medium text-gray-700 dark:text-gray-300">From a specific domain</span>{" "}
-                (e.g. <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">*@acme.com</code>).
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  From a specific domain
+                </span>{" "}
+                (e.g.{" "}
+                <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs">
+                  *@acme.com
+                </code>
+                ).
               </p>
             </div>
             <SplitConfigEditor />
@@ -3817,7 +3854,6 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
