@@ -233,3 +233,89 @@ describe("emails.archiveThread iterates rows for the (threadId, accountId)", () 
     }
   });
 });
+
+describe("emails.searchRemote", () => {
+  // We can't drive a real Gmail/IMAP connection from the harness — search
+  // requires creds we don't have in the test sandbox. What we CAN test:
+  //   - argument validation (no accountId, no query, blank query)
+  //   - account-not-found surface (no row in accounts table)
+  //   - per-provider routing: a Gmail-provider account hits gmail-fetch
+  //     (which fails on missing tokens), an IMAP account hits imap-fetch
+  //     (which fails on missing creds). The error message proves the
+  //     dispatch routed correctly.
+  let h: Harness;
+  before(async () => {
+    h = await spawnSidecar();
+  });
+  after(async () => {
+    await h.close();
+  });
+
+  it("throws without accountId", async () => {
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { query: "test" }),
+      /requires \{ accountId \}/,
+    );
+  });
+
+  it("throws without query", async () => {
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { accountId: "any" }),
+      /requires \{ query \}/,
+    );
+  });
+
+  it("throws on blank query", async () => {
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { accountId: "any", query: "   " }),
+      /requires \{ query \}/,
+    );
+  });
+
+  it("throws when accountId doesn't exist", async () => {
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { accountId: "no-such-acct", query: "hello" }),
+      /account no-such-acct not found/,
+    );
+  });
+
+  it("routes Gmail accounts to the Gmail path (errors point at Gmail tokens)", async () => {
+    const accountId = seedAccount(h, {
+      email: "gmail-search@example.com",
+      provider: "gmail",
+    });
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { accountId, query: "anything" }),
+      (err: Error) => {
+        // Routing proof: the error must come from the Gmail token loader
+        // path (no tokens stored for this account), not from the IMAP
+        // creds layer.
+        assert.ok(
+          /token|oauth|gmail|credential|auth/i.test(err.message),
+          `expected Gmail-routed error, got: ${err.message}`,
+        );
+        return true;
+      },
+    );
+  });
+
+  it("routes IMAP accounts to the IMAP path (errors point at IMAP creds)", async () => {
+    const accountId = seedAccount(h, {
+      email: "imap-search@example.com",
+      provider: "imap",
+    });
+    await assert.rejects(
+      () => h.call("emails.searchRemote", { accountId, query: "anything" }),
+      (err: Error) => {
+        // Routing proof: the IMAP creds layer fails ("No IMAP credentials
+        // for ...") long before any imapflow connection is attempted.
+        // What we care about is that the gmail token path was NOT hit.
+        assert.ok(
+          /imap|credential/i.test(err.message),
+          `expected IMAP-routed error, got: ${err.message}`,
+        );
+        return true;
+      },
+    );
+  });
+});

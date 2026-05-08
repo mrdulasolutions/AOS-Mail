@@ -682,6 +682,51 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    // Server-side mailbox search ("search older mail"). Forwards to the
+    // sidecar's emails.searchRemote which dispatches by provider — Gmail
+    // hits users.messages.list with the user's `q:`, IMAP issues a
+    // SEARCH for substring matches on SUBJECT/FROM/BODY.
+    //
+    // The sidecar returns `{messages, nextPageToken?, totalEstimate?}`
+    // — we adapt to `{emails, nextPageToken?, totalEstimate?}` so the
+    // existing renderer call sites keep working unchanged.
+    searchRemote: async (
+      query: string,
+      accountId: string,
+      maxResults?: number,
+      pageToken?: string,
+    ): Promise<
+      IpcResponse<{
+        emails: unknown[];
+        nextPageToken?: string;
+        totalEstimate?: number;
+      }>
+    > => {
+      try {
+        const data = (await bridge.call("emails.searchRemote", {
+          accountId,
+          query,
+          maxResults,
+          pageToken,
+        })) as {
+          messages: unknown[];
+          nextPageToken?: string;
+          totalEstimate?: number;
+        };
+        return {
+          success: true,
+          data: {
+            emails: data.messages,
+            ...(data.nextPageToken ? { nextPageToken: data.nextPageToken } : {}),
+            ...(typeof data.totalEstimate === "number"
+              ? { totalEstimate: data.totalEstimate }
+              : {}),
+          },
+        };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // compose — V1 wraps the sidecar's IMAP/SMTP send. Gmail send

@@ -1,7 +1,7 @@
 // `emails` IPC namespace — V1 covers the inbox-management verbs:
 // archive, trash, batch-archive, batch-trash, archive-thread,
-// setStarred, setRead. getThread / search / searchRemote remain
-// auto-stubbed and will lift later.
+// setStarred, setRead, plus searchRemote for server-side mailbox search.
+// getThread / search remain auto-stubbed and will lift later.
 //
 // Each verb dispatches by id format (imap:* → IMAP path) so the same
 // sidecar code serves both Gmail and IMAP once Gmail's path lifts.
@@ -21,7 +21,13 @@ import {
   trashMessageGmail,
   unarchiveMessageGmail,
 } from "../services/providers/gmail-actions.js";
-import { getEmailsForThread } from "../services/sync.js";
+import {
+  getGmailHeaders,
+  searchGmailMessages,
+  type GmailMessageHeader,
+} from "../services/providers/gmail-fetch.js";
+import { searchImapMessages, type ImapMessageHeader } from "../services/providers/imap-fetch.js";
+import { getEmailsForThread, type DashboardEmailRow } from "../services/sync.js";
 import { getDb } from "../db/index.js";
 import { recordOverride, type LearnedAction } from "../services/learned-rules.js";
 import { createLogger } from "../lib/logger.js";
@@ -260,4 +266,181 @@ export function registerEmailsMethods(): void {
     // thread (reply context, summary panel, etc.) gets full data.
     return getEmailsForThread(threadId, accountId);
   });
+
+  // Server-side mailbox search for "search older mail" — the Cmd+F
+  // case where the user wants to find a thread that's no longer in the
+  // local 500-row window.
+  //
+  // Gmail accounts: hits users.messages.list with the user's `q:` query
+  // (Gmail's full search syntax — `from:foo subject:bar after:2024/01`).
+  // Returns Gmail's resultSizeEstimate as `totalEstimate`.
+  //
+  // IMAP accounts: issues a structured SEARCH for substring matches
+  // across SUBJECT/FROM/BODY. Gmail-style operators don't translate, so
+  // we just substring-match the entire query. Returns the SEARCH result
+  // count as `totalEstimate`. See searchImapMessages for limitations.
+  //
+  // After fetching matching message IDs, we batch-fetch envelope
+  // headers so the renderer gets full DashboardEmailRow objects ready
+  // to render (subject, from, to, date, snippet, etc.) without an extra
+  // round-trip per result. Bodies are NOT fetched — fetchBodyForEmail
+  // pulls the body when the user opens a thread.
+  registerMethod("emails.searchRemote", async (params) => {
+    const { accountId, query, maxResults, pageToken } =
+      (params as {
+        accountId?: string;
+        query?: string;
+        maxResults?: number;
+        pageToken?: string;
+      }) ?? {};
+    if (!accountId) throw new Error("emails.searchRemote: requires { accountId }");
+    if (typeof query !== "string" || query.trim() === "") {
+      throw new Error("emails.searchRemote: requires { query }");
+    }
+
+    const account = getAccountForSearch(accountId);
+    if (!account) {
+      throw new Error(`emails.searchRemote: account ${accountId} not found`);
+    }
+
+    if (account.provider === "gmail") {
+      return searchGmailRemote(accountId, query, maxResults, pageToken);
+    }
+    if (account.provider === "imap") {
+      return searchImapRemote(accountId, query, maxResults, pageToken);
+    }
+    throw new Error(
+      `emails.searchRemote: unknown provider '${account.provider}' for account ${accountId}`,
+    );
+  });
+}
+
+interface AccountForSearchRow {
+  id: string;
+  provider: string;
+}
+
+function getAccountForSearch(accountId: string): AccountForSearchRow | null {
+  return (
+    (getDb()
+      .prepare("SELECT id, COALESCE(provider, 'gmail') AS provider FROM accounts WHERE id = ?")
+      .get(accountId) as AccountForSearchRow | undefined) ?? null
+  );
+}
+
+async function searchGmailRemote(
+  accountId: string,
+  query: string,
+  maxResults: number | undefined,
+  pageToken: string | undefined,
+): Promise<{
+  messages: DashboardEmailRow[];
+  nextPageToken?: string;
+  totalEstimate?: number;
+}> {
+  const list = await searchGmailMessages(accountId, {
+    query,
+    maxResults: maxResults ?? 50,
+    pageToken,
+  });
+  const ids = list.messageIds.map((m) => m.id);
+  const headers = ids.length > 0 ? await getGmailHeaders(accountId, ids) : [];
+  // Preserve Gmail's relevance/recency ordering — the API returns ids
+  // newest-first by default; getGmailHeaders may settle out of order
+  // because it batches in parallel. Resort to match the original list.
+  const indexById = new Map(ids.map((id, i) => [id, i]));
+  headers.sort((a, b) => (indexById.get(a.gmailId) ?? 0) - (indexById.get(b.gmailId) ?? 0));
+  const messages = headers.map((h) => gmailHeaderToDashboardRow(accountId, h));
+  const result: {
+    messages: DashboardEmailRow[];
+    nextPageToken?: string;
+    totalEstimate?: number;
+  } = { messages };
+  if (list.nextPageToken) result.nextPageToken = list.nextPageToken;
+  if (list.resultSizeEstimate > 0) result.totalEstimate = list.resultSizeEstimate;
+  return result;
+}
+
+async function searchImapRemote(
+  accountId: string,
+  query: string,
+  maxResults: number | undefined,
+  pageToken: string | undefined,
+): Promise<{
+  messages: DashboardEmailRow[];
+  nextPageToken?: string;
+  totalEstimate?: number;
+}> {
+  // Cursor format: an integer offset encoded as a string. IMAP SEARCH
+  // returns the entire UID set in one shot; we slice for pagination.
+  const offset = pageToken ? parseInt(pageToken, 10) || 0 : 0;
+  const limit = Math.min(Math.max(maxResults ?? 50, 1), 500);
+  const result = await searchImapMessages(accountId, {
+    query,
+    limit,
+    offset,
+  });
+  const messages = result.headers.map((h) => imapHeaderToDashboardRow(accountId, result.folder, h));
+  const nextOffset = offset + result.headers.length;
+  const out: {
+    messages: DashboardEmailRow[];
+    nextPageToken?: string;
+    totalEstimate?: number;
+  } = { messages, totalEstimate: result.total };
+  if (nextOffset < result.total && result.headers.length > 0) {
+    out.nextPageToken = String(nextOffset);
+  }
+  return out;
+}
+
+function gmailHeaderToDashboardRow(accountId: string, h: GmailMessageHeader): DashboardEmailRow {
+  // labelIds is stored serialised in the DB; the renderer's mapper
+  // expects the same string-or-null shape coming back. JSON.stringify
+  // of an empty array yields "[]" which the renderer parses cleanly.
+  const labelIds = JSON.stringify(h.labelIds ?? []);
+  return {
+    id: h.id,
+    threadId: h.threadId,
+    accountId,
+    subject: h.subject,
+    from: h.from,
+    to: h.to,
+    cc: h.cc,
+    bcc: h.bcc,
+    date: h.date,
+    snippet: h.snippet || null,
+    body: null,
+    labelIds,
+    isUnread: h.isUnread,
+    messageId: h.messageId,
+    inReplyTo: h.inReplyTo,
+  };
+}
+
+function imapHeaderToDashboardRow(
+  accountId: string,
+  folder: string,
+  h: ImapMessageHeader,
+): DashboardEmailRow {
+  // IMAP folder name takes the role of the labelIds — store it so the
+  // renderer can scope by folder if it wants, mirroring what the IMAP
+  // sync path puts in the DB.
+  const labelIds = JSON.stringify([folder]);
+  return {
+    id: h.id,
+    threadId: h.threadId,
+    accountId,
+    subject: h.subject,
+    from: h.from,
+    to: h.to,
+    cc: h.cc,
+    bcc: h.bcc,
+    date: h.date,
+    snippet: h.snippet || null,
+    body: null,
+    labelIds,
+    isUnread: h.isUnread,
+    messageId: h.messageId,
+    inReplyTo: h.inReplyTo,
+  };
 }
