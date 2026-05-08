@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { IpcResponse, ContactSuggestion } from "../../shared/types";
+import type { ContactSuggestion } from "../../shared/types";
 
 interface AddressInputProps {
   label: string;
@@ -62,9 +62,7 @@ export function AddressInput({
 
     const timer = setTimeout(async () => {
       try {
-        const response = (await window.api.contacts.suggest(trimmed, 8)) as IpcResponse<
-          ContactSuggestion[]
-        >;
+        const response = await window.api.contacts.suggest(trimmed, 8);
         if (response.success) {
           // Filter out already-added addresses
           const filtered = response.data.filter(

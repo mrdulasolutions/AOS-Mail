@@ -41,10 +41,7 @@ interface InstalledExtensionRendererModule {
  */
 export async function loadInstalledExtensionPanels(): Promise<void> {
   try {
-    const result = (await window.api.extensions.listInstalled()) as {
-      success: boolean;
-      data?: InstalledExtensionInfo[];
-    };
+    const result = await window.api.extensions.listInstalled<InstalledExtensionInfo>();
 
     if (!result.success || !result.data) return;
 
@@ -110,14 +107,12 @@ function rewriteReactImports(code: string): string {
  */
 export async function loadExtensionRenderer(extensionId: string): Promise<void> {
   try {
-    const result = (await window.api.extensions.getRendererBundle(extensionId)) as {
-      success: boolean;
-      data?: string;
-      error?: string;
-    };
+    const result = await window.api.extensions.getRendererBundle(extensionId);
 
     if (!result.success || !result.data) {
-      console.warn(`[Extensions] No renderer bundle for ${extensionId}: ${result.error}`);
+      console.warn(
+        `[Extensions] No renderer bundle for ${extensionId}: ${result.success ? "" : result.error}`,
+      );
       return;
     }
 

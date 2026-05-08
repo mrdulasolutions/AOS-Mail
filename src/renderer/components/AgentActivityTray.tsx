@@ -25,11 +25,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { IpcResponse } from "../../shared/types";
-import type {
-  LlmCallRowWithSubject,
-  UsageWindowStats,
-} from "../../shared/sidecar-contract";
+import type { LlmCallRowWithSubject } from "../../shared/sidecar-contract";
 
 const TRAY_HISTORY_LIMIT = 15;
 // Refresh while open. The sidebar polls llm_calls — cheap query but we
@@ -73,8 +69,7 @@ export function AgentActivityTray() {
   // closed so the count is always reasonably fresh when the user glances.
   const { data: todayResult } = useQuery({
     queryKey: ["agent-activity", "stats-today"],
-    queryFn: () =>
-      window.api.usage.getStatsToday() as Promise<IpcResponse<UsageWindowStats>>,
+    queryFn: () => window.api.usage.getStatsToday(),
     refetchInterval: BADGE_REFRESH_MS,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
@@ -85,18 +80,14 @@ export function AgentActivityTray() {
   // first refetch happens immediately because of `staleTime: 0`.
   const { data: historyResult } = useQuery({
     queryKey: ["agent-activity", "tray-history"],
-    queryFn: () =>
-      window.api.usage.getCallHistoryWithSubjects(TRAY_HISTORY_LIMIT) as Promise<
-        IpcResponse<LlmCallRowWithSubject[]>
-      >,
+    queryFn: () => window.api.usage.getCallHistoryWithSubjects(TRAY_HISTORY_LIMIT),
     enabled: open,
     refetchInterval: open ? TRAY_REFRESH_MS : false,
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
 
-  const todayStats =
-    todayResult && todayResult.success ? todayResult.data : null;
+  const todayStats = todayResult && todayResult.success ? todayResult.data : null;
   const history = useMemo<LlmCallRowWithSubject[]>(() => {
     if (!historyResult || !historyResult.success) return [];
     return historyResult.data;
@@ -142,12 +133,7 @@ export function AgentActivityTray() {
         aria-expanded={open}
       >
         {/* Lightning-bolt glyph — communicates "agent ran something" */}
-        <svg
-          className="w-4 h-4 text-amber-500"
-          fill="currentColor"
-          viewBox="0 0 24 24"
-          aria-hidden
-        >
+        <svg className="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
           <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
         </svg>
         <span className="text-xs font-medium tabular-nums">{todayCount}</span>
@@ -156,9 +142,7 @@ export function AgentActivityTray() {
       {open && (
         <div className="absolute top-full right-0 mt-1 w-96 max-w-[calc(100vw-2rem)] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
           <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              Agent activity
-            </h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Agent activity</h3>
             <span className="text-xs text-gray-500 dark:text-gray-400">
               {todayCount} today · {formatCostCents(todayCostCents)}
             </span>
@@ -166,8 +150,7 @@ export function AgentActivityTray() {
 
           {history.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-              No agent calls yet. The agent runs in the background as new
-              email arrives.
+              No agent calls yet. The agent runs in the background as new email arrives.
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700/50">
@@ -187,10 +170,7 @@ export function AgentActivityTray() {
 }
 
 function TrayRow({ row }: { row: LlmCallRowWithSubject }) {
-  const subject =
-    row.email_subject?.trim() ||
-    (row.email_id ? row.email_id : null) ||
-    null;
+  const subject = row.email_subject?.trim() || (row.email_id ? row.email_id : null) || null;
   const success = row.success === 1;
   return (
     <div className="px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50">

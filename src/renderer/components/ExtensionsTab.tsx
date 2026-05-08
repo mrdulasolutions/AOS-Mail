@@ -17,8 +17,6 @@ import { useState, useEffect, useCallback } from "react";
 import { setExtensionEnabled } from "../extensions/host";
 import type { ExtensionManifestSummary } from "../../shared/sidecar-contract";
 
-type ListResponse = { success: boolean; data?: ExtensionManifestSummary[]; error?: string };
-
 export function ExtensionsTab() {
   const [bundled, setBundled] = useState<ExtensionManifestSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -27,7 +25,7 @@ export function ExtensionsTab() {
   const loadExtensions = useCallback(async () => {
     setError(null);
     try {
-      const result = (await window.api.extensions.list()) as ListResponse;
+      const result = await window.api.extensions.list();
       if (result.success && Array.isArray(result.data)) {
         setBundled(result.data);
       } else if (!result.success) {
@@ -47,28 +45,21 @@ export function ExtensionsTab() {
     setError(null);
     // Optimistic — flip the local state immediately so the toggle feels
     // responsive. Roll back if the persistence call fails.
-    setBundled((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, enabled: nextEnabled } : m)),
-    );
+    setBundled((prev) => prev.map((m) => (m.id === id ? { ...m, enabled: nextEnabled } : m)));
     setExtensionEnabled(id, nextEnabled);
     try {
-      const result = (await (
-        window.api.extensions as unknown as {
-          setEnabled: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>;
-        }
-      ).setEnabled(id, nextEnabled)) ?? { success: false, error: "no setEnabled response" };
+      const result = (await window.api.extensions.setEnabled(id, nextEnabled)) ?? {
+        success: false,
+        error: "no setEnabled response",
+      };
       if (!result.success) {
         // Roll back optimistic update.
-        setBundled((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, enabled: !nextEnabled } : m)),
-        );
+        setBundled((prev) => prev.map((m) => (m.id === id ? { ...m, enabled: !nextEnabled } : m)));
         setExtensionEnabled(id, !nextEnabled);
         setError(result.error ?? "Failed to save extension state");
       }
     } catch (err) {
-      setBundled((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, enabled: !nextEnabled } : m)),
-      );
+      setBundled((prev) => prev.map((m) => (m.id === id ? { ...m, enabled: !nextEnabled } : m)));
       setExtensionEnabled(id, !nextEnabled);
       setError(err instanceof Error ? err.message : "Failed to save extension state");
     } finally {
@@ -182,11 +173,8 @@ function OpenClawSection() {
 
   useEffect(() => {
     (async () => {
-      const result = (await window.api.settings.get()) as {
-        success: boolean;
-        data?: Record<string, unknown>;
-      };
-      const config = result.data ?? (result as Record<string, unknown>);
+      const result = await window.api.settings.get();
+      const config = result.success && result.data ? result.data : {};
       const oc = config.openclaw as Record<string, unknown> | undefined;
       if (oc) {
         setOpenclawEnabled(Boolean(oc.enabled));
@@ -200,9 +188,7 @@ function OpenClawSection() {
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-            OpenClaw Agent
-          </h4>
+          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">OpenClaw Agent</h4>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Connect a local or remote OpenClaw agent for richer context during email drafting.
           </p>
@@ -271,10 +257,7 @@ function OpenClawSection() {
                 });
                 setOpenclawTesting(true);
                 setOpenclawTestResult(null);
-                const result = (await window.api.settings.testOpenclawConnection()) as {
-                  success: boolean;
-                  error?: string;
-                };
+                const result = await window.api.settings.testOpenclawConnection();
                 setOpenclawTestResult(result);
                 setOpenclawTesting(false);
               }}

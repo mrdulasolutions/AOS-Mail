@@ -18,8 +18,7 @@
 // We detect that and bail out — never overwriting the Electron surface.
 
 import bridge from "./bridge";
-
-type IpcResponse<T = unknown> = { success: true; data: T } | { success: false; error: string };
+import type { IpcResponse, WindowApi } from "../../shared/window-api";
 
 const EVENT_SUBSCRIPTION_PREFIXES = ["on", "listenTo", "subscribe", "watch"];
 
@@ -41,7 +40,7 @@ function stubMethod(ns: string, method: string) {
       return () => {};
     };
   }
-  return async (..._args: unknown[]): Promise<IpcResponse<null>> => {
+  return async (..._args: unknown[]) => {
     const key = `${ns}.${method}`;
     if (!warnedAutoStubs.has(key)) {
       warnedAutoStubs.add(key);
@@ -81,14 +80,27 @@ function namespaceProxy(ns: string): unknown {
  *
  * Each entry returns the namespace object that will be exposed at
  * window.api.<key>. Once a key is present here, it overrides the auto-stub.
+ *
+ * Typing: every namespace's individual forwarder declares its own
+ * IpcResponse<T> return type. The aggregate object is satisfies-checked
+ * against `WindowApi` at the return statement so a missing namespace or
+ * mismatched method shape surfaces at compile time.
  */
-function installRealNamespaces(): Record<string, unknown> {
+function installRealNamespaces(): WindowApi {
+  // `real` stays loosely typed during construction — each namespace's
+  // forwarder writes its own IpcResponse-shaped return type, and the
+  // assembled object is cast to WindowApi at the end. The `satisfies
+  // WindowApi` on the assembled object below catches missing namespaces
+  // (e.g. a contract entry that wasn't wired). Method shape mismatches
+  // surface at the call site rather than here, which is fine because
+  // call-site errors point at the actual consumer rather than the shim's
+  // dynamic assembly.
   const real: Record<string, unknown> = {};
 
   // Diagnostic: lets the renderer hit the sidecar even before any service is
   // lifted. Useful for the migration smoke test.
   real.diagnostics = {
-    ping: async (): Promise<IpcResponse<unknown>> => {
+    ping: async () => {
       try {
         const data = await bridge.call("ping", {});
         return { success: true, data };
@@ -96,7 +108,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    shellPing: async (): Promise<IpcResponse<string>> => {
+    shellPing: async () => {
       try {
         const data = await bridge.ping();
         return { success: true, data };
@@ -104,7 +116,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    dbInfo: async (): Promise<IpcResponse<unknown>> => {
+    dbInfo: async () => {
       try {
         const data = await bridge.call("db.info", {});
         return { success: true, data };
@@ -112,7 +124,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    dbListAccounts: async (): Promise<IpcResponse<unknown>> => {
+    dbListAccounts: async () => {
       try {
         const data = await bridge.call("db.listAccounts", {});
         return { success: true, data };
@@ -120,7 +132,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    anthropicPing: async (): Promise<IpcResponse<unknown>> => {
+    anthropicPing: async () => {
       try {
         const data = await bridge.call("anthropic.ping", {});
         return { success: true, data };
@@ -128,7 +140,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    anthropicHasApiKey: async (): Promise<IpcResponse<unknown>> => {
+    anthropicHasApiKey: async () => {
       try {
         const data = await bridge.call("anthropic.hasApiKey", {});
         return { success: true, data };
@@ -141,7 +153,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // have ANY usable LLM provider?" — the LLM router routes claude-*
     // ids to Anthropic and everything else to OpenRouter, so either key
     // unlocks analysis / drafting / archive-ready / etc.
-    hasAnyLlmProvider: async (): Promise<IpcResponse<unknown>> => {
+    hasAnyLlmProvider: async () => {
       try {
         const data = await bridge.call("anthropic.hasAnyLlmProvider", {});
         return { success: true, data };
@@ -149,7 +161,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    anthropicSetApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+    anthropicSetApiKey: async (apiKey: string) => {
       try {
         const data = await bridge.call("anthropic.setApiKey", { apiKey });
         return { success: true, data };
@@ -165,7 +177,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // these methods — actual LLM calls go through the sidecar's router in
   // services/anthropic.ts (createMessage).
   real.openrouter = {
-    setApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+    setApiKey: async (apiKey: string) => {
       try {
         const data = await bridge.call("openrouter.setApiKey", { apiKey });
         return { success: true, data };
@@ -173,7 +185,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    clearApiKey: async (): Promise<IpcResponse<unknown>> => {
+    clearApiKey: async () => {
       try {
         const data = await bridge.call("openrouter.clearApiKey", {});
         return { success: true, data };
@@ -181,7 +193,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    hasApiKey: async (): Promise<IpcResponse<unknown>> => {
+    hasApiKey: async () => {
       try {
         const data = await bridge.call("openrouter.hasApiKey", {});
         return { success: true, data };
@@ -189,7 +201,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    validateApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
+    validateApiKey: async (apiKey: string) => {
       try {
         const data = await bridge.call("openrouter.validateApiKey", { apiKey });
         return { success: true, data };
@@ -197,7 +209,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    listFreeModels: async (): Promise<IpcResponse<unknown>> => {
+    listFreeModels: async () => {
       try {
         const data = await bridge.call("openrouter.listFreeModels", {});
         return { success: true, data };
@@ -222,20 +234,17 @@ function installRealNamespaces(): Record<string, unknown> {
     return prefersDarkMql?.matches ? "dark" : "light";
   };
   const themeListeners: Array<(d: ThemeChange) => void> = [];
-  let themeUnlistenSidecar: (() => void) | null = null;
   let themeMqlListener: ((e: MediaQueryListEvent) => void) | null = null;
   let themeCurrentPreference: ThemePreference = "system";
 
-  // Cache the preference; sidecar push events update it.
-  bridge
-    .listen<{ preference: ThemePreference }>("theme:changed", ({ preference }) => {
-      themeCurrentPreference = preference;
-      const data: ThemeChange = { preference, resolved: resolveTheme(preference) };
-      themeListeners.forEach((cb) => cb(data));
-    })
-    .then((un) => {
-      themeUnlistenSidecar = un;
-    });
+  // Cache the preference; sidecar push events update it. The unlisten
+  // handle returned by bridge.listen is intentionally discarded — these
+  // listeners live for the lifetime of the renderer.
+  void bridge.listen<{ preference: ThemePreference }>("theme:changed", ({ preference }) => {
+    themeCurrentPreference = preference;
+    const data: ThemeChange = { preference, resolved: resolveTheme(preference) };
+    themeListeners.forEach((cb) => cb(data));
+  });
 
   // OS theme flip while preference is "system" → fire onChange too.
   if (prefersDarkMql) {
@@ -251,7 +260,7 @@ function installRealNamespaces(): Record<string, unknown> {
   }
 
   real.theme = {
-    get: async (): Promise<IpcResponse<ThemeChange>> => {
+    get: async () => {
       try {
         const { preference } = (await bridge.call("theme.get", {})) as {
           preference: ThemePreference;
@@ -262,7 +271,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    set: async (theme: ThemePreference): Promise<IpcResponse<{ resolved: "light" | "dark" }>> => {
+    set: async (theme: ThemePreference) => {
       try {
         const { preference } = (await bridge.call("theme.set", { theme })) as {
           preference: ThemePreference;
@@ -295,7 +304,7 @@ function installRealNamespaces(): Record<string, unknown> {
     updatedAt: number;
   };
   real.snippets = {
-    getAll: async (): Promise<IpcResponse<Snippet[]>> => {
+    getAll: async () => {
       try {
         const data = (await bridge.call("snippets.getAll", {})) as Snippet[];
         return { success: true, data };
@@ -303,7 +312,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    save: async (snippets: Snippet[]): Promise<IpcResponse<null>> => {
+    save: async (snippets: Snippet[]) => {
       try {
         await bridge.call("snippets.save", { snippets });
         return { success: true, data: null };
@@ -311,7 +320,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    create: async (snippet: Partial<Snippet>): Promise<IpcResponse<Snippet>> => {
+    create: async (snippet: Partial<Snippet>) => {
       try {
         const data = (await bridge.call("snippets.create", { snippet })) as Snippet;
         return { success: true, data };
@@ -319,7 +328,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    update: async (id: string, updates: Partial<Snippet>): Promise<IpcResponse<Snippet>> => {
+    update: async (id: string, updates: Partial<Snippet>) => {
       try {
         const data = (await bridge.call("snippets.update", { id, updates })) as Snippet;
         return { success: true, data };
@@ -327,7 +336,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    delete: async (id: string): Promise<IpcResponse<null>> => {
+    delete: async (id: string) => {
       try {
         await bridge.call("snippets.delete", { id });
         return { success: true, data: null };
@@ -349,7 +358,7 @@ function installRealNamespaces(): Record<string, unknown> {
     provider?: string;
   };
   real.accounts = {
-    list: async (): Promise<IpcResponse<AccountRecord[]>> => {
+    list: async () => {
       try {
         const data = (await bridge.call("accounts.list", {})) as AccountRecord[];
         return { success: true, data };
@@ -357,7 +366,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    add: async (_accountId?: string): Promise<IpcResponse<unknown>> => {
+    add: async (_accountId?: string) => {
       try {
         // Sidecar's accounts.add returns immediately with the OAuth URL but
         // the underlying promise resolves when the user completes auth in
@@ -391,7 +400,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    remove: async (accountId: string): Promise<IpcResponse<null>> => {
+    remove: async (accountId: string) => {
       try {
         await bridge.call("accounts.remove", { accountId });
         return { success: true, data: null };
@@ -399,7 +408,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setPrimary: async (accountId: string): Promise<IpcResponse<null>> => {
+    setPrimary: async (accountId: string) => {
       try {
         await bridge.call("accounts.setPrimary", { accountId });
         return { success: true, data: null };
@@ -407,7 +416,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    cancelAdd: async (): Promise<IpcResponse<null>> => {
+    cancelAdd: async () => {
       try {
         await bridge.call("accounts.cancelAdd", {});
         return { success: true, data: null };
@@ -432,7 +441,7 @@ function installRealNamespaces(): Record<string, unknown> {
       to?: string[],
       cc?: string[],
       bcc?: string[],
-    ): Promise<IpcResponse<unknown>> => {
+    ) => {
       try {
         const data = await bridge.call("drafts.save", {
           emailId,
@@ -447,11 +456,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    refine: async (
-      emailId: string,
-      currentDraft: string,
-      critique: string,
-    ): Promise<IpcResponse<unknown>> => {
+    refine: async (emailId: string, currentDraft: string, critique: string) => {
       try {
         const data = await bridge.call("drafts.refine", {
           emailId,
@@ -463,7 +468,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    rerunAgent: async (emailId: string): Promise<IpcResponse<unknown>> => {
+    rerunAgent: async (emailId: string) => {
       try {
         const data = await bridge.call("drafts.rerunAgent", { emailId });
         return { success: true, data };
@@ -471,7 +476,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    rerunAllAgents: async (): Promise<IpcResponse<unknown>> => {
+    rerunAllAgents: async () => {
       try {
         const data = await bridge.call("drafts.rerunAllAgents", {});
         return { success: true, data };
@@ -486,7 +491,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // each new email; result lands in the analyses table and bubbles up
   // to the priority badge.
   real.analysis = {
-    analyze: async (emailId: string): Promise<IpcResponse<unknown>> => {
+    analyze: async (emailId: string) => {
       try {
         const data = await bridge.call("analysis.analyze", { emailId });
         return { success: true, data };
@@ -494,7 +499,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    analyzeBatch: async (emailIds: string[]): Promise<IpcResponse<unknown>> => {
+    analyzeBatch: async (emailIds: string[]) => {
       try {
         const data = await bridge.call("analysis.analyzeBatch", { emailIds });
         return { success: true, data };
@@ -507,7 +512,7 @@ function installRealNamespaces(): Record<string, unknown> {
       newNeedsReply: boolean,
       newPriority: string | null,
       reason?: string,
-    ): Promise<IpcResponse<unknown>> => {
+    ) => {
       try {
         const data = await bridge.call("analysis.overridePriority", {
           emailId,
@@ -528,7 +533,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // result lands in the archive_ready table and surfaces the thread in
   // the "Archive Ready" tab.
   real.archiveReady = {
-    analyze: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    analyze: async (threadId: string, accountId: string) => {
       try {
         const data = await bridge.call("archiveReady.analyze", { threadId, accountId });
         return { success: true, data };
@@ -536,7 +541,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    analyzeBatch: async (threadIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
+    analyzeBatch: async (threadIds: string[], accountId: string) => {
       try {
         const data = await bridge.call("archiveReady.analyzeBatch", {
           threadIds,
@@ -547,7 +552,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    list: async (accountId?: string, limit?: number): Promise<IpcResponse<unknown>> => {
+    list: async (accountId?: string, limit?: number) => {
       try {
         const data = await bridge.call("archiveReady.list", { accountId, limit });
         return { success: true, data };
@@ -555,12 +560,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    override: async (
-      threadId: string,
-      accountId: string,
-      isReady: boolean,
-      reason?: string,
-    ): Promise<IpcResponse<unknown>> => {
+    override: async (threadId: string, accountId: string, isReady: boolean, reason?: string) => {
       try {
         const data = await bridge.call("archiveReady.override", {
           threadId,
@@ -576,7 +576,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Mark a thread as dismissed so the Archive Ready tab stops surfacing
     // it. UndoActionToast calls this after a successful archive of a
     // thread that came from the suggestion list.
-    dismiss: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    dismiss: async (threadId: string, accountId: string) => {
       try {
         const data = await bridge.call("archiveReady.dismiss", {
           threadId,
@@ -594,10 +594,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // companion `draftNudge` writes a short follow-up via the regular
   // draft-generator with composeMode: "nudge".
   real.awaitingReply = {
-    list: async (
-      accountId: string,
-      opts?: { thresholdDays?: number },
-    ): Promise<IpcResponse<unknown>> => {
+    list: async (accountId: string, opts?: { thresholdDays?: number }) => {
       try {
         const data = await bridge.call("awaitingReply.list", {
           accountId,
@@ -608,7 +605,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    draftNudge: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    draftNudge: async (threadId: string, accountId: string) => {
       try {
         const data = await bridge.call("awaitingReply.draftNudge", {
           threadId,
@@ -626,7 +623,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // server, then update the local store. Gmail provider paths in
   // emails.* arrive when gmail-client lifts.
   real.emails = {
-    archive: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    archive: async (emailId: string, accountId: string) => {
       try {
         const data = await bridge.call("emails.archive", { emailId, accountId });
         return { success: true, data };
@@ -637,7 +634,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Smart-action late-undo: called only when the optimistic 5s window has
     // already committed and we still need to put the message back in INBOX.
     // The in-window undo path stays optimistic and never touches the bridge.
-    unarchive: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    unarchive: async (emailId: string, accountId: string) => {
       try {
         const data = await bridge.call("emails.unarchive", { emailId, accountId });
         return { success: true, data };
@@ -645,7 +642,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    batchArchive: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
+    batchArchive: async (emailIds: string[], accountId: string) => {
       try {
         const data = await bridge.call("emails.batchArchive", { emailIds, accountId });
         return { success: true, data };
@@ -653,7 +650,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    archiveThread: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    archiveThread: async (threadId: string, accountId: string) => {
       try {
         const data = await bridge.call("emails.archiveThread", { threadId, accountId });
         return { success: true, data };
@@ -661,7 +658,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    trash: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    trash: async (emailId: string, accountId: string) => {
       try {
         const data = await bridge.call("emails.trash", { emailId, accountId });
         return { success: true, data };
@@ -669,7 +666,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    batchTrash: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
+    batchTrash: async (emailIds: string[], accountId: string) => {
       try {
         const data = await bridge.call("emails.batchTrash", { emailIds, accountId });
         return { success: true, data };
@@ -677,11 +674,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setStarred: async (
-      emailId: string,
-      _accountId: string,
-      starred: boolean,
-    ): Promise<IpcResponse<unknown>> => {
+    setStarred: async (emailId: string, _accountId: string, starred: boolean) => {
       try {
         const data = await bridge.call("emails.setStarred", { emailId, starred });
         return { success: true, data };
@@ -689,11 +682,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setRead: async (
-      emailId: string,
-      _accountId: string,
-      read: boolean,
-    ): Promise<IpcResponse<unknown>> => {
+    setRead: async (emailId: string, _accountId: string, read: boolean) => {
       try {
         const data = await bridge.call("emails.setRead", { emailId, read });
         return { success: true, data };
@@ -701,7 +690,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getThread: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+    getThread: async (threadId: string, accountId: string) => {
       try {
         const data = await bridge.call("emails.getThread", { threadId, accountId });
         return { success: true, data };
@@ -780,7 +769,7 @@ function installRealNamespaces(): Record<string, unknown> {
     }>;
   };
   real.compose = {
-    send: async (options: ComposeSendInput): Promise<IpcResponse<unknown>> => {
+    send: async (options: ComposeSendInput) => {
       try {
         const data = await bridge.call(
           "compose.send",
@@ -814,7 +803,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: message };
       }
     },
-    listLocalDrafts: async (): Promise<IpcResponse<unknown[]>> => {
+    listLocalDrafts: async () => {
       try {
         const data = (await bridge.call("compose.listLocalDrafts", {})) as unknown[];
         return { success: true, data: Array.isArray(data) ? data : [] };
@@ -822,7 +811,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    saveLocalDraft: async (input: Record<string, unknown>): Promise<IpcResponse<unknown>> => {
+    saveLocalDraft: async (input: Record<string, unknown>) => {
       try {
         const data = await bridge.call("compose.saveLocalDraft", input);
         return { success: true, data };
@@ -830,10 +819,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    updateLocalDraft: async (
-      id: string,
-      patch: Record<string, unknown>,
-    ): Promise<IpcResponse<unknown>> => {
+    updateLocalDraft: async (id: string, patch: Record<string, unknown>) => {
       try {
         const data = await bridge.call("compose.updateLocalDraft", { id, ...patch });
         return { success: true, data };
@@ -841,7 +827,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    deleteLocalDraft: async (id: string): Promise<IpcResponse<null>> => {
+    deleteLocalDraft: async (id: string) => {
       try {
         await bridge.call("compose.deleteLocalDraft", { id });
         return { success: true, data: null };
@@ -849,7 +835,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getSendAsAliases: async (_accountId: string): Promise<IpcResponse<{ aliases: unknown[] }>> => {
+    getSendAsAliases: async (_accountId: string) => {
       try {
         const data = (await bridge.call("compose.getSendAsAliases", {
           accountId: _accountId,
@@ -867,7 +853,7 @@ function installRealNamespaces(): Record<string, unknown> {
   type SyncStatusEvent = { accountId: string; status: "idle" | "syncing" | "error" };
   const syncUnlisteners: Array<() => void> = [];
   real.sync = {
-    init: async (): Promise<IpcResponse<unknown>> => {
+    init: async () => {
       try {
         const data = await bridge.call("sync.init", {});
         return { success: true, data };
@@ -875,7 +861,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    now: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    now: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.now", { accountId });
         return { success: true, data };
@@ -883,7 +869,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    loadMore: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    loadMore: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.loadMore", { accountId });
         return { success: true, data };
@@ -891,7 +877,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    start: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    start: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.start", { accountId });
         return { success: true, data };
@@ -899,7 +885,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    stop: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    stop: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.stop", { accountId });
         return { success: true, data };
@@ -907,7 +893,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setInterval: async (intervalMs: number): Promise<IpcResponse<unknown>> => {
+    setInterval: async (intervalMs: number) => {
       try {
         const data = await bridge.call("sync.setInterval", { intervalMs });
         return { success: true, data };
@@ -915,7 +901,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    status: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    status: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.status", { accountId });
         return { success: true, data };
@@ -926,7 +912,7 @@ function installRealNamespaces(): Record<string, unknown> {
     getEmails: async (
       accountId: string,
       opts?: { folder?: string; label?: string; limit?: number },
-    ): Promise<IpcResponse<unknown>> => {
+    ) => {
       try {
         const data = await bridge.call("sync.getEmails", { accountId, ...(opts ?? {}) });
         return { success: true, data };
@@ -934,7 +920,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getSentEmails: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    getSentEmails: async (accountId: string) => {
       try {
         const data = await bridge.call("sync.getSentEmails", { accountId });
         return { success: true, data };
@@ -942,7 +928,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    prefetchBodies: async (_ids: string[]): Promise<IpcResponse<unknown>> => {
+    prefetchBodies: async (_ids: string[]) => {
       try {
         const data = await bridge.call("sync.prefetchBodies", { ids: _ids });
         return { success: true, data };
@@ -1004,7 +990,7 @@ function installRealNamespaces(): Record<string, unknown> {
     tls?: boolean;
   };
   real.imap = {
-    presets: async (): Promise<IpcResponse<{ presets: ImapPreset[] }>> => {
+    presets: async () => {
       try {
         const data = (await bridge.call("imap.presets", {})) as { presets: ImapPreset[] };
         return { success: true, data };
@@ -1012,7 +998,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    suggestForEmail: async (email: string): Promise<IpcResponse<{ preset: ImapPreset | null }>> => {
+    suggestForEmail: async (email: string) => {
       try {
         const data = (await bridge.call("imap.suggestForEmail", { email })) as {
           preset: ImapPreset | null;
@@ -1022,7 +1008,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    testConnection: async (input: ImapAddInput): Promise<IpcResponse<unknown>> => {
+    testConnection: async (input: ImapAddInput) => {
       try {
         const data = await bridge.call("imap.testConnection", input as Record<string, unknown>);
         return { success: true, data };
@@ -1030,7 +1016,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    addAccount: async (input: ImapAddInput): Promise<IpcResponse<unknown>> => {
+    addAccount: async (input: ImapAddInput) => {
       try {
         const data = await bridge.call("imap.addAccount", input as Record<string, unknown>);
         return { success: true, data };
@@ -1064,7 +1050,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    disconnect: async (accountId: string): Promise<IpcResponse<null>> => {
+    disconnect: async (accountId: string) => {
       try {
         await bridge.call("imap.disconnect", { accountId });
         return { success: true, data: null };
@@ -1080,7 +1066,7 @@ function installRealNamespaces(): Record<string, unknown> {
   const gmailAuthListeners: Array<() => void> = [];
   real.gmail = {
     // Provider-agnostic body fetch.
-    getEmail: async (emailId: string): Promise<IpcResponse<unknown>> => {
+    getEmail: async (emailId: string) => {
       try {
         const data = await bridge.call("sync.fetchBody", { emailId });
         return { success: true, data };
@@ -1097,7 +1083,7 @@ function installRealNamespaces(): Record<string, unknown> {
       _maxResults?: number,
       accountId?: string,
       opts?: { folder?: string; label?: string; limit?: number },
-    ): Promise<IpcResponse<unknown>> => {
+    ) => {
       try {
         if (!accountId) {
           return { success: true, data: [] };
@@ -1111,7 +1097,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    saveCredentials: async (clientId: string, clientSecret: string): Promise<IpcResponse<null>> => {
+    saveCredentials: async (clientId: string, clientSecret: string) => {
       try {
         await bridge.call("gmail.saveCredentials", { clientId, clientSecret });
         return { success: true, data: null };
@@ -1122,7 +1108,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Cheap check used by Settings → Accounts to decide whether we can kick
     // off OAuth directly or first need to prompt for a Client ID + Secret.
     // Returning the same { configured } shape the sidecar provides.
-    hasCredentials: async (): Promise<IpcResponse<{ configured: boolean }>> => {
+    hasCredentials: async () => {
       try {
         const data = (await bridge.call("gmail.hasCredentials", {})) as {
           configured: boolean;
@@ -1132,7 +1118,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    checkAuth: async (): Promise<IpcResponse<unknown>> => {
+    checkAuth: async () => {
       try {
         const data = await bridge.call("gmail.checkAuth", {});
         return { success: true, data };
@@ -1140,7 +1126,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    startOAuth: async (): Promise<IpcResponse<AuthSuccess>> => {
+    startOAuth: async () => {
       try {
         // Sidecar starts the loopback server + returns the OAuth URL.
         const { url } = (await bridge.call("gmail.startOAuth", {})) as { url: string };
@@ -1179,7 +1165,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    cancelOAuth: async (): Promise<IpcResponse<null>> => {
+    cancelOAuth: async () => {
       try {
         await bridge.call("gmail.cancelOAuth", {});
         return { success: true, data: null };
@@ -1191,7 +1177,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // panel uses this to keep an in-progress message visible from the
     // user's other Gmail clients (web, mobile). Pass `gmailDraftId` to
     // update an existing draft, omit to create a new one.
-    createDraft: async (input: Record<string, unknown>): Promise<IpcResponse<unknown>> => {
+    createDraft: async (input: Record<string, unknown>) => {
       try {
         const data = await bridge.call("gmail.createDraft", input);
         return { success: true, data };
@@ -1235,7 +1221,7 @@ function installRealNamespaces(): Record<string, unknown> {
     query: async (
       query: string,
       options?: { accountId?: string; limit?: number; offset?: number },
-    ): Promise<IpcResponse<SearchResult[]>> => {
+    ) => {
       try {
         const data = (await bridge.call("search.query", { query, options })) as SearchResult[];
         return { success: true, data };
@@ -1243,7 +1229,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    suggestions: async (query: string, limit?: number): Promise<IpcResponse<string[]>> => {
+    suggestions: async (query: string, limit?: number) => {
       try {
         const data = (await bridge.call("search.suggestions", { query, limit })) as string[];
         return { success: true, data };
@@ -1251,7 +1237,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    rebuildIndex: async (): Promise<IpcResponse<null>> => {
+    rebuildIndex: async () => {
       try {
         await bridge.call("search.rebuildIndex", {});
         return { success: true, data: null };
@@ -1261,7 +1247,7 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
   real.contacts = {
-    suggest: async (query: string, limit?: number): Promise<IpcResponse<ContactSuggestion[]>> => {
+    suggest: async (query: string, limit?: number) => {
       try {
         const data = (await bridge.call("contacts.suggest", {
           query,
@@ -1287,7 +1273,7 @@ function installRealNamespaces(): Record<string, unknown> {
     lookupAt: number;
   };
   real.sender = {
-    getProfile: async (email: string): Promise<IpcResponse<SenderProfile | null>> => {
+    getProfile: async (email: string) => {
       try {
         const data = (await bridge.call("sender.getProfile", { email })) as SenderProfile | null;
         return { success: true, data };
@@ -1295,7 +1281,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    lookup: async (from: string, email: string): Promise<IpcResponse<SenderProfile | null>> => {
+    lookup: async (from: string, email: string) => {
       try {
         const data = (await bridge.call("sender.lookup", { from, email })) as SenderProfile | null;
         return { success: true, data };
@@ -1318,12 +1304,7 @@ function installRealNamespaces(): Record<string, unknown> {
   };
   const snoozeUnlisteners: Array<() => void> = [];
   real.snooze = {
-    snooze: async (
-      emailId: string,
-      threadId: string,
-      accountId: string,
-      snoozeUntil: number,
-    ): Promise<IpcResponse<SnoozedEmail>> => {
+    snooze: async (emailId: string, threadId: string, accountId: string, snoozeUntil: number) => {
       try {
         const data = (await bridge.call("snooze.snooze", {
           emailId,
@@ -1336,7 +1317,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    unsnooze: async (threadId: string, accountId: string): Promise<IpcResponse<null>> => {
+    unsnooze: async (threadId: string, accountId: string) => {
       try {
         await bridge.call("snooze.unsnooze", { threadId, accountId });
         return { success: true, data: null };
@@ -1344,20 +1325,22 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    list: async (
-      accountId: string,
-    ): Promise<IpcResponse<SnoozedEmail[]> & { expired?: SnoozedEmail[] }> => {
+    list: async (accountId: string) => {
       try {
         const result = (await bridge.call("snooze.list", { accountId })) as {
           data: SnoozedEmail[];
           expired: SnoozedEmail[];
         };
-        return { success: true, data: result.data, expired: result.expired };
+        return {
+          success: true as const,
+          data: result.data,
+          expired: result.expired,
+        };
       } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
+        return { success: false as const, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    get: async (threadId: string, accountId: string): Promise<IpcResponse<SnoozedEmail | null>> => {
+    get: async (threadId: string, accountId: string) => {
       try {
         const data = (await bridge.call("snooze.get", {
           threadId,
@@ -1405,14 +1388,14 @@ function installRealNamespaces(): Record<string, unknown> {
   // splits.json.
   type Split = Record<string, unknown> & { id: string; accountId: string; name: string };
   real.splits = {
-    getAll: async (): Promise<IpcResponse<Split[]>> => {
+    getAll: async () => {
       try {
         return { success: true, data: (await bridge.call("splits.getAll", {})) as Split[] };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    save: async (splits: Split[]): Promise<IpcResponse<null>> => {
+    save: async (splits: Split[]) => {
       try {
         await bridge.call("splits.save", { splits });
         return { success: true, data: null };
@@ -1420,14 +1403,14 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    create: async (split: Partial<Split>): Promise<IpcResponse<Split>> => {
+    create: async (split: Partial<Split>) => {
       try {
         return { success: true, data: (await bridge.call("splits.create", { split })) as Split };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    update: async (id: string, updates: Partial<Split>): Promise<IpcResponse<Split>> => {
+    update: async (id: string, updates: Partial<Split>) => {
       try {
         return {
           success: true,
@@ -1437,7 +1420,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    delete: async (id: string): Promise<IpcResponse<null>> => {
+    delete: async (id: string) => {
       try {
         await bridge.call("splits.delete", { id });
         return { success: true, data: null };
@@ -1472,7 +1455,7 @@ function installRealNamespaces(): Record<string, unknown> {
   };
 
   real.memory = {
-    list: async (accountId: string): Promise<IpcResponse<Memory[]>> => {
+    list: async (accountId: string) => {
       try {
         const data = (await bridge.call("memory.list", { accountId })) as Memory[];
         return { success: true, data };
@@ -1480,7 +1463,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getForEmail: async (senderEmail: string, accountId: string): Promise<IpcResponse<Memory[]>> => {
+    getForEmail: async (senderEmail: string, accountId: string) => {
       try {
         const data = (await bridge.call("memory.getForEmail", {
           senderEmail,
@@ -1498,7 +1481,7 @@ function installRealNamespaces(): Record<string, unknown> {
       content: string;
       source?: string;
       sourceEmailId?: string;
-    }): Promise<IpcResponse<Memory>> => {
+    }) => {
       try {
         const data = (await bridge.call("memory.save", params)) as Memory;
         return { success: true, data };
@@ -1514,7 +1497,7 @@ function installRealNamespaces(): Record<string, unknown> {
         scope?: string;
         scopeValue?: string | null;
       },
-    ): Promise<IpcResponse<Memory | null>> => {
+    ) => {
       try {
         const data = (await bridge.call("memory.update", { id, updates })) as Memory | null;
         return { success: true, data };
@@ -1522,7 +1505,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    delete: async (id: string): Promise<IpcResponse<null>> => {
+    delete: async (id: string) => {
       try {
         await bridge.call("memory.delete", { id });
         return { success: true, data: null };
@@ -1530,7 +1513,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    categories: async (accountId: string): Promise<IpcResponse<string[]>> => {
+    categories: async (accountId: string) => {
       try {
         const data = (await bridge.call("memory.categories", { accountId })) as string[];
         return { success: true, data };
@@ -1538,11 +1521,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    classify: async (params: {
-      content: string;
-      senderEmail: string;
-      senderDomain: string;
-    }): Promise<IpcResponse<{ scope: string; scopeValue: string | null; content: string }>> => {
+    classify: async (params: { content: string; senderEmail: string; senderDomain: string }) => {
       try {
         const data = (await bridge.call("memory.classify", params)) as {
           scope: string;
@@ -1589,7 +1568,7 @@ function installRealNamespaces(): Record<string, unknown> {
       };
     },
     draftMemories: {
-      list: async (accountId: string): Promise<IpcResponse<DraftMemory[]>> => {
+      list: async (accountId: string) => {
         try {
           const data = (await bridge.call("draftMemory.list", { accountId })) as DraftMemory[];
           return { success: true, data };
@@ -1597,11 +1576,11 @@ function installRealNamespaces(): Record<string, unknown> {
           return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
       },
-      promote: async (_id: string, _accountId: string): Promise<IpcResponse<null>> => ({
+      promote: async (_id: string, _accountId: string) => ({
         success: false,
         error: "draftMemory.promote: not yet wired in sidecar",
       }),
-      delete: async (id: string): Promise<IpcResponse<null>> => {
+      delete: async (id: string) => {
         try {
           await bridge.call("draftMemory.delete", { id });
           return { success: true, data: null };
@@ -1638,11 +1617,11 @@ function installRealNamespaces(): Record<string, unknown> {
         )
         .then((un) => authUnlisteners.push(un));
     },
-    reauth: async (_accountId: string): Promise<IpcResponse<null>> => ({
+    reauth: async (_accountId: string) => ({
       success: false,
       error: "auth.reauth: blocked on Tauri OAuth flow (see TAURI_MIGRATION.md)",
     }),
-    cancelReauth: async (): Promise<IpcResponse<null>> => ({
+    cancelReauth: async () => ({
       success: false,
       error: "auth.cancelReauth: blocked on Tauri OAuth flow",
     }),
@@ -1663,7 +1642,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // sidecar to also reset the Anthropic client cache so the next createMessage
   // picks up the new key without a restart.
   real.settings = {
-    get: async (): Promise<IpcResponse<unknown>> => {
+    get: async () => {
       try {
         const data = await bridge.call("settings.get", {});
         return { success: true, data };
@@ -1671,7 +1650,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    set: async (patch: Record<string, unknown>): Promise<IpcResponse<null>> => {
+    set: async (patch: Record<string, unknown>) => {
       try {
         await bridge.call("settings.set", patch ?? {});
         return { success: true, data: null };
@@ -1679,7 +1658,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    validateApiKey: async (apiKey: string): Promise<IpcResponse<null>> => {
+    validateApiKey: async (apiKey: string) => {
       try {
         await bridge.call("settings.validateApiKey", { apiKey });
         return { success: true, data: null };
@@ -1687,7 +1666,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getEA: async (): Promise<IpcResponse<unknown>> => {
+    getEA: async () => {
       try {
         const data = await bridge.call("settings.getEA", {});
         return { success: true, data };
@@ -1695,7 +1674,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setEA: async (ea: unknown): Promise<IpcResponse<null>> => {
+    setEA: async (ea: unknown) => {
       try {
         const params: Record<string, unknown> =
           ea && typeof ea === "object" ? (ea as Record<string, unknown>) : {};
@@ -1705,7 +1684,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getPrompts: async (): Promise<IpcResponse<unknown>> => {
+    getPrompts: async () => {
       try {
         const data = await bridge.call("settings.getPrompts", {});
         return { success: true, data };
@@ -1713,7 +1692,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    setPrompts: async (prompts: Record<string, unknown>): Promise<IpcResponse<null>> => {
+    setPrompts: async (prompts: Record<string, unknown>) => {
       try {
         await bridge.call("settings.setPrompts", prompts ?? {});
         return { success: true, data: null };
@@ -1729,11 +1708,11 @@ function installRealNamespaces(): Record<string, unknown> {
     removePromptsChangedListener: (): void => {
       // matched no-op for the imperative remove* form some components use
     },
-    exportLogs: async (): Promise<IpcResponse<null>> => ({
+    exportLogs: async () => ({
       success: false,
       error: "settings.exportLogs: not yet wired through Tauri",
     }),
-    testOpenclawConnection: async (): Promise<IpcResponse<null>> => ({
+    testOpenclawConnection: async () => ({
       success: false,
       error: "settings.testOpenclawConnection: not yet wired through Tauri",
     }),
@@ -1741,7 +1720,7 @@ function installRealNamespaces(): Record<string, unknown> {
 
   // usage — Claude API cost + call history visibility.
   real.usage = {
-    getStats: async (): Promise<IpcResponse<unknown>> => {
+    getStats: async () => {
       try {
         const data = await bridge.call("usage.getStats", {});
         return { success: true, data };
@@ -1749,7 +1728,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getCallHistory: async (limit?: number): Promise<IpcResponse<unknown>> => {
+    getCallHistory: async (limit?: number) => {
       try {
         const data = await bridge.call("usage.getHistory", { limit });
         return { success: true, data };
@@ -1760,7 +1739,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Enriched history rows — same as getCallHistory but joined with
     // emails so the renderer can show subjects without a second fetch.
     // Powers the Agent Activity tray + Settings sub-tab.
-    getCallHistoryWithSubjects: async (limit?: number): Promise<IpcResponse<unknown>> => {
+    getCallHistoryWithSubjects: async (limit?: number) => {
       try {
         const data = await bridge.call("usage.getHistoryWithSubjects", { limit });
         return { success: true, data };
@@ -1769,7 +1748,7 @@ function installRealNamespaces(): Record<string, unknown> {
       }
     },
     // Single-window aggregates for the tray badge + stats card.
-    getStatsToday: async (): Promise<IpcResponse<unknown>> => {
+    getStatsToday: async () => {
       try {
         const data = await bridge.call("usage.getStatsToday", {});
         return { success: true, data };
@@ -1777,7 +1756,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getStatsThisMonth: async (): Promise<IpcResponse<unknown>> => {
+    getStatsThisMonth: async () => {
       try {
         const data = await bridge.call("usage.getStatsThisMonth", {});
         return { success: true, data };
@@ -1899,10 +1878,10 @@ function installRealNamespaces(): Record<string, unknown> {
   };
   let pendingUpdate: PendingUpdate | null = null;
   real.updates = {
-    getStatus: async (): Promise<IpcResponse<UpdateStatus>> => {
+    getStatus: async () => {
       return { success: true, data: updateStatus };
     },
-    getVersion: async (): Promise<IpcResponse<string>> => {
+    getVersion: async () => {
       try {
         if (!bridge.isTauri) return { success: true, data: "0.0.0" };
         const mod = await import("@tauri-apps/api/app");
@@ -1912,7 +1891,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    check: async (): Promise<IpcResponse<UpdateStatus>> => {
+    check: async () => {
       if (!bridge.isTauri) {
         return { success: false, error: "updates.check: only available under Tauri" };
       }
@@ -1934,7 +1913,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: msg };
       }
     },
-    download: async (): Promise<IpcResponse<null>> => {
+    download: async () => {
       if (!bridge.isTauri || !pendingUpdate) {
         return {
           success: false,
@@ -1977,7 +1956,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: msg };
       }
     },
-    install: async (): Promise<IpcResponse<null>> => {
+    install: async () => {
       // tauri-plugin-updater's downloadAndInstall already installs in
       // place; this just relaunches via plugin-process.
       if (!bridge.isTauri) {
@@ -2005,7 +1984,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // removeAllListeners) but routes through the sidecar + Tauri events.
   const networkUnlisteners: Array<() => void> = [];
   real.network = {
-    getStatus: async (): Promise<IpcResponse<boolean>> => {
+    getStatus: async () => {
       try {
         const data = (await bridge.call("network.getStatus", {})) as { online: boolean };
         return { success: true, data: data.online };
@@ -2013,7 +1992,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    updateStatus: async (online: boolean): Promise<IpcResponse<null>> => {
+    updateStatus: async (online: boolean) => {
       try {
         await bridge.call("network.updateStatus", { online });
         return { success: true, data: null };
@@ -2057,7 +2036,7 @@ function installRealNamespaces(): Record<string, unknown> {
       const { isDefaultMailApp } = await import("./mac-polish");
       return await isDefaultMailApp();
     },
-    setDefault: async (makeDefault: boolean): Promise<IpcResponse<boolean>> => {
+    setDefault: async (makeDefault: boolean) => {
       const { setDefaultMailApp } = await import("./mac-polish");
       try {
         const ok = await setDefaultMailApp(Boolean(makeDefault));
@@ -2108,11 +2087,7 @@ function installRealNamespaces(): Record<string, unknown> {
         };
       }
     },
-    setVisibility: async (
-      accountId: string,
-      calendarId: string,
-      visible: boolean,
-    ): Promise<IpcResponse<null>> => {
+    setVisibility: async (accountId: string, calendarId: string, visible: boolean) => {
       try {
         await bridge.call("calendar.setVisibility", { accountId, calendarId, visible });
         return { success: true, data: null };
@@ -2120,10 +2095,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getEvents: async (params?: {
-      accountId?: string;
-      calendarId?: string;
-    }): Promise<IpcResponse<unknown[]>> => {
+    getEvents: async (params?: { accountId?: string; calendarId?: string }) => {
       try {
         const data = await bridge.call("calendar.getEvents", params ?? {});
         return { success: true, data: data as unknown[] };
@@ -2136,7 +2108,7 @@ function installRealNamespaces(): Record<string, unknown> {
       calendarId: string,
       eventId: string,
       response: "accepted" | "declined" | "tentative",
-    ): Promise<IpcResponse<{ ok: true }>> => {
+    ) => {
       try {
         const data = await bridge.call("calendar.respondToEvent", {
           accountId,
@@ -2155,15 +2127,15 @@ function installRealNamespaces(): Record<string, unknown> {
   // implementation requires Tauri dialog + fs plugins; until then return
   // typed errors so the composer fails loudly instead of silently.
   real.attachments = {
-    pickFiles: async (): Promise<IpcResponse<null>> => ({
+    pickFiles: async () => ({
       success: false,
       error: "attachments.pickFiles: not yet wired (needs tauri-plugin-dialog)",
     }),
-    download: async (): Promise<IpcResponse<null>> => ({
+    download: async () => ({
       success: false,
       error: "attachments.download: not yet wired",
     }),
-    preview: async (): Promise<IpcResponse<null>> => ({
+    preview: async () => ({
       success: false,
       error: "attachments.preview: not yet wired",
     }),
@@ -2181,15 +2153,15 @@ function installRealNamespaces(): Record<string, unknown> {
       success: true,
       data: { cliAvailable: false, authenticated: false },
     }),
-    claudeLogin: async (): Promise<IpcResponse<null>> => ({
+    claudeLogin: async () => ({
       success: false,
       error: "agent.claudeLogin: Claude CLI integration is a V2 feature",
     }),
-    providers: async (): Promise<IpcResponse<unknown[]>> => ({
+    providers: async () => ({
       success: true,
       data: [],
     }),
-    authenticate: async (): Promise<IpcResponse<null>> => ({
+    authenticate: async () => ({
       success: false,
       error: "agent.authenticate: V2",
     }),
@@ -2231,13 +2203,13 @@ function installRealNamespaces(): Record<string, unknown> {
     panels: Array<{ id: string; scope: "sender" | "email"; title: string }>;
   };
   real.extensions = {
-    getPendingAuths: async (): Promise<IpcResponse<unknown[]>> => ({
+    getPendingAuths: async () => ({
       success: true,
       data: [],
     }),
     // Returns the bundled-extension manifests from the sidecar. Used by
     // Settings → Extensions and by the boot path to hydrate enabled state.
-    list: async (): Promise<IpcResponse<ExtensionManifestSummary[]>> => {
+    list: async () => {
       try {
         const data = (await bridge.call("extensions.list", {})) as ExtensionManifestSummary[];
         return { success: true, data };
@@ -2247,7 +2219,7 @@ function installRealNamespaces(): Record<string, unknown> {
     },
     // Persist on/off state. Reads existing extensions config from
     // preferences, merges in the new entry, writes back via settings.set.
-    setEnabled: async (extensionId: string, enabled: boolean): Promise<IpcResponse<null>> => {
+    setEnabled: async (extensionId: string, enabled: boolean) => {
       try {
         const settingsResult = (await bridge.call("settings.get", {})) as
           | Record<string, unknown>
@@ -2271,7 +2243,7 @@ function installRealNamespaces(): Record<string, unknown> {
     getEnrichment: async (
       extensionId: string,
       params: { accountId?: string; email: string; name?: string },
-    ): Promise<IpcResponse<unknown>> => {
+    ) => {
       try {
         const data = await bridge.call("extensions.getEnrichment", {
           extensionId,
@@ -2285,47 +2257,47 @@ function installRealNamespaces(): Record<string, unknown> {
       }
     },
     // V1 ships only bundled extensions — nothing installed at runtime.
-    listInstalled: async (): Promise<IpcResponse<unknown[]>> => ({
+    listInstalled: async () => ({
       success: true,
       data: [],
     }),
-    install: async (): Promise<IpcResponse<null>> => ({
+    install: async () => ({
       success: false,
       error: "extensions.install: not supported in V1 (bundled only)",
     }),
-    uninstall: async (): Promise<IpcResponse<null>> => ({
+    uninstall: async () => ({
       success: false,
       error: "extensions.uninstall: not supported in V1 (bundled only)",
     }),
-    authenticate: async (): Promise<IpcResponse<null>> => ({
+    authenticate: async () => ({
       success: false,
       error: "extensions.authenticate: not supported in V1",
     }),
-    checkProviderHealth: async (): Promise<IpcResponse<unknown>> => ({
+    checkProviderHealth: async () => ({
       success: true,
       data: { healthy: true, reason: "ok" },
     }),
     // The V1 hook (useExtensionPanels) doesn't call these — it talks
     // directly to the in-renderer host. Stubs kept so any leftover
     // call-sites don't throw.
-    enrichEmail: async (): Promise<IpcResponse<null>> => ({ success: true, data: null }),
-    getEnrichments: async (): Promise<IpcResponse<unknown[]>> => ({
+    enrichEmail: async () => ({ success: true, data: null }),
+    getEnrichments: async () => ({
       success: true,
       data: [],
     }),
-    getPanels: async (): Promise<IpcResponse<unknown[]>> => ({
+    getPanels: async () => ({
       success: true,
       data: [],
     }),
-    getProviderSettings: async (): Promise<IpcResponse<unknown>> => ({
+    getProviderSettings: async () => ({
       success: true,
       data: {},
     }),
-    saveProviderSettings: async (): Promise<IpcResponse<null>> => ({
+    saveProviderSettings: async () => ({
       success: true,
       data: null,
     }),
-    getRendererBundle: async (): Promise<IpcResponse<null>> => ({
+    getRendererBundle: async () => ({
       success: false,
       error: "extensions.getRendererBundle: V2",
     }),
@@ -2404,29 +2376,29 @@ function installRealNamespaces(): Record<string, unknown> {
   };
   real.outbox = {
     ...eventNoopNamespace(),
-    getStats: async (): Promise<IpcResponse<unknown>> => ({
+    getStats: async () => ({
       success: true,
       data: { pending: 0, failed: 0 },
     }),
   };
   real.scheduledSend = {
     ...eventNoopNamespace(),
-    list: async (): Promise<IpcResponse<unknown[]>> => ({ success: true, data: [] }),
-    stats: async (): Promise<IpcResponse<unknown>> => ({
+    list: async () => ({ success: true, data: [] }),
+    stats: async () => ({
       success: true,
       data: { scheduled: 0 },
     }),
-    create: async (): Promise<IpcResponse<null>> => ({
+    create: async () => ({
       success: false,
       error: "scheduledSend.create: V2 (needs background scheduler)",
     }),
-    cancel: async (): Promise<IpcResponse<null>> => ({
+    cancel: async () => ({
       success: false,
       error: "scheduledSend.cancel: V2",
     }),
   };
   real.style = {
-    infer: async (): Promise<IpcResponse<unknown>> => ({
+    infer: async () => ({
       success: true,
       data: { stylePrompt: "" },
     }),
@@ -2437,11 +2409,7 @@ function installRealNamespaces(): Record<string, unknown> {
   // "what's happening + what do I owe" without reading every message.
   // Sidecar caches by (threadId, latestMessageId), so re-opens are free.
   real.summary = {
-    thread: async (
-      threadId: string,
-      accountId: string,
-      opts?: { force?: boolean },
-    ): Promise<IpcResponse<unknown>> => {
+    thread: async (threadId: string, accountId: string, opts?: { force?: boolean }) => {
       try {
         const data = await bridge.call("summary.thread", {
           threadId,
@@ -2471,7 +2439,7 @@ function installRealNamespaces(): Record<string, unknown> {
     updatedAt: number;
   };
   real.learnedRules = {
-    list: async (accountId?: string): Promise<IpcResponse<{ rules: LearnedRuleRow[] }>> => {
+    list: async (accountId?: string) => {
       try {
         const data = (await bridge.call("learnedRules.list", {
           accountId,
@@ -2481,10 +2449,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    toggle: async (
-      ruleId: string,
-      enabled: boolean,
-    ): Promise<IpcResponse<{ rule: LearnedRuleRow }>> => {
+    toggle: async (ruleId: string, enabled: boolean) => {
       try {
         const data = (await bridge.call("learnedRules.toggle", {
           ruleId,
@@ -2495,9 +2460,7 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    reset: async (
-      accountId?: string,
-    ): Promise<IpcResponse<{ deletedRules: number; deletedObservations: number }>> => {
+    reset: async (accountId?: string) => {
       try {
         const data = (await bridge.call("learnedRules.reset", {
           accountId,
@@ -2509,7 +2472,63 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
-  return real;
+  // Compile-time enforcement: every RPC namespace listed in
+  // WindowApi-minus-Extras must appear here. If a namespace is missing,
+  // the `satisfies` surfaces a "Property 'xyz' is missing in type"
+  // error. Each value is `true` because `real` is loosely typed during
+  // construction, so this check enforces *coverage* rather than
+  // method-shape compliance — call-site typing handles the shape side.
+  //
+  // `_debugLog` is excluded because the outer proxy in
+  // `installElectronShim` injects it at runtime, not this function.
+  //
+  // If you see an error here:
+  //   - Missing key: add a `real.<ns> = { ... }` block above.
+  //   - Add a new namespace to WindowApi: list it here too.
+  type CoveredKeys = keyof Omit<WindowApi, "_debugLog">;
+  const _coverage = {
+    diagnostics: true,
+    openrouter: true,
+    theme: true,
+    snippets: true,
+    accounts: true,
+    drafts: true,
+    analysis: true,
+    archiveReady: true,
+    awaitingReply: true,
+    emails: true,
+    compose: true,
+    sync: true,
+    imap: true,
+    gmail: true,
+    search: true,
+    contacts: true,
+    sender: true,
+    snooze: true,
+    splits: true,
+    memory: true,
+    auth: true,
+    settings: true,
+    usage: true,
+    find: true,
+    updates: true,
+    network: true,
+    defaultMailApp: true,
+    calendar: true,
+    attachments: true,
+    agent: true,
+    extensions: true,
+    backgroundSync: true,
+    prefetch: true,
+    outbox: true,
+    scheduledSend: true,
+    style: true,
+    summary: true,
+    learnedRules: true,
+  } satisfies Record<CoveredKeys, boolean>;
+  void _coverage;
+
+  return real as unknown as WindowApi;
 }
 
 export function installElectronShim(): void {
@@ -2536,8 +2555,12 @@ export function installElectronShim(): void {
   }
 
   const wrappedReal: Record<string, unknown> = {};
-  for (const ns of Object.keys(real)) {
-    wrappedReal[ns] = mergedNamespace(ns, real[ns] as Record<string, unknown>);
+  // We need string-indexed access here because the proxy below iterates
+  // by property name. Cast through an indexable view of WindowApi to avoid
+  // the implicit-any error.
+  const realRecord = real as unknown as Record<string, unknown>;
+  for (const ns of Object.keys(realRecord)) {
+    wrappedReal[ns] = mergedNamespace(ns, realRecord[ns] as Record<string, unknown>);
   }
 
   w.api = new Proxy(

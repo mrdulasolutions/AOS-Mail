@@ -15,7 +15,6 @@ type SearchResult = {
   rank: number;
 };
 
-
 function decodeHtmlEntities(text: string): string {
   const textarea = document.createElement("textarea");
   textarea.innerHTML = text;

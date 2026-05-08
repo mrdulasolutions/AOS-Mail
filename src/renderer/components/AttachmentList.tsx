@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import type { AttachmentMeta, IpcResponse } from "../../shared/types";
-
+import type { AttachmentMeta } from "../../shared/types";
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";

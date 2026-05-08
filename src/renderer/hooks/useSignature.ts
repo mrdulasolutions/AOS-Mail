@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Config, Signature, IpcResponse } from "../../shared/types";
+import type { Config, Signature } from "../../shared/types";
 
 export function useSignature(accountId: string) {
   const [activeSignatureId, setActiveSignatureId] = useState<string | null>(null);
@@ -9,7 +9,7 @@ export function useSignature(accountId: string) {
   const { data: configData } = useQuery({
     queryKey: ["general-config"],
     queryFn: async () => {
-      const result = (await window.api.settings.get()) as IpcResponse<Config>;
+      const result = await window.api.settings.get<Config>();
       if (result.success) {
         return result.data;
       }

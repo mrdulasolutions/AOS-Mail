@@ -59,14 +59,10 @@ import { LocalDraftSchema } from "../shared/types";
 import type {
   DashboardEmail,
   OutboxStats,
-  ScheduledMessageStats,
   ThemePreference,
   InboxDensity,
   ScheduledMessage,
   SnoozedEmail,
-  IpcResponse,
-  InboxSplit,
-  Snippet,
 } from "../shared/types";
 import type { ScopedAgentEvent, AgentProviderConfig } from "../shared/agent-types";
 import { mergeAndThreadSearchResults } from "./utils/searchResults";
@@ -591,10 +587,7 @@ async function prefetchEmailBodies(emailIds: string[]): Promise<void> {
   for (let i = 0; i < emailIds.length; i += BATCH_SIZE) {
     if (controller.signal.aborted) return;
     const batch = emailIds.slice(i, i + BATCH_SIZE);
-    const result = (await window.api.sync.prefetchBodies(batch)) as {
-      success: boolean;
-      data?: Array<{ id: string; body: string }>;
-    };
+    const result = await window.api.sync.prefetchBodies(batch);
     if (controller.signal.aborted) return;
     if (result.success && result.data) {
       bufferUpdateEmails(result.data.map(({ id, body }) => ({ emailId: id, changes: { body } })));
@@ -757,17 +750,15 @@ export default function App() {
 
     // Fetch persisted inbox density, undo send delay, notifications setting,
     // and PostHog config
-    window.api.settings.get().then(
-      (result: {
-        success: boolean;
-        data?: {
-          inboxDensity?: InboxDensity;
-          undoSendDelay?: number;
-          notificationsEnabled?: boolean;
-          keyboardBindings?: "superhuman" | "gmail";
-          posthog?: { enabled: boolean; sessionReplay?: boolean };
-        };
-      }) => {
+    window.api.settings
+      .get<{
+        inboxDensity?: InboxDensity;
+        undoSendDelay?: number;
+        notificationsEnabled?: boolean;
+        keyboardBindings?: "superhuman" | "gmail";
+        posthog?: { enabled: boolean; sessionReplay?: boolean };
+      }>()
+      .then((result) => {
         if (result.success && result.data) {
           if (result.data.inboxDensity) {
             setInboxDensity(result.data.inboxDensity);
@@ -798,8 +789,7 @@ export default function App() {
             });
           }
         }
-      },
-    );
+      });
 
     // AOS Mail is day-only — pin the preference and resolved theme to "light"
     // regardless of what was stored. We still listen so a Settings change
@@ -877,7 +867,7 @@ export default function App() {
   useEffect(() => {
     window.api.splits
       .getAll()
-      .then((result: { success: boolean; data?: InboxSplit[] }) => {
+      .then((result) => {
         if (result.success && result.data) {
           setSplits(result.data);
         }
@@ -892,7 +882,7 @@ export default function App() {
   useEffect(() => {
     window.api.snippets
       .getAll()
-      .then((result: { success: boolean; data?: Snippet[] }) => {
+      .then((result) => {
         if (result.success && result.data) {
           setSnippets(result.data);
         }
@@ -1009,11 +999,10 @@ export default function App() {
         setSentEmails(allSentEmails);
       }
 
-      const draftsResult = (await window.api.compose.listLocalDrafts()) as {
-        success: boolean;
-        data?: unknown[];
-      };
+      const draftsResult = await window.api.compose.listLocalDrafts();
       if (draftsResult.success && draftsResult.data) {
+        // Re-validate on the renderer side — even though the bridge types
+        // it as LocalDraft[], the values cross a process boundary.
         const drafts = draftsResult.data.map((d) => LocalDraftSchema.parse(d));
         useAppStore.getState().setLocalDrafts(drafts);
       }
@@ -1049,10 +1038,7 @@ export default function App() {
       if (incomingIds.length > 0) {
         void (async () => {
           try {
-            const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
-              success?: boolean;
-              data?: { configured?: boolean };
-            };
+            const has = await window.api.diagnostics.hasAnyLlmProvider();
             if (!has?.success || !has.data?.configured) return;
             await window.api.analysis.analyzeBatch(incomingIds);
           } catch (err) {
@@ -1075,12 +1061,7 @@ export default function App() {
     });
 
     // Listen for initial sync progress (fetched/total during first full sync)
-    const syncApi = window.api.sync as {
-      onSyncProgress?: (
-        cb: (data: { accountId: string; fetched: number; total: number }) => void,
-      ) => void;
-    };
-    syncApi.onSyncProgress?.((data) => {
+    window.api.sync.onSyncProgress?.((data) => {
       setSyncProgress(data.accountId, { fetched: data.fetched, total: data.total });
       if (data.fetched >= data.total) {
         setTimeout(() => setSyncProgress(data.accountId, null), 2000);
@@ -1494,8 +1475,7 @@ export default function App() {
     // timer is cleared once the IPC resolves.
     const slowTimer = setTimeout(() => setSidecarSlow(true), 5000);
     void (async () => {
-      type AccountRow = { id: string; provider?: string };
-      const accountsResult = (await window.api.accounts.list()) as IpcResponse<AccountRow[]>;
+      const accountsResult = await window.api.accounts.list();
       clearTimeout(slowTimer);
       setSidecarSlow(false);
       const hasAnyAccount =
@@ -1510,21 +1490,21 @@ export default function App() {
   // Set up navigator.onLine relay and fetch initial network/outbox status
   useEffect(() => {
     // Fetch initial network status
-    window.api.network.getStatus().then((result: IpcResponse<boolean>) => {
+    window.api.network.getStatus().then((result) => {
       if (result.success) {
         setOnline(result.data);
       }
     });
 
     // Fetch initial outbox stats
-    window.api.outbox.getStats().then((result: IpcResponse<OutboxStats>) => {
+    window.api.outbox.getStats().then((result) => {
       if (result.success) {
         setOutboxStats(result.data);
       }
     });
 
     // Fetch initial scheduled send stats
-    window.api.scheduledSend.stats().then((result: IpcResponse<ScheduledMessageStats>) => {
+    window.api.scheduledSend.stats().then((result) => {
       if (result.success) {
         setScheduledMessageStats(result.data);
       }
@@ -1600,10 +1580,7 @@ export default function App() {
         if (ids.length > 0) {
           void (async () => {
             try {
-              const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
-                success?: boolean;
-                data?: { configured?: boolean };
-              };
+              const has = await window.api.diagnostics.hasAnyLlmProvider();
               if (!has?.success || !has.data?.configured) return;
               await window.api.analysis.analyzeBatch(ids);
             } catch (err) {
@@ -1660,10 +1637,7 @@ export default function App() {
     let cancelled = false;
     const probe = async () => {
       try {
-        const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
-          success?: boolean;
-          data?: { configured?: boolean };
-        };
+        const has = await window.api.diagnostics.hasAnyLlmProvider();
         if (cancelled) return;
         const configured = !!has?.success && !!has?.data?.configured;
         setApiKeyConfigured(configured);
@@ -1695,10 +1669,7 @@ export default function App() {
 
   // Fetch scheduled messages list for the dropdown
   const fetchScheduledMessages = useCallback(async () => {
-    const result = (await window.api.scheduledSend.list(currentAccountId ?? undefined)) as {
-      success: boolean;
-      data?: ScheduledMessage[];
-    };
+    const result = await window.api.scheduledSend.list(currentAccountId ?? undefined);
     if (result.success && result.data) {
       setScheduledMessages(result.data);
     }
@@ -1954,7 +1925,7 @@ export default function App() {
     if (!storeState.emails.some((e) => e.accountId === accountId)) {
       window.api.sync
         .getEmails(accountId)
-        .then((result: IpcResponse<DashboardEmail[]>) => {
+        .then((result) => {
           if (result.success && result.data && result.data.length > 0) {
             addEmails(result.data);
             prefetchEmailBodies(result.data.map((e: DashboardEmail) => e.id)).catch(console.error);
@@ -1965,7 +1936,7 @@ export default function App() {
     if (!storeState.sentEmails.some((e) => e.accountId === accountId)) {
       window.api.sync
         .getSentEmails(accountId)
-        .then((sentResult: IpcResponse<DashboardEmail[]>) => {
+        .then((sentResult) => {
           if (sentResult.success && sentResult.data) {
             addSentEmails(sentResult.data);
           }
@@ -1978,11 +1949,7 @@ export default function App() {
   };
 
   const handleCancelScheduled = async (id: string) => {
-    const result = (await window.api.scheduledSend.cancel(id)) as {
-      success: boolean;
-      data?: { draftId?: string };
-      error?: string;
-    };
+    const result = await window.api.scheduledSend.cancel(id);
     if (!result.success) {
       setError(result.error || "Failed to cancel scheduled message");
     }

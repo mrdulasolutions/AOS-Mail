@@ -23,8 +23,6 @@ import type {
   IpcResponse,
   ComposeMode,
   AttachmentMeta,
-  LocalDraft,
-  Memory,
   MemoryScope,
 } from "../../shared/types";
 import type { RestoredDraft } from "../store";
@@ -3055,7 +3053,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
         });
       } else {
         // Save new draft
-        const result = (await window.api.compose.saveLocalDraft({
+        const result = await window.api.compose.saveLocalDraft({
           accountId: currentAccountId,
           to: formState.to,
           cc: formState.cc.length > 0 ? formState.cc : undefined,
@@ -3063,7 +3061,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
           subject: formState.subject,
           bodyHtml: formState.bodyHtml,
           bodyText: formState.bodyText,
-        })) as IpcResponse<LocalDraft>;
+        });
         if (result.success && result.data) {
           addLocalDraft(result.data);
         }

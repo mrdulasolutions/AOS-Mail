@@ -26,13 +26,6 @@ interface FolderEntry {
   color: string | null;
 }
 
-interface ImapFolderResponse {
-  folders: Array<{ name: string; path: string; specialUse: string | null; isSystem: boolean }>;
-}
-interface GmailLabelResponse {
-  labels: Array<{ id: string; name: string; type: "system" | "user"; color: string | null }>;
-}
-
 // Stable sort: system folders first (alphabetical), then user labels
 // (alphabetical). Inbox is rendered separately at the top so we omit it
 // from the sortable bucket.
@@ -83,11 +76,9 @@ function gmailSystemNameToLabel(id: string, fallback: string): string {
   }
 }
 
-type IpcShape<T> = { success: true; data: T } | { success: false; error: string };
-
 async function fetchFoldersFor(account: Account): Promise<FolderEntry[]> {
   if (account.provider === "imap") {
-    const result = (await window.api.imap.listFolders(account.id)) as IpcShape<ImapFolderResponse>;
+    const result = await window.api.imap.listFolders(account.id);
     if (!result.success) throw new Error(result.error);
     return result.data.folders
       .filter((f) => f.specialUse !== "\\Inbox" && f.path !== "INBOX")
@@ -98,9 +89,9 @@ async function fetchFoldersFor(account: Account): Promise<FolderEntry[]> {
         color: null,
       }));
   }
-  // Gmail (default). `window.api` is typed as any (see types/window-api.ts)
-  // so the listLabels call resolves through the shim's real namespace map.
-  const result = (await window.api.gmail.listLabels(account.id)) as IpcShape<GmailLabelResponse>;
+  // Gmail (default). `window.api.gmail.listLabels` is typed via WindowApi
+  // (see src/shared/window-api.ts) so the result flows back unwrapped.
+  const result = await window.api.gmail.listLabels(account.id);
   if (!result.success) throw new Error(result.error);
   return result.data.labels
     .filter((l) => l.id !== "INBOX")

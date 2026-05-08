@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { Memory, DraftMemory, MemoryScope, IpcResponse } from "../../shared/types";
-
+import type { Memory, DraftMemory, MemoryScope } from "../../shared/types";
 
 const SCOPE_LABELS: Record<MemoryScope, string> = {
   global: "Global",

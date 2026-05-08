@@ -17,7 +17,6 @@
 //      password itself never lands on disk in cleartext.
 
 import { useEffect, useMemo, useState } from "react";
-import type { IpcResponse } from "../../shared/types";
 import { setSecret as setKeychainSecret } from "../lib/secrets";
 
 interface ImapPreset {
@@ -58,9 +57,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result = (await window.api.imap.presets()) as IpcResponse<{
-        presets: ImapPreset[];
-      }>;
+      const result = await window.api.imap.presets();
       if (cancelled || !result.success) return;
       setPresets(result.data.presets);
     })();
@@ -120,10 +117,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
         smtpPort,
         tls,
       };
-      const result = (await window.api.imap.addAccount(input)) as IpcResponse<{
-        accountId: string;
-        email: string;
-      }>;
+      const result = await window.api.imap.addAccount(input);
       if (!result.success) {
         setError(result.error ?? "Failed to add IMAP account");
         if (/(?:auth|login|password|denied|invalid credentials)/i.test(result.error ?? "")) {

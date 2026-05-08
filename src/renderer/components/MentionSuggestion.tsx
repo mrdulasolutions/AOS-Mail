@@ -5,7 +5,7 @@ import Suggestion from "@tiptap/suggestion";
 import type { SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
-import type { ContactSuggestion, IpcResponse } from "../../shared/types";
+import type { ContactSuggestion } from "../../shared/types";
 import { extractFirstName } from "../utils/address-parsing";
 
 // --- MentionList component (rendered inside the tippy popup) ---
@@ -158,9 +158,7 @@ function createSuggestionConfig(
     items: async ({ query }): Promise<ContactSuggestion[]> => {
       if (!query.trim()) return [];
       try {
-        const response = (await window.api.contacts.suggest(query, 8)) as IpcResponse<
-          ContactSuggestion[]
-        >;
+        const response = await window.api.contacts.suggest(query, 8);
         if (response.success) return response.data;
       } catch {
         // Autocomplete is non-critical
