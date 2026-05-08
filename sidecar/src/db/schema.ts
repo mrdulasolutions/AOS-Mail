@@ -275,6 +275,24 @@ CREATE TABLE IF NOT EXISTS archive_ready (
   PRIMARY KEY (thread_id, account_id)
 );
 
+-- Daily morning briefings — one row per (account, calendar date in YYYY-MM-DD)
+-- with the LLM-generated 3-paragraph text plus the structured stats it was
+-- derived from. Renderer surfaces this as a take-over panel on first open
+-- of the day; dismissed_at is non-null once the user has clicked the
+-- "Got it" button so the panel does not reappear that day.
+CREATE TABLE IF NOT EXISTS daily_briefings (
+  account_id TEXT NOT NULL,
+  date TEXT NOT NULL,                  -- ISO calendar date "YYYY-MM-DD" in user's local tz
+  briefing_text TEXT NOT NULL,         -- 3-paragraph plain-English briefing
+  action_items_json TEXT NOT NULL DEFAULT '[]',
+  stats_json TEXT NOT NULL DEFAULT '{}',
+  generated_at INTEGER NOT NULL,
+  dismissed_at INTEGER,                -- null = unread, ms epoch when user dismissed
+  PRIMARY KEY (account_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_briefings_account ON daily_briefings(account_id);
+CREATE INDEX IF NOT EXISTS idx_daily_briefings_date ON daily_briefings(date);
+
 -- Agent audit log (tracks all agent tool calls with redacted payloads)
 CREATE TABLE IF NOT EXISTS agent_audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

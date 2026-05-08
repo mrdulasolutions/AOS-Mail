@@ -26,6 +26,8 @@ import { KeyboardHints } from "./components/KeyboardHints";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { AgentActivityTray } from "./components/AgentActivityTray";
+import { PermissionsTray } from "./components/PermissionsTray";
+import { MorningBriefing } from "./components/MorningBriefing";
 import { UndoSendToast } from "./components/UndoSendToast";
 import { UndoActionToast } from "./components/UndoActionToast";
 import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
@@ -691,6 +693,55 @@ export default function App() {
   useKeyboardShortcuts({
     onToggleShortcutHelp: () => setShowShortcuts((prev) => !prev),
   });
+
+  // ── Morning Briefing visibility ───────────────────────────────────────
+  //
+  // The briefing query lives here at the root so the take-over panel can
+  // gate on `dismissedAt`. We poll it lightly — a one-time check on
+  // account-switch is what we really want, so staleTime is large and
+  // refetch-on-focus is off.
+  //
+  // Behavior:
+  //   - On account ready, fetch briefing.getOrGenerate(currentAccountId).
+  //   - If row exists and dismissedAt is null → render <MorningBriefing/>
+  //     in place of the inbox.
+  //   - User clicks "Got it" → MorningBriefing dispatches dismiss; we
+  //     re-fetch and the take-over goes away.
+  // Disabled when there's no account, when search is active, when
+  // composing, or when the user is in calendar/awaiting-reply view —
+  // these are user-initiated states the briefing shouldn't preempt.
+  const briefingEnabled =
+    !!currentAccountId &&
+    !showSettings &&
+    !composeState?.isOpen &&
+    !activeSearchQuery &&
+    viewMode !== "calendar" &&
+    viewMode !== "awaiting-reply" &&
+    viewMode !== "full";
+  const { data: briefingResult } = useQuery({
+    queryKey: ["briefing-gate", currentAccountId],
+    queryFn: async () => {
+      if (!currentAccountId) return null;
+      return await window.api.briefing.getOrGenerate(currentAccountId);
+    },
+    enabled: briefingEnabled,
+    // 1h is plenty — briefings are once-a-day, but if the user opens the
+    // app at 8am and again at 6pm we don't want to keep re-fetching the
+    // same row. Mutation in MorningBriefing.tsx invalidates this key.
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const showMorningBriefing = (() => {
+    if (!briefingEnabled) return false;
+    if (!briefingResult) return false;
+    // briefingResult is an IpcResponse-shaped union. We accept
+    // success=true with non-null dismissedAt → false; success=false
+    // (e.g. no LLM key configured yet) → false; success=true with null
+    // dismissedAt → true.
+    const r = briefingResult as { success: boolean; data?: { dismissedAt: number | null } };
+    if (!r.success || !r.data) return false;
+    return r.data.dismissedAt === null;
+  })();
 
   // Register bundled extension components (once on mount)
   useEffect(() => {
@@ -2300,6 +2351,11 @@ export default function App() {
                 )}
               </div>
             )}
+            {/* Permissions tray — agent activity awaiting approval. Sibling
+              to AgentActivityTray (which shows what the agent already
+              did). Lists pending drafts + archive-ready threads with
+              per-row Approve / Skip. */}
+            <PermissionsTray />
             {/* Agent activity — surfaces the last few agent calls + today's
               cost so users have a quick view into what the inbox agent is
               doing in the background. The full audit log lives in
@@ -2583,6 +2639,20 @@ export default function App() {
             </ErrorBoundary>
           )}
 
+        {/* Morning Briefing — Tier-1 take-over panel. Rendered IN PLACE of
+           the email list on first open of the day. Disappears once the
+           user clicks "Got it — open inbox" (mutation invalidates the
+           gate query, showMorningBriefing flips to false, EmailList
+           reappears). We deliberately keep <EmailList/> mounted underneath
+           via display:none so the threaded-email caches survive — the
+           briefing dismiss should feel instant, not trigger a recompute
+           of 2500+ threads. */}
+        {showMorningBriefing && (
+          <ErrorBoundary label="Morning briefing">
+            <MorningBriefing />
+          </ErrorBoundary>
+        )}
+
         {/* Split mode: dense email list — kept mounted (hidden) in full and
            calendar modes AND during search to preserve useMemo caches
            (useThreadedEmails, useSplitFilteredThreads). Unmounting destroys
@@ -2591,9 +2661,16 @@ export default function App() {
            before the UI responds. */}
         <div
           className={
-            viewMode === "split" && !activeSearchQuery ? "flex-1 min-w-0 flex flex-col" : ""
+            viewMode === "split" && !activeSearchQuery && !showMorningBriefing
+              ? "flex-1 min-w-0 flex flex-col"
+              : ""
           }
-          style={{ display: viewMode === "split" && !activeSearchQuery ? undefined : "none" }}
+          style={{
+            display:
+              viewMode === "split" && !activeSearchQuery && !showMorningBriefing
+                ? undefined
+                : "none",
+          }}
         >
           <ErrorBoundary label="Email list">
             <EmailList />
@@ -2617,9 +2694,11 @@ export default function App() {
 
         {/* Preview sidebar — kept mounted across view mode transitions to avoid
             expensive unmount/remount of agent trace timelines. Hidden in
-            calendar and awaiting-reply modes since there's no email to preview. */}
+            calendar, awaiting-reply, and morning-briefing modes since
+            there's no email to preview. */}
         {viewMode !== "calendar" &&
           viewMode !== "awaiting-reply" &&
+          !showMorningBriefing &&
           (!activeSearchQuery || viewMode === "full") && (
             <ErrorBoundary label="Preview sidebar">
               <EmailPreviewSidebar />
