@@ -34,32 +34,26 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns"
-    ],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
     "category": "public.app-category.productivity",
-    "shortDescription": "Agent Operated System for Mail",
-    "longDescription": "AOS Mail — a native-feeling, multi-inbox, Claude-powered Mac email client.",
+    "shortDescription": "Agent-operated email — multi-inbox Mac mail with Claude in the loop.",
+    "longDescription": "AOS Mail is a native Mac email client built around an agent loop. It combines Gmail/IMAP multi-account sync with the Claude agent stack to triage, draft, schedule, and archive — all inside a fast, keyboard-first inbox you actually want to use.",
     "macOS": {
       "minimumSystemVersion": "12.0",
       "entitlements": "../build/entitlements.mac.plist",
+      "signingIdentity": null,
       "hardenedRuntime": true
     },
-    "externalBin": [
-      "binaries/aos-mail-sidecar"
-    ]
+    "externalBin": ["binaries/aos-mail-sidecar"]
   },
   "plugins": {
     "updater": {
-      "active": false,
+      "active": true,
       "endpoints": [
         "https://github.com/mrdulasolutions/AOS-Mail/releases/latest/download/latest.json"
       ],
-      "dialog": true,
-      "pubkey": ""
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1QTA3QjdBNjEzNzkwMjMKUldRamtEZGhlbnVnZFF0aGN3NFFmV3kxcnZZTDkvcGxkRVRrdnJTRVJ5UlhialQvaE5OcmZEbkYK"
     }
   }
 }
