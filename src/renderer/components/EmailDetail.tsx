@@ -3279,7 +3279,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 overflow-hidden min-h-0">
+    <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 overflow-hidden min-h-0 relative">
       {/* Back button for full view */}
       {isFullView && (
         <div className="h-10 px-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center flex-shrink-0">
@@ -3645,6 +3645,42 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
           onClose={() => setPreviewAttachment(null)}
         />
       )}
+
+      {/* Smart-action hint (Space-bar key). Anchored bottom-right inside
+          the email pane — visible only when an email is selected, the
+          inline reply pane isn't open (it would crowd the editor), and
+          the user hasn't used Space yet. The hint dismisses permanently
+          on first use via the store + localStorage. */}
+      <SmartActionHint hasSelection={Boolean(selectedEmailId)} />
+    </div>
+  );
+}
+
+/**
+ * Inline pill at the bottom-right of EmailDetail that hints the Space-bar
+ * smart-action key. Reads the dismiss flag from the store; the store
+ * reads localStorage at init, so this stays in sync across app launches.
+ *
+ * Hidden conditions:
+ *   - No selected email (nothing to act on)
+ *   - User has already used Space at least once (flag set)
+ *   - The inline reply editor is open (the hint would overlap it and
+ *     Space inside the editor types a literal space, not the smart key)
+ */
+function SmartActionHint({ hasSelection }: { hasSelection: boolean }) {
+  const dismissed = useAppStore((s) => s.smartActionHintDismissed);
+  const inlineOpen = useAppStore((s) => s.isInlineReplyOpen);
+  const composeOpen = useAppStore((s) => Boolean(s.composeState?.isOpen));
+  if (!hasSelection || dismissed || inlineOpen || composeOpen) return null;
+  return (
+    <div
+      className="absolute bottom-4 right-4 pointer-events-none select-none rounded-full bg-gray-900/70 dark:bg-gray-700/80 text-white text-xs font-medium px-3 py-1.5 shadow-md backdrop-blur-sm flex items-center gap-1.5"
+      aria-hidden="true"
+    >
+      <kbd className="bg-white/20 rounded px-1.5 py-0.5 font-sans text-[10px] tracking-wide">
+        Space
+      </kbd>
+      <span>to smart-act</span>
     </div>
   );
 }

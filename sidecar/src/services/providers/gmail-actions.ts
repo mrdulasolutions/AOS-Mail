@@ -33,6 +33,18 @@ export async function archiveMessageGmail(emailId: string): Promise<void> {
   });
 }
 
+// Mirror of archiveMessageGmail. Re-adds INBOX so the message reappears in
+// the user's inbox after a smart-action archive is undone within the 5s
+// window. Identical request shape, opposite label op.
+export async function unarchiveMessageGmail(emailId: string): Promise<void> {
+  const { accountId, gmailId } = unpack(emailId);
+  await gmailClient(accountId).users.messages.modify({
+    userId: "me",
+    id: gmailId,
+    requestBody: { addLabelIds: ["INBOX"] },
+  });
+}
+
 export async function trashMessageGmail(emailId: string): Promise<void> {
   const { accountId, gmailId } = unpack(emailId);
   // messages.trash (not modify+TRASH) is what triggers Gmail's 30-day
@@ -43,30 +55,20 @@ export async function trashMessageGmail(emailId: string): Promise<void> {
   });
 }
 
-export async function setReadGmail(
-  emailId: string,
-  read: boolean,
-): Promise<void> {
+export async function setReadGmail(emailId: string, read: boolean): Promise<void> {
   const { accountId, gmailId } = unpack(emailId);
   await gmailClient(accountId).users.messages.modify({
     userId: "me",
     id: gmailId,
-    requestBody: read
-      ? { removeLabelIds: ["UNREAD"] }
-      : { addLabelIds: ["UNREAD"] },
+    requestBody: read ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] },
   });
 }
 
-export async function setStarredGmail(
-  emailId: string,
-  starred: boolean,
-): Promise<void> {
+export async function setStarredGmail(emailId: string, starred: boolean): Promise<void> {
   const { accountId, gmailId } = unpack(emailId);
   await gmailClient(accountId).users.messages.modify({
     userId: "me",
     id: gmailId,
-    requestBody: starred
-      ? { addLabelIds: ["STARRED"] }
-      : { removeLabelIds: ["STARRED"] },
+    requestBody: starred ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] },
   });
 }

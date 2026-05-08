@@ -5,7 +5,7 @@ import { markNavigationActive } from "./useSyncBuffer";
 import { mergeAndThreadSearchResults } from "../utils/searchResults";
 import { draftMatchesSplit } from "../utils/split-conditions";
 import { trackEvent } from "../services/posthog";
-
+import { pickSmartAction, describeSmartAction, type SmartAction } from "../lib/smart-action";
 
 /** Custom event for navigating between messages within a thread (n/p keys). */
 export type ThreadNavDirection = "next" | "prev";
@@ -459,8 +459,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       };
 
       // --- Helper: archive selected thread (all messages) ---
-      const archiveSelected = () => {
-        if (!selectedEmailId || !selectedThreadId || !currentAccountId) return;
+      // When `smartActionToastId` is provided, the queued undo entry is
+      // tagged so UndoActionToast suppresses its own row in favor of
+      // SmartActionToast — both still share the 5s timer + Cmd+Z handler.
+      // Returns the queued undo-action id so callers can reference it.
+      const archiveSelected = (opts?: { smartActionToastId?: string }): string | null => {
+        if (!selectedEmailId || !selectedThreadId || !currentAccountId) return null;
 
         // Collect ALL emails in the thread for optimistic removal
         const threadEmails = getThreadEmails(selectedThreadId);
@@ -510,8 +514,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         }
 
         // Queue with undo support (works for both normal and archive-ready views)
+        const undoId = `archive-${selectedThreadId}-${Date.now()}`;
         addUndoAction({
-          id: `archive-${selectedThreadId}-${Date.now()}`,
+          id: undoId,
           type: "archive",
           threadCount: 1,
           accountId: currentAccountId,
@@ -520,9 +525,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           delayMs: 5000,
           // If archive-ready view, include thread ID so it gets cleaned up on execute
           archiveReadyThreadIds: isArchiveReady ? [selectedThreadId] : undefined,
+          smartActionToastId: opts?.smartActionToastId,
         });
         // Tracks intent — user may still undo within 5 s
         trackEvent("email_archived", { thread_count: 1, source: "keyboard" });
+        return undoId;
       };
 
       // --- Helper: trash selected thread ---
@@ -722,6 +729,118 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         state.setCurrentSplitId(nextId === ALL_SENTINEL ? null : nextId);
       };
 
+      // --- Helper: execute a chosen smart action ---
+      // Splitting "pick" from "execute" keeps pickSmartAction pure and lets
+      // us re-run the picker after triage lands without duplicating the
+      // dispatch table.
+      const executeSmartAction = (action: SmartAction) => {
+        if (action.kind === "noop") return;
+        const toastId = `smart-${Date.now()}`;
+
+        if (action.kind === "archive") {
+          const undoId = archiveSelected({ smartActionToastId: toastId });
+          if (!undoId) return;
+          state.setSmartActionToast({
+            id: toastId,
+            kind: "archive",
+            message: describeSmartAction(action),
+            undoActionId: undoId,
+            scheduledAt: Date.now(),
+            delayMs: 5000,
+          });
+          state.dismissSmartActionHint();
+          trackEvent("smart_action_executed", {
+            kind: action.kind,
+            reason: action.reason,
+          });
+          return;
+        }
+
+        if (action.kind === "open-draft") {
+          // Mirrors the Enter/r path: open the inline reply pane on the
+          // most-recent thread email so the existing draft appears in the
+          // editor for review.
+          const targetEmailId = action.emailId;
+          // Force full view so the inline reply is visible.
+          if (viewMode !== "full") setViewMode("full");
+          openCompose("reply-all", targetEmailId);
+          state.setSmartActionToast({
+            id: toastId,
+            kind: "open-draft",
+            message: describeSmartAction(action),
+            // Open-draft is informational — no undo entry to bind.
+            scheduledAt: Date.now(),
+            delayMs: 5000,
+          });
+          state.dismissSmartActionHint();
+          trackEvent("smart_action_executed", {
+            kind: action.kind,
+            reason: action.reason,
+          });
+          return;
+        }
+
+        if (action.kind === "generate-draft") {
+          // Fire-and-forget: kick off rerunAgent in the background; the
+          // EmailDetail draft section will pick up the new draft via the
+          // store update when it lands. We surface a "Generating draft…"
+          // narration immediately so the user has feedback.
+          state.setSmartActionToast({
+            id: toastId,
+            kind: "generate-draft",
+            message: describeSmartAction(action),
+            scheduledAt: Date.now(),
+            delayMs: 5000,
+          });
+          state.dismissSmartActionHint();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const drafts = (window as any)?.api?.drafts;
+          if (drafts?.rerunAgent) {
+            void drafts.rerunAgent(action.emailId).catch(() => {
+              // Surface failures on the same toast surface so the user
+              // isn't left wondering why nothing happened.
+              state.setSmartActionToast({
+                id: `${toastId}-fail`,
+                kind: "generate-draft",
+                message: "Couldn't generate draft — try Reply (R) instead.",
+                scheduledAt: Date.now(),
+                delayMs: 5000,
+              });
+            });
+          }
+          trackEvent("smart_action_executed", {
+            kind: action.kind,
+            reason: action.reason,
+          });
+          return;
+        }
+
+        if (action.kind === "trigger-triage") {
+          // Fire analysis.analyze for the email; once it lands the user
+          // can press Space again to act on the freshly analyzed result.
+          state.setSmartActionToast({
+            id: toastId,
+            kind: "trigger-triage",
+            message: describeSmartAction(action),
+            scheduledAt: Date.now(),
+            delayMs: 5000,
+          });
+          state.dismissSmartActionHint();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const analysis = (window as any)?.api?.analysis;
+          if (analysis?.analyze) {
+            void analysis.analyze(action.emailId).catch(() => {
+              // Silent — the user can press Space again to retry.
+            });
+          }
+          trackEvent("smart_action_executed", {
+            kind: action.kind,
+            reason: action.reason,
+          });
+          return;
+        }
+      };
+
       // Normal mode shortcuts (single-key, no modifiers)
       switch (e.key) {
         // Navigation
@@ -837,6 +956,33 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
             }
           }
           break;
+
+        // Smart-action key — picks the highest-confidence triage action
+        // for the currently selected email and runs it with a 5s undo
+        // window. See src/renderer/lib/smart-action.ts for the decision
+        // matrix. We require an actual selection (single-thread, no
+        // multi-select) and skip when the user is composing — Space in
+        // the editor must remain a literal space.
+        case " ":
+        case "Spacebar": {
+          if (e.shiftKey || e.altKey) break;
+          if (isMultiSelect) break;
+          if (!selectedEmailId) break;
+          // Find the email in the store; fallback to search results if it
+          // only exists there (mirrors getThreadEmails).
+          const target =
+            emails.find((item) => item.id === selectedEmailId) ??
+            getSearchThreads()
+              .flatMap((t) => t.emails)
+              .find((item) => item.id === selectedEmailId) ??
+            null;
+          if (!target) break;
+          const action = pickSmartAction(target);
+          if (action.kind === "noop") break;
+          e.preventDefault();
+          executeSmartAction(action);
+          break;
+        }
 
         // Compose actions
         case "c":

@@ -12,12 +12,14 @@ import {
   setReadFlag,
   setStarFlag,
   trashMessage,
+  unarchiveMessage,
 } from "../services/providers/imap-actions.js";
 import {
   archiveMessageGmail,
   setReadGmail,
   setStarredGmail,
   trashMessageGmail,
+  unarchiveMessageGmail,
 } from "../services/providers/gmail-actions.js";
 import { getEmailsForThread } from "../services/sync.js";
 import { getDb } from "../db/index.js";
@@ -34,11 +36,12 @@ interface EmailRow {
 // own format at insert time so this dispatch stays simple.
 async function dispatch(
   emailId: string,
-  op: "archive" | "trash" | "setRead" | "setStarred",
+  op: "archive" | "unarchive" | "trash" | "setRead" | "setStarred",
   flag?: boolean,
 ): Promise<void> {
   if (emailId.startsWith("imap:")) {
     if (op === "archive") return archiveMessage(emailId);
+    if (op === "unarchive") return unarchiveMessage(emailId);
     if (op === "trash") return trashMessage(emailId);
     if (op === "setRead") return setReadFlag(emailId, !!flag);
     if (op === "setStarred") return setStarFlag(emailId, !!flag);
@@ -46,6 +49,7 @@ async function dispatch(
   }
   if (emailId.startsWith("gmail:")) {
     if (op === "archive") return archiveMessageGmail(emailId);
+    if (op === "unarchive") return unarchiveMessageGmail(emailId);
     if (op === "trash") return trashMessageGmail(emailId);
     if (op === "setRead") return setReadGmail(emailId, !!flag);
     if (op === "setStarred") return setStarredGmail(emailId, !!flag);
@@ -65,9 +69,26 @@ export function registerEmailsMethods(): void {
     return { ok: true };
   });
 
+  // Inverse of emails.archive — re-add INBOX to a previously-archived
+  // message. Backs the smart-action key's late-undo path: when the user
+  // hits Cmd+Z after the 5s optimistic window has already committed to
+  // the server, the renderer calls this to bring the message back. The
+  // optimistic in-window undo is handled entirely in the store and never
+  // touches the sidecar.
+  registerMethod("emails.unarchive", async (params) => {
+    const { emailId, accountId } = (params as { emailId?: string; accountId?: string }) ?? {};
+    if (!emailId) throw new Error("emails.unarchive: requires { emailId }");
+    await dispatch(emailId, "unarchive");
+    if (accountId) {
+      // Renderer listens for this to re-thread the email if needed; mirrors
+      // the sync:emails-removed event pattern from archive.
+      emit("sync:emails-restored", { accountId, emailIds: [emailId] });
+    }
+    return { ok: true };
+  });
+
   registerMethod("emails.batchArchive", async (params) => {
-    const { emailIds, accountId } =
-      (params as { emailIds?: string[]; accountId?: string }) ?? {};
+    const { emailIds, accountId } = (params as { emailIds?: string[]; accountId?: string }) ?? {};
     if (!Array.isArray(emailIds) || emailIds.length === 0) {
       throw new Error("emails.batchArchive: requires { emailIds: string[] }");
     }
@@ -88,13 +109,14 @@ export function registerEmailsMethods(): void {
   });
 
   registerMethod("emails.archiveThread", async (params) => {
-    const { threadId, accountId } =
-      (params as { threadId?: string; accountId?: string }) ?? {};
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
     if (!threadId || !accountId) {
       throw new Error("emails.archiveThread: requires { threadId, accountId }");
     }
     const rows = getDb()
-      .prepare("SELECT id, thread_id, account_id FROM emails WHERE thread_id = ? AND account_id = ?")
+      .prepare(
+        "SELECT id, thread_id, account_id FROM emails WHERE thread_id = ? AND account_id = ?",
+      )
       .all(threadId, accountId) as EmailRow[];
     const errors: string[] = [];
     const removed: string[] = [];
@@ -123,8 +145,7 @@ export function registerEmailsMethods(): void {
   });
 
   registerMethod("emails.batchTrash", async (params) => {
-    const { emailIds, accountId } =
-      (params as { emailIds?: string[]; accountId?: string }) ?? {};
+    const { emailIds, accountId } = (params as { emailIds?: string[]; accountId?: string }) ?? {};
     if (!Array.isArray(emailIds) || emailIds.length === 0) {
       throw new Error("emails.batchTrash: requires { emailIds: string[] }");
     }
@@ -165,8 +186,7 @@ export function registerEmailsMethods(): void {
   // synced. Sent-side merging lands when sync stores SENT/Drafts and
   // Gmail's provider lifts.
   registerMethod("emails.getThread", (params) => {
-    const { threadId, accountId } =
-      (params as { threadId?: string; accountId?: string }) ?? {};
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
     if (!threadId || !accountId) {
       throw new Error("emails.getThread: requires { threadId, accountId }");
     }

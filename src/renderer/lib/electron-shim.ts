@@ -575,6 +575,17 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    // Smart-action late-undo: called only when the optimistic 5s window has
+    // already committed and we still need to put the message back in INBOX.
+    // The in-window undo path stays optimistic and never touches the bridge.
+    unarchive: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.unarchive", { emailId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
     batchArchive: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.batchArchive", { emailIds, accountId });
@@ -2101,10 +2112,7 @@ function installRealNamespaces(): Record<string, unknown> {
     // Settings → Extensions and by the boot path to hydrate enabled state.
     list: async (): Promise<IpcResponse<ExtensionManifestSummary[]>> => {
       try {
-        const data = (await bridge.call(
-          "extensions.list",
-          {},
-        )) as ExtensionManifestSummary[];
+        const data = (await bridge.call("extensions.list", {})) as ExtensionManifestSummary[];
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -2253,7 +2261,9 @@ function installRealNamespaces(): Record<string, unknown> {
         }
       };
     },
-    onEmailAnalyzed: (_cb: (..._args: unknown[]) => unknown): (() => void) => () => {},
+    onEmailAnalyzed:
+      (_cb: (..._args: unknown[]) => unknown): (() => void) =>
+      () => {},
     removeAllListeners: (): void => {
       while (prefetchUnlisteners.length) {
         const un = prefetchUnlisteners.pop();

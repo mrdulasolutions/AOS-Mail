@@ -29,6 +29,7 @@ import { UndoActionToast } from "./components/UndoActionToast";
 import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
 import { AnalysisOverrideLearnedToast } from "./components/AnalysisOverrideLearnedToast";
 import { TriageStatusToast } from "./components/TriageStatusToast";
+import { SmartActionToast } from "./components/SmartActionToast";
 import { SnoozeMenu } from "./components/SnoozeMenu";
 import { FindBar } from "./components/FindBar";
 import { registerBundledExtensions } from "./extensions";
@@ -2510,6 +2511,12 @@ export default function App() {
       <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2">
         <UndoSendToast />
         <UndoActionToast />
+        {/* Smart-action (Space-bar key) narration. Mounted after
+            UndoActionToast so its visible toast sits *above* in the
+            stack — UndoActionToast hides items it owns when they're
+            also linked to a SmartActionToast, so the user sees only
+            one row per action. */}
+        <SmartActionToast />
         <DraftEditLearnedToast />
         <AnalysisOverrideLearnedToast />
         <TriageStatusToast />
