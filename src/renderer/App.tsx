@@ -26,6 +26,7 @@ import { UndoSendToast } from "./components/UndoSendToast";
 import { UndoActionToast } from "./components/UndoActionToast";
 import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
 import { AnalysisOverrideLearnedToast } from "./components/AnalysisOverrideLearnedToast";
+import { TriageStatusToast } from "./components/TriageStatusToast";
 import { SnoozeMenu } from "./components/SnoozeMenu";
 import { FindBar } from "./components/FindBar";
 import { registerBundledExtensions } from "./extensions";
@@ -45,6 +46,7 @@ import {
   captureException,
 } from "./services/posthog";
 import { initNotifications, notifyNewEmails } from "./services/notifications";
+import { runTriageCatchUp } from "./lib/triage-catchup";
 import { setDockBadge, onMailtoOpen, getPendingMailto } from "./lib/mac-polish";
 import { LocalDraftSchema } from "../shared/types";
 import type {
@@ -1547,6 +1549,68 @@ export default function App() {
     setLoading(isFetching);
   }, [isFetching, setLoading]);
 
+  // Boot triage catch-up. Once per (currentAccountId × API-key state):
+  //   - waits for sync to settle (no active progressive sync) and at least
+  //     one email loaded so we don't run on an empty cache.
+  //   - sweeps unanalyzed inbox emails into a single analyze.analyzeBatch
+  //     call — capped at 50 by runTriageCatchUp so the call returns in a
+  //     reasonable window. Subsequent boots keep chipping away at the
+  //     backlog.
+  //   - silently noops when the user hasn't configured an Anthropic key
+  //     yet. The SetupWizard / Agent Tools card surface that condition.
+  //   - re-runs after the user adds an API key for the first time:
+  //     `apiKeyConfigured` flips from false to true and we sweep again.
+  //
+  // The fetchUnread query above also fires triage on its own data, but
+  // that path is only used as a legacy fallback when there's no
+  // currentAccountId. The hook here covers the primary multi-account
+  // path which loads via sync.getEmails (no analysis kicked off there).
+  const triageRanForRef = useRef<{ accountId: string | null; apiKeyConfigured: boolean } | null>(
+    null,
+  );
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
+  // Probe API key on mount so the catch-up effect can re-trigger when it
+  // flips. Polled (not subscribed) because there's no event channel for
+  // settings.set today; this is cheap (sidecar in-process) and only runs
+  // until the user lands on a configured value.
+  useEffect(() => {
+    if (apiKeyConfigured === true) return; // never need to flip back
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+          success?: boolean;
+          data?: { configured?: boolean };
+        };
+        if (cancelled) return;
+        const configured = !!has?.success && !!has?.data?.configured;
+        setApiKeyConfigured(configured);
+      } catch {
+        if (!cancelled) setApiKeyConfigured(false);
+      }
+    };
+    void probe();
+    const interval = window.setInterval(probe, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [apiKeyConfigured]);
+
+  const _emailsLength = useAppStore((s) => s.emails.length);
+  useEffect(() => {
+    if (needsSetup !== false) return;
+    if (hasActiveProgressiveSync) return;
+    if (apiKeyConfigured !== true) return;
+    if (_emailsLength === 0) return;
+    const last = triageRanForRef.current;
+    if (last && last.accountId === currentAccountId && last.apiKeyConfigured === apiKeyConfigured) {
+      return;
+    }
+    triageRanForRef.current = { accountId: currentAccountId, apiKeyConfigured };
+    void runTriageCatchUp("boot");
+  }, [needsSetup, hasActiveProgressiveSync, apiKeyConfigured, currentAccountId, _emailsLength]);
+
   // Fetch scheduled messages list for the dropdown
   const fetchScheduledMessages = useCallback(async () => {
     const result = (await window.api.scheduledSend.list(currentAccountId ?? undefined)) as {
@@ -2380,12 +2444,13 @@ export default function App() {
       {/* Keyboard Shortcuts Help */}
       <ShortcutHelp isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
-      {/* Undo Toasts (send + archive/delete) + Draft Edit Learning */}
+      {/* Undo Toasts (send + archive/delete) + Draft Edit Learning + Triage status */}
       <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2">
         <UndoSendToast />
         <UndoActionToast />
         <DraftEditLearnedToast />
         <AnalysisOverrideLearnedToast />
+        <TriageStatusToast />
       </div>
 
       {/* Global Snooze Menu Overlay */}
