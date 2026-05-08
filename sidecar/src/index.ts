@@ -11,6 +11,7 @@
 
 import { createInterface } from "node:readline";
 import { dispatch, registerMethod } from "./rpc.js";
+import { awaitAll as drainBackgroundTasks } from "./lib/background-tasks.js";
 import { registerNetworkMethods } from "./methods/network.js";
 import { registerDbMethods } from "./methods/db.js";
 import { registerThemeMethods } from "./methods/theme.js";
@@ -91,5 +92,26 @@ rl.on("line", async (line) => {
   }
 });
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+// Graceful shutdown — drain in-flight background tasks (Claude classify
+// calls from learned-rules, etc.) before the process exits. Without this,
+// fire-and-forget IPC handlers can lose work the user expects to land.
+// See lib/background-tasks.ts and post-mortem P3 #18.
+async function gracefulExit(): Promise<void> {
+  try {
+    await drainBackgroundTasks(3_000);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.on("SIGINT", () => {
+  void gracefulExit();
+});
+process.on("SIGTERM", () => {
+  void gracefulExit();
+});
+// stdin closing means the host process (Tauri / test harness) is gone. Same
+// shutdown semantics as SIGTERM — flush, then exit.
+process.stdin.on("end", () => {
+  void gracefulExit();
+});

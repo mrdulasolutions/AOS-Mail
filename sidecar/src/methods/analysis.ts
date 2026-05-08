@@ -14,6 +14,7 @@ import { analyzeEmail, type AnalysisResult } from "../services/email-analyzer.js
 import { recordOverride } from "../services/learned-rules.js";
 import { getDb } from "../db/index.js";
 import { createLogger } from "../lib/logger.js";
+import { track } from "../lib/background-tasks.js";
 
 const log = createLogger("analysis-methods");
 
@@ -36,6 +37,22 @@ interface PriorAnalysisRow {
   needs_reply: number;
   priority: string | null;
 }
+
+interface ExistingAnalysisRow {
+  needs_reply: number;
+  reason: string;
+  priority: string | null;
+  analyzed_at: number;
+}
+
+// Short-circuit window for analysis dedupe (P3 #16). On boot we have two
+// triage paths fan-out the same email ids — the onNewEmails listener AND
+// the cached-emails React-Query effect. Without dedupe we'd run 2x Claude
+// calls per email on first launch. 6 hours is conservative: if a user
+// manually re-triages (clears + re-adds an account), the override path
+// goes through analysis.overridePriority, not analyze, so this freshness
+// gate doesn't lock them out.
+const ANALYSIS_FRESHNESS_MS = 6 * 60 * 60 * 1000;
 
 interface EmailAccountRow {
   account_id: string;
@@ -69,7 +86,35 @@ function persistAnalysis(emailId: string, result: AnalysisResult): void {
     .run(emailId, result.needsReply ? 1 : 0, result.reason, result.priority ?? null, Date.now());
 }
 
+function getExistingFreshAnalysis(emailId: string): AnalysisResult | null {
+  const row = getDb()
+    .prepare(
+      `SELECT needs_reply, reason, priority, analyzed_at
+       FROM analyses WHERE email_id = ?`,
+    )
+    .get(emailId) as ExistingAnalysisRow | undefined;
+  if (!row) return null;
+  if (Date.now() - row.analyzed_at > ANALYSIS_FRESHNESS_MS) return null;
+  const priority = row.priority;
+  return {
+    needsReply: row.needs_reply === 1,
+    reason: row.reason,
+    priority: priority === "high" || priority === "medium" || priority === "low" ? priority : null,
+  };
+}
+
 async function analyzeOne(emailId: string): Promise<AnalysisResult> {
+  // Dedupe boot fan-out (P3 #16). If a fresh analysis already exists,
+  // hand it back instead of burning another Claude call. Freshness window
+  // is generous (6 hours) so the same boot's two triage paths don't both
+  // analyze, but a user re-launching the app the next morning still gets
+  // re-analysis if for some reason they want it (and the triage code paths
+  // are themselves idempotent: they only sweep `!email.analysis` and the
+  // sync onNewEmails listener fires only on truly new ids).
+  const existing = getExistingFreshAnalysis(emailId);
+  if (existing) {
+    return existing;
+  }
   const row = getEmailRow(emailId);
   if (!row) throw new Error(`email ${emailId} not found`);
   // Body might be empty (header-only sync). Best-effort proceed; the
@@ -164,20 +209,24 @@ export function registerAnalysisMethods(): void {
         .prepare("SELECT account_id FROM emails WHERE id = ?")
         .get(emailId) as EmailAccountRow | undefined;
       if (emailRow?.account_id) {
-        recordOverride({
-          emailId,
-          accountId: emailRow.account_id,
-          override: {
-            from: { needsReply: true, priority: prior.priority },
-            to: { needsReply: false, priority: newPriority ?? null },
-            action: "archived",
-          },
-        }).catch((err) => {
-          log.warn("recordOverride failed for manual override", {
+        // Tracked for graceful shutdown — see lib/background-tasks.ts (P3 #18).
+        void track(
+          "recordOverride.analysis",
+          recordOverride({
             emailId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
+            accountId: emailRow.account_id,
+            override: {
+              from: { needsReply: true, priority: prior.priority },
+              to: { needsReply: false, priority: newPriority ?? null },
+              action: "archived",
+            },
+          }).catch((err) => {
+            log.warn("recordOverride failed for manual override", {
+              emailId,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }),
+        );
       }
     }
 

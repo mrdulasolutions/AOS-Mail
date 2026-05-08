@@ -11,11 +11,18 @@
 //
 // Decision matrix (priority order, first match wins):
 //   1. analyzer hasn't run yet              → trigger-triage (and re-pick)
-//   2. analysis says skip / automated / FYI → archive
-//   3. needsReply, draft already generated  → open-draft
-//   4. needsReply, no draft yet             → generate-draft (then open)
-// High-pri replies fall into case 3 or 4 — we never auto-archive a
+//   2. analysis says no-reply (FYI)         → archive (reason: automated-fyi)
+//   3. analysis says reply, low priority    → archive (reason: low-priority-fyi)
+//   4. needsReply, draft already generated  → open-draft
+//   5. needsReply, no draft yet             → generate-draft (then open)
+// High-pri replies fall into case 4 or 5 — we never auto-archive a
 // high-pri thread, even when there's no draft to open.
+//
+// Why no explicit "skip" branch: the analyzer only ever emits
+// `priority ∈ {high, medium, low, null}`. Manual user overrides go through
+// AnalysisPrioritySection and the "Skip" UI option maps to
+// `needsReply=false, priority=null` — caught by case 2 below. There is no
+// path that lands `"skip"` in `analysis.priority`. (Removed in P3 #14.)
 //
 // The action tag is intentionally a string-literal union (not an enum) so
 // callers can ts-pattern over it without importing values.
@@ -23,7 +30,7 @@
 import type { DashboardEmail } from "../../shared/types";
 
 export type SmartAction =
-  | { kind: "archive"; reason: "skip" | "automated-fyi" | "low-priority-fyi" }
+  | { kind: "archive"; reason: "automated-fyi" | "low-priority-fyi" }
   | { kind: "open-draft"; emailId: string; reason: "draft-ready" }
   | { kind: "generate-draft"; emailId: string; reason: "needs-reply-no-draft" }
   | { kind: "trigger-triage"; emailId: string; reason: "not-analyzed" }
@@ -53,22 +60,16 @@ export function pickSmartAction(email: DashboardEmail | null | undefined): Smart
   const { analysis } = email;
   const priority = analysis.priority ?? null;
 
-  // 2a. Explicit skip from the analyzer — the email was triaged as
-  //     not-worth-reading. Archive it.
-  if (priority === "skip") {
-    return { kind: "archive", reason: "skip" };
-  }
-
-  // 2b. Automated / no-reply notification (analyzer said no reply needed
-  //     and didn't tag a priority, or tagged it as skip-equivalent).
-  //     These are FYIs from no-reply senders, calendar nudges, etc.
+  // 2. Automated / no-reply notification (analyzer said no reply needed,
+  //    or the user's manual override mapped "Skip" → needsReply=false).
+  //    These are FYIs from no-reply senders, calendar nudges, etc.
   if (!analysis.needsReply) {
     return { kind: "archive", reason: "automated-fyi" };
   }
 
-  // 2c. Low-priority FYI that the analyzer says could be a reply but
-  //     ranks as low. Treat as "the user has now seen it" and archive,
-  //     leaning on the 5s undo to recover any false positives.
+  // 3. Low-priority FYI that the analyzer says could be a reply but
+  //    ranks as low. Treat as "the user has now seen it" and archive,
+  //    leaning on the 5s undo to recover any false positives.
   if (priority === "low") {
     return { kind: "archive", reason: "low-priority-fyi" };
   }

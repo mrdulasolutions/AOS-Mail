@@ -47,8 +47,39 @@ function ensureSchema(): void {
   `);
 }
 
+// Garbage-collect thread_summaries rows whose underlying thread no longer
+// exists. SQLite doesn't enforce foreign keys here (no FK declaration on
+// the table; the IMAP archive path deletes from `emails` directly), so we
+// sweep on registration. Same family as post-mortem issue #6 (FK gaps);
+// see P3 #21. The query is bounded by the table size and runs in a few
+// milliseconds even for large mailboxes.
+function purgeOrphanedSummaries(): void {
+  try {
+    const result = getDb()
+      .prepare(
+        `DELETE FROM thread_summaries
+         WHERE NOT EXISTS (
+           SELECT 1 FROM emails
+           WHERE emails.thread_id = thread_summaries.thread_id
+             AND emails.account_id = thread_summaries.account_id
+         )`,
+      )
+      .run();
+    if (result.changes > 0) {
+      log.info("purged orphan thread_summaries", { rows: result.changes });
+    }
+  } catch (err) {
+    // Don't let cleanup break startup. The next purge attempt next launch
+    // will re-try; meanwhile the cache cardinality is tiny.
+    log.warn("purgeOrphanedSummaries failed", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function registerSummaryMethods(): void {
   ensureSchema();
+  purgeOrphanedSummaries();
 
   registerMethod("summary.thread", async (params) => {
     const { threadId, accountId, force } =

@@ -63,8 +63,14 @@ export interface LlmCallRecordWithSubject extends LlmCallRecord {
 function getStats(): UsageStats {
   const db = getDb();
   const single = (sql: string) => db.prepare(sql).get() as { cost: number; calls: number };
+  // "Today" is the user's local calendar day, not the UTC day. SQLite's
+  // `date('now')` returns UTC midnight; for a user in PST at 9 PM, that's
+  // already past UTC midnight, so a 2 PM PST call would show in "today"
+  // even though the user's "today" hasn't ended (or vice versa for early
+  // morning). See post-mortem P3 #13. Use 'localtime' on both sides to
+  // align created_at (UTC stored) with the local calendar boundary.
   const today = single(
-    "SELECT COALESCE(SUM(cost_cents), 0) as cost, COUNT(*) as calls FROM llm_calls WHERE date(created_at) = date('now')",
+    "SELECT COALESCE(SUM(cost_cents), 0) as cost, COUNT(*) as calls FROM llm_calls WHERE date(created_at, 'localtime') = date('now', 'localtime')",
   );
   const thisWeek = single(
     "SELECT COALESCE(SUM(cost_cents), 0) as cost, COUNT(*) as calls FROM llm_calls WHERE created_at >= datetime('now', '-7 days')",
@@ -137,7 +143,8 @@ function getWindowStats(whereClause: string): UsageWindowStats {
 }
 
 function getStatsToday(): UsageWindowStats {
-  return getWindowStats("date(created_at) = date('now')");
+  // Local calendar day — see comment in getStats() above (P3 #13).
+  return getWindowStats("date(created_at, 'localtime') = date('now', 'localtime')");
 }
 
 function getStatsThisMonth(): UsageWindowStats {

@@ -3498,9 +3498,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         <span className="font-medium capitalize">
                           {prefetchProgress.currentTask.type.replace("-", " ")}
                         </span>
-                        <span className="text-blue-600 dark:text-blue-400 ml-2 font-mono text-xs">
-                          {prefetchProgress.currentTask.emailId.slice(0, 8)}...
-                        </span>
+                        {prefetchProgress.currentTask.emailId && (
+                          <span className="text-blue-600 dark:text-blue-400 ml-2 font-mono text-xs">
+                            {prefetchProgress.currentTask.emailId.slice(0, 8)}...
+                          </span>
+                        )}
                       </span>
                     </div>
                   </div>

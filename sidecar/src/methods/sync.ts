@@ -69,6 +69,20 @@ function isConnected(provider: string, accountId: string): boolean {
   return false;
 }
 
+// Track last-emitted sync status per account. The renderer subscribes to
+// `sync:status-change` and re-renders the title bar dot on every event,
+// so unconditional `syncing → idle` emits cause re-render churn even when
+// nothing about the visible state changed (e.g. background poll with no
+// new mail). emitStatus() bails out when the status didn't actually
+// change. See P3 #25.
+type SyncStatus = "syncing" | "idle" | "error";
+const lastStatusByAccount = new Map<string, SyncStatus>();
+function emitStatus(accountId: string, status: SyncStatus): void {
+  if (lastStatusByAccount.get(accountId) === status) return;
+  lastStatusByAccount.set(accountId, status);
+  emit("sync:status-change", { accountId, status });
+}
+
 export function registerSyncMethods(): void {
   registerMethod("sync.init", () => {
     const rows = listAccountsWithProvider();
@@ -83,10 +97,10 @@ export function registerSyncMethods(): void {
   registerMethod("sync.now", async (params) => {
     const { accountId } = (params as { accountId?: string }) ?? {};
     if (!accountId) throw new Error("sync.now: requires { accountId }");
-    emit("sync:status-change", { accountId, status: "syncing" });
+    emitStatus(accountId, "syncing");
     try {
       const result = await syncAccountNow(accountId);
-      emit("sync:status-change", { accountId, status: "idle" });
+      emitStatus(accountId, "idle");
       if (result.newEmails.length > 0) {
         // Match the renderer's contract: { accountId, emails }
         emit("sync:new-emails", {
@@ -96,7 +110,7 @@ export function registerSyncMethods(): void {
       }
       return result;
     } catch (err) {
-      emit("sync:status-change", { accountId, status: "error" });
+      emitStatus(accountId, "error");
       throw err;
     }
   });
@@ -108,16 +122,16 @@ export function registerSyncMethods(): void {
   registerMethod("sync.loadMore", async (params) => {
     const { accountId } = (params as { accountId?: string }) ?? {};
     if (!accountId) throw new Error("sync.loadMore: requires { accountId }");
-    emit("sync:status-change", { accountId, status: "syncing" });
+    emitStatus(accountId, "syncing");
     try {
       const result = await loadMoreAccountNow(accountId);
-      emit("sync:status-change", { accountId, status: "idle" });
+      emitStatus(accountId, "idle");
       if (result.newEmails.length > 0) {
         emit("sync:new-emails", { accountId, emails: result.newEmails });
       }
       return result;
     } catch (err) {
-      emit("sync:status-change", { accountId, status: "error" });
+      emitStatus(accountId, "error");
       throw err;
     }
   });
@@ -132,15 +146,15 @@ export function registerSyncMethods(): void {
   function startTimer(accountId: string): void {
     if (timers.has(accountId)) return;
     const tick = async () => {
-      emit("sync:status-change", { accountId, status: "syncing" });
+      emitStatus(accountId, "syncing");
       try {
         const result = await syncAccountNow(accountId);
-        emit("sync:status-change", { accountId, status: "idle" });
+        emitStatus(accountId, "idle");
         if (result.newEmails.length > 0) {
           emit("sync:new-emails", { accountId, emails: result.newEmails });
         }
       } catch {
-        emit("sync:status-change", { accountId, status: "error" });
+        emitStatus(accountId, "error");
       }
     };
     const handle = setInterval(() => {
@@ -185,10 +199,24 @@ export function registerSyncMethods(): void {
     return { ok: true, intervalMs };
   });
 
+  // Auto-start timers for every connected account on sidecar boot. Without
+  // this, a watchdog-restarted (or just freshly spawned) sidecar would have
+  // no background sync until the renderer next called sync.start — and the
+  // renderer only does so once per page load. See post-mortem P3 #9.
+  // Safe to call after registration: timers are unref()'d so they won't
+  // hold the process open if no IPC traffic ever arrives.
+  for (const row of listAccountsWithProvider()) {
+    if (isConnected(row.provider, row.id)) {
+      startTimer(row.id);
+    }
+  }
+
   registerMethod("sync.status", (params) => {
     const { accountId } = (params as { accountId?: string }) ?? {};
     if (!accountId) throw new Error("sync.status: requires { accountId }");
-    return { accountId, status: "idle" };
+    // Default to idle if we've never emitted a status change yet — same
+    // pre-existing behaviour, just sourced from the live tracker.
+    return { accountId, status: lastStatusByAccount.get(accountId) ?? "idle" };
   });
 
   registerMethod("sync.getEmails", (params) => {
@@ -220,8 +248,17 @@ export function registerSyncMethods(): void {
   // updates. Empty array if no ids given. One bad message doesn't poison
   // the batch; failures are logged and that id is simply omitted from the
   // result, so clicking the email will retry via sync.fetchBody.
+  //
+  // Cancellation: the renderer can pass an opaque `cancelToken` and later
+  // call `sync.prefetchBodiesCancel({ cancelToken })` to stop new fetches
+  // for that batch. In-flight IMAP fetches still complete (no underlying
+  // abort), but the worker stops dequeuing new ids — which avoids burning
+  // IMAP/Gmail quota when the user switches accounts mid-prefetch (P3 #10).
+  const cancelledTokens = new Set<string>();
   registerMethod("sync.prefetchBodies", async (params) => {
-    const rawIds = (params as { ids?: string[] })?.ids;
+    const p = (params as { ids?: string[]; cancelToken?: string }) ?? {};
+    const rawIds = p.ids;
+    const cancelToken = typeof p.cancelToken === "string" ? p.cancelToken : null;
     if (!Array.isArray(rawIds) || rawIds.length === 0) {
       // Emit a final idle so the Queue tab clears any "running" state.
       emit("prefetch:progress", emptyProgress());
@@ -232,6 +269,7 @@ export function registerSyncMethods(): void {
     const out: Array<{ id: string; body: string }> = [];
     let cursor = 0;
     let processed = 0;
+    const isCancelled = (): boolean => cancelToken !== null && cancelledTokens.has(cancelToken);
     // Initial "running" snapshot — the Settings → Queue tab subscribes
     // to prefetch:progress and uses queueLength to render the chip.
     // TODO(V2): richer progress (per-stage counters: analysis / sender
@@ -245,15 +283,18 @@ export function registerSyncMethods(): void {
     });
     async function worker(): Promise<void> {
       while (cursor < ids.length) {
+        if (isCancelled()) return;
         const i = cursor++;
         const id = ids[i];
         if (typeof id !== "string") continue;
-        // Tell subscribers which id is in flight so the Queue tab shows
-        // it as the "current task".
+        // Tell subscribers a fetch is in flight. The progress payload no
+        // longer carries the raw email id — see P3 #17 (privacy / log
+        // policy). Subscribers only need to know "something is running" +
+        // a counter, not the specific message.
         emit("prefetch:progress", {
           status: "running",
           queueLength: Math.max(0, ids.length - processed),
-          currentTask: { emailId: id, type: "analysis" as const },
+          currentTask: { type: "analysis" as const },
           processed: { analysis: processed, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
         });
         try {
@@ -279,7 +320,23 @@ export function registerSyncMethods(): void {
       queueLength: 0,
       processed: { analysis: processed, senderProfile: 0, draft: 0, extensionEnrichment: 0 },
     });
+    if (cancelToken !== null) cancelledTokens.delete(cancelToken);
     return out;
+  });
+
+  // Cancel an in-flight prefetch batch identified by `cancelToken`. The
+  // running workers complete their current IMAP fetch and then stop —
+  // they don't dequeue new ids. The cancelled token is auto-cleared when
+  // the corresponding prefetchBodies call resolves, so unbounded growth
+  // of the set isn't a concern for normal use. Calling cancel for an
+  // unknown token is a no-op (idempotent).
+  registerMethod("sync.prefetchBodiesCancel", (params) => {
+    const cancelToken = (params as { cancelToken?: string })?.cancelToken;
+    if (typeof cancelToken !== "string" || cancelToken.length === 0) {
+      throw new Error("sync.prefetchBodiesCancel: requires { cancelToken }");
+    }
+    cancelledTokens.add(cancelToken);
+    return { ok: true };
   });
 
   // On-demand body fetch — called when the renderer opens a thread.
