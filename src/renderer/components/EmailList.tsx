@@ -14,6 +14,8 @@ import {
 import { draftBodyToHtml } from "../../shared/draft-utils";
 import { draftMatchesSplit } from "../utils/split-conditions";
 import { runTriageCatchUp } from "../lib/triage-catchup";
+import { pushArchiveUndo } from "../lib/undo-toasts";
+import { useToastStore } from "../lib/toast-store";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 /** Check if bodyHtml already contains rich formatting tags (from TipTap or draftBodyToHtml).
@@ -51,7 +53,6 @@ export function EmailList() {
     setCurrentSplitId,
     setArchiveReadyThreads,
     removeEmails,
-    addUndoAction,
     selectedDraftId,
     setSelectedDraftId,
     removeRecentlyUnsnoozedThread,
@@ -62,7 +63,11 @@ export function EmailList() {
   const unsnoozedReturnTimes = useAppStore((s) => s.unsnoozedReturnTimes);
   const selectedThreadId = useAppStore((s) => s.selectedThreadId);
   const splits = useAppStore((s) => s.splits);
-  const triageStatus = useAppStore((s) => s.triageStatus);
+  // Watch the toast queue for an in-flight triage progress toast — used
+  // to disable the "Triage All" button while one is already running.
+  const triageInFlight = useToastStore((s) =>
+    s.toasts.some((t) => t.kind === "progress" && t.text.startsWith("Triaging")),
+  );
   const allEmails = useAppStore((s) => s.emails);
   const { threads } = useSplitFilteredThreads();
 
@@ -126,7 +131,9 @@ export function EmailList() {
       // store reflects the freshly-upserted older messages. Other accounts'
       // emails are preserved from the current store snapshot.
       const data =
-        resp && typeof resp === "object" && "data" in resp ? (resp as { data?: unknown }).data : null;
+        resp && typeof resp === "object" && "data" in resp
+          ? (resp as { data?: unknown }).data
+          : null;
       const hasMore = !!(
         data &&
         typeof data === "object" &&
@@ -394,17 +401,13 @@ export function EmailList() {
     removeEmails(allEmailIds);
     setCurrentSplitId("__priority__");
 
-    addUndoAction({
-      id: `archive-all-${Date.now()}`,
-      type: "archive",
-      threadCount: threads.length,
-      accountId: currentAccountId,
+    pushArchiveUndo({
       emails: allEmails,
-      scheduledAt: Date.now(),
-      delayMs: 5000,
+      accountId: currentAccountId,
+      threadCount: threads.length,
       archiveReadyThreadIds,
     });
-  }, [currentAccountId, threads, removeEmails, setCurrentSplitId, addUndoAction]);
+  }, [currentAccountId, threads, removeEmails, setCurrentSplitId]);
 
   const currentProgress = currentAccountId ? syncProgress[currentAccountId] : null;
   const isInitialSyncing = currentProgress && currentProgress.fetched < currentProgress.total;
@@ -429,7 +432,6 @@ export function EmailList() {
     }
     return n;
   }, [allEmails, currentAccountId, isSentView]);
-  const triageInFlight = triageStatus !== null;
   const handleTriageAll = useCallback(() => {
     void runTriageCatchUp("manual");
   }, []);

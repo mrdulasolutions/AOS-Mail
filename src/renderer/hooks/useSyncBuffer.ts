@@ -15,6 +15,7 @@
 
 import { useAppStore } from "../store";
 import { applyOptimisticReads } from "../optimistic-reads";
+import { getSuppressedEmailIds } from "../lib/toast-store";
 import type { DashboardEmail } from "../../shared/types";
 
 // --- Pending update queues ---
@@ -201,15 +202,12 @@ function flush(): void {
       const pendingRemovalIds = new Set(
         Array.from(state.pendingRemovals.values()).flatMap((arr) => arr.map((e) => e.id)),
       );
-      // Also suppress emails pending in the undo action queue (archive/trash).
-      // These have been optimistically removed from the store but the API calls
-      // may not have completed yet — without this, sync resurrects them.
-      for (const action of state.undoActionQueue) {
-        if (action.type === "archive" || action.type === "trash") {
-          for (const e of action.emails) {
-            pendingRemovalIds.add(e.id);
-          }
-        }
+      // Also suppress emails pending in the unified toast queue (archive/
+      // trash undo toasts). Optimistically removed from the store but the
+      // API calls may not have completed yet — without this, sync resurrects
+      // them. Reads the toast store directly to avoid stale snapshot bugs.
+      for (const id of getSuppressedEmailIds()) {
+        pendingRemovalIds.add(id);
       }
       // Also suppress emails being removed in this same flush batch.
       // When the archive IPC handler sends sync:emails-removed AND the
