@@ -373,6 +373,14 @@ export interface SidecarMethods {
     params: void;
     result: { configured: boolean; source: "env" | "prefs" | null };
   };
+  // True when ANY usable LLM provider is configured (Anthropic OR
+  // OpenRouter). Boot-triage / feature gates that just need "an LLM" should
+  // use this — narrower hasApiKey above is for surfaces that specifically
+  // require the Anthropic provider.
+  "anthropic.hasAnyLlmProvider": {
+    params: void;
+    result: { configured: boolean; anthropic: boolean; openrouter: boolean };
+  };
 
   // ── openrouter ────────────────────────────────────────────────────────
   // Lets users configure a separate OpenRouter API key, which unlocks the
@@ -683,6 +691,17 @@ export interface SidecarMethods {
   "awaitingReply.draftNudge": {
     params: { threadId: string; accountId: string };
     result: { body: string };
+  };
+
+  // ── archive ready ─────────────────────────────────────────────────────
+  // Mark a thread as user-dismissed in the archive_ready table so it no
+  // longer shows up in archiveReady.list. The renderer (UndoActionToast)
+  // calls this after archiving a thread suggested by the Archive Ready
+  // tab — without this, the same thread keeps re-promoting on the next
+  // sync.
+  "archiveReady.dismiss": {
+    params: { threadId: string; accountId: string };
+    result: { ok: true; dismissed: number };
   };
 }
 

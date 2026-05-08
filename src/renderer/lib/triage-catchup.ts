@@ -8,10 +8,12 @@
 //   2. EmailList.tsx — manual "Triage All" button on the inbox toolbar. Source
 //      "manual".
 //
-// Both callers gate on `diagnostics.anthropicHasApiKey()` — there's no point
-// firing analyzeBatch when the sidecar will just rate-limit Claude with auth
-// errors. On a missing key we silently noop (the SetupWizard / Settings card
-// is the only place that should surface that condition).
+// Both callers gate on `diagnostics.hasAnyLlmProvider()` — there's no point
+// firing analyzeBatch when the sidecar will just rate-limit the upstream
+// provider with auth errors. The gate accepts EITHER an Anthropic key OR
+// an OpenRouter key (the LLM router auto-selects based on the analysis
+// model id). On a missing provider we silently noop (the SetupWizard /
+// Settings card is the only place that should surface that condition).
 //
 // We cap at MAX_TRIAGE_BATCH (50) so the call returns in a reasonable time
 // window. The toast clears when the call resolves; subsequent boots keep
@@ -56,18 +58,20 @@ export async function runTriageCatchUp(source: TriageSource): Promise<number> {
   const unanalyzedIds = pickUnanalyzedIds(emails, currentAccountId).slice(0, MAX_TRIAGE_BATCH);
   if (unanalyzedIds.length === 0) return 0;
 
-  // Probe API key — silently bail if missing. Boot path runs unconditionally
-  // (no key just means no triage), manual path could surface the SetupWizard
-  // but that's a future polish; for now the user already saw the empty
-  // Priority tab + the Settings → Agent Tools intro card flagging the key.
+  // Probe LLM provider — silently bail if missing. Boot path runs
+  // unconditionally (no provider just means no triage); manual path could
+  // surface the SetupWizard but that's a future polish; for now the user
+  // already saw the empty Priority tab + the Settings → Agent Tools intro
+  // card flagging the key. The gate is "any LLM" (Anthropic OR OpenRouter)
+  // so OpenRouter-only users aren't silently locked out.
   try {
-    const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+    const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
       success?: boolean;
       data?: { configured?: boolean };
     };
     if (!has?.success || !has.data?.configured) return 0;
   } catch (err) {
-    console.warn("[triage] hasApiKey probe failed:", err);
+    console.warn("[triage] hasAnyLlmProvider probe failed:", err);
     return 0;
   }
 

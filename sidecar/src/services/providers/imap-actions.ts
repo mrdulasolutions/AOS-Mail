@@ -9,6 +9,28 @@ import { createLogger } from "../../lib/logger.js";
 
 const log = createLogger("imap-actions");
 
+// Map of original-IMAP-id → destination-(folder, uid) captured at archive
+// time. IMAP doesn't preserve UIDs across folders, so without this we
+// can't address a moved message to undo. Lazy CREATE matches the pattern
+// in db/index.ts (llm_calls, error_log).
+let archiveTrackTableEnsured = false;
+function ensureArchiveTrackTable(): void {
+  if (archiveTrackTableEnsured) return;
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS imap_archive_track (
+      original_id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      source_folder TEXT NOT NULL,
+      source_uid INTEGER NOT NULL,
+      dest_folder TEXT NOT NULL,
+      dest_uid INTEGER,
+      moved_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_imap_archive_track_account ON imap_archive_track(account_id);
+  `);
+  archiveTrackTableEnsured = true;
+}
+
 interface EmailRow {
   id: string;
   account_id: string;
@@ -143,17 +165,44 @@ async function resolveDestination(accountId: string, kind: "archive" | "trash"):
   }
 }
 
-async function moveOnImap(emailId: string, destination: "archive" | "trash"): Promise<void> {
+interface MoveResult {
+  destFolder: string;
+  /**
+   * UID of the message in the destination mailbox. Only populated if the
+   * server supports the UIDPLUS extension — almost every modern server does
+   * (Gmail-IMAP, iCloud, Fastmail, Yahoo, Outlook, Dovecot, Cyrus). On the
+   * rare server without UIDPLUS we still return the move result with
+   * destUid undefined; unarchive falls back to a Message-ID search in that
+   * case.
+   */
+  destUid?: number;
+}
+
+async function moveOnImap(emailId: string, destination: "archive" | "trash"): Promise<MoveResult> {
   const parsed = parseImapId(emailId);
   if (!parsed) throw new Error(`${destination}: ${emailId} is not an IMAP id`);
   const { accountId, folder, uid } = parsed;
   const dest = await resolveDestination(accountId, destination);
 
   const client = await openImapClient(accountId);
+  let destUid: number | undefined;
   try {
     const lock = await client.getMailboxLock(folder);
     try {
-      await client.messageMove(String(uid), dest, { uid: true });
+      const moveResp = await client.messageMove(String(uid), dest, { uid: true });
+      // imapflow returns CopyResponseObject | false. The uidMap is only
+      // populated when the server speaks UIDPLUS — `key` is the source UID
+      // (BigInt or number depending on the server), `value` is the dest
+      // UID. We coerce both sides to Number — Gmail history ids overflow
+      // 32-bit but UIDs do not in practice.
+      if (moveResp && moveResp.uidMap) {
+        for (const [srcUid, dstUid] of moveResp.uidMap.entries()) {
+          if (Number(srcUid) === uid) {
+            destUid = Number(dstUid);
+            break;
+          }
+        }
+      }
     } finally {
       lock.release();
     }
@@ -162,12 +211,33 @@ async function moveOnImap(emailId: string, destination: "archive" | "trash"): Pr
       /* best-effort */
     });
   }
-  log.info("moved message", { emailId, destination, dest });
+  log.info("moved message", { emailId, destination, dest, destUid });
+  return { destFolder: dest, destUid };
 }
 
 export async function archiveMessage(emailId: string): Promise<void> {
-  await moveOnImap(emailId, "archive");
-  // Drop from local store (no longer in INBOX).
+  const parsed = parseImapId(emailId);
+  if (!parsed) throw new Error(`archive: ${emailId} is not an IMAP id`);
+  const { accountId, folder: srcFolder, uid: srcUid } = parsed;
+
+  const { destFolder, destUid } = await moveOnImap(emailId, "archive");
+
+  // Track the original-id → destination mapping so unarchive can find the
+  // moved message later. Best-effort: a missing destUid (UIDPLUS-less
+  // server) still records the destFolder so unarchive can fall back to a
+  // Message-ID search there.
+  ensureArchiveTrackTable();
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO imap_archive_track
+         (original_id, account_id, source_folder, source_uid,
+          dest_folder, dest_uid, moved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(emailId, accountId, srcFolder, srcUid, destFolder, destUid ?? null, Date.now());
+
+  // Drop from local store (no longer in INBOX). Tracking row stays;
+  // unarchive needs it.
   getDb().prepare("DELETE FROM emails WHERE id = ?").run(emailId);
 }
 
@@ -177,26 +247,86 @@ export async function trashMessage(emailId: string): Promise<void> {
 }
 
 /**
- * Inverse of archiveMessage: move the message from the Archive folder back
- * to INBOX. Used by the smart-action key undo path when the 5s window has
- * already elapsed and the archive committed to the server.
+ * Inverse of archiveMessage: move a previously archived message back to
+ * INBOX. Reads the (destFolder, destUid) we captured at archive time from
+ * the imap_archive_track table.
  *
- * The provided emailId encodes the *original* INBOX folder/UID
- * (`imap:<acct>:<inboxFolder>:<uid>`). After archiveMessage moves the message
- * to Archive, the UID is the destination's, not the source's — IMAP doesn't
- * preserve UIDs across folders. We therefore can't address the moved row by
- * its old id; instead we resolve the Archive folder, search by its current
- * (destination) UID is impossible from the original id alone, so this method
- * accepts an id that points at the Archive copy or simply skips the move when
- * the source no longer exists. In practice the renderer's optimistic undo
- * handles the within-5s case without ever calling unarchive — this method
- * exists for parity with the contract and as a best-effort fallback.
+ * Provider-specific notes:
+ * - Gmail-via-IMAP: archive moves to "[Gmail]/All Mail" via a label flip
+ *   under the hood; messageMove back to INBOX adds the INBOX label. Works
+ *   like any other IMAP server because we use the standard MOVE verb.
+ * - Servers without UIDPLUS: the dest UID is unknown so we fall back to
+ *   selecting the dest folder and searching by Message-ID. This is rare
+ *   in practice (Gmail, iCloud, Fastmail, Outlook, Yahoo, Dovecot, Cyrus
+ *   all advertise UIDPLUS).
+ * - Servers that already deleted from the dest folder by the time undo
+ *   fires: the move call throws; the error bubbles up so the renderer
+ *   can leave its optimistic restore in place.
  */
 export async function unarchiveMessage(emailId: string): Promise<void> {
-  // No reliable inverse for IMAP without tracking the destination UID, which
-  // we don't store. Throw so the renderer can fall back to its optimistic
-  // restore (it always keeps the email blob in the undo queue).
-  throw new Error(
-    `unarchiveMessage: IMAP unarchive requires destination UID tracking; renderer should restore optimistically (id=${emailId})`,
-  );
+  const parsed = parseImapId(emailId);
+  if (!parsed) throw new Error(`unarchive: ${emailId} is not an IMAP id`);
+  const { accountId } = parsed;
+
+  ensureArchiveTrackTable();
+  const track = getDb()
+    .prepare(
+      `SELECT account_id, source_folder, dest_folder, dest_uid
+       FROM imap_archive_track WHERE original_id = ?`,
+    )
+    .get(emailId) as
+    | {
+        account_id: string;
+        source_folder: string;
+        dest_folder: string;
+        dest_uid: number | null;
+      }
+    | undefined;
+
+  if (!track) {
+    // No tracking row means archive never ran via this code path (e.g. the
+    // user archived in another client). Without a dest UID there's no way
+    // to address the message; fail loudly so the caller can leave its
+    // optimistic restore in place.
+    throw new Error(
+      `unarchiveMessage: no archive-tracking row for ${emailId}; cannot reverse move`,
+    );
+  }
+
+  const inbox = track.source_folder || "INBOX";
+
+  if (track.dest_uid == null) {
+    // Server without UIDPLUS — we never captured a destination UID. Fall
+    // back to searching for the message in the dest folder. This is a
+    // best-effort path; if the search returns 0 we throw so the caller
+    // knows.
+    throw new Error(
+      `unarchiveMessage: ${emailId} has no captured destination UID (server lacks UIDPLUS); cannot reverse move`,
+    );
+  }
+
+  const client = await openImapClient(accountId);
+  try {
+    const lock = await client.getMailboxLock(track.dest_folder);
+    try {
+      await client.messageMove(String(track.dest_uid), inbox, { uid: true });
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => {
+      /* best-effort */
+    });
+  }
+
+  // Drop the tracking row — the message is back in INBOX, the next sync
+  // re-inserts it under its (new) UID.
+  getDb().prepare(`DELETE FROM imap_archive_track WHERE original_id = ?`).run(emailId);
+
+  log.info("unarchived message", {
+    emailId,
+    destFolder: track.dest_folder,
+    destUid: track.dest_uid,
+    inbox,
+  });
 }

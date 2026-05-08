@@ -136,6 +136,19 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    // Boot-triage / feature-gate helper: true when EITHER Anthropic OR
+    // OpenRouter is configured. Use this anywhere the question is "do we
+    // have ANY usable LLM provider?" — the LLM router routes claude-*
+    // ids to Anthropic and everything else to OpenRouter, so either key
+    // unlocks analysis / drafting / archive-ready / etc.
+    hasAnyLlmProvider: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("anthropic.hasAnyLlmProvider", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
     anthropicSetApiKey: async (apiKey: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("anthropic.setApiKey", { apiKey });
@@ -554,6 +567,20 @@ function installRealNamespaces(): Record<string, unknown> {
           accountId,
           isReady,
           reason,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Mark a thread as dismissed so the Archive Ready tab stops surfacing
+    // it. UndoActionToast calls this after a successful archive of a
+    // thread that came from the suggestion list.
+    dismiss: async (threadId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("archiveReady.dismiss", {
+          threadId,
+          accountId,
         });
         return { success: true, data };
       } catch (err) {
@@ -2421,9 +2448,7 @@ function installRealNamespaces(): Record<string, unknown> {
     updatedAt: number;
   };
   real.learnedRules = {
-    list: async (
-      accountId?: string,
-    ): Promise<IpcResponse<{ rules: LearnedRuleRow[] }>> => {
+    list: async (accountId?: string): Promise<IpcResponse<{ rules: LearnedRuleRow[] }>> => {
       try {
         const data = (await bridge.call("learnedRules.list", {
           accountId,

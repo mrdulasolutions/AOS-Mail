@@ -1002,15 +1002,15 @@ export default function App() {
         addSentEmails(sentInBatch);
       }
       // Background-triage any incoming emails that aren't already in
-      // the sent view. Auto-skip if there's no Anthropic key (analysis
-      // would just fail per-email and rate-limit Claude). This fills
-      // the Priority tab over time without the user having to do
-      // anything.
+      // the sent view. Auto-skip if there's no LLM provider (Anthropic
+      // OR OpenRouter) configured — analysis would just fail per-email
+      // and rate-limit the upstream API. This fills the Priority tab
+      // over time without the user having to do anything.
       const incomingIds = data.emails.filter((e) => !e.labelIds?.includes("SENT")).map((e) => e.id);
       if (incomingIds.length > 0) {
         void (async () => {
           try {
-            const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+            const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
               success?: boolean;
               data?: { configured?: boolean };
             };
@@ -1561,7 +1561,7 @@ export default function App() {
         if (ids.length > 0) {
           void (async () => {
             try {
-              const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+              const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
                 success?: boolean;
                 data?: { configured?: boolean };
               };
@@ -1588,15 +1588,16 @@ export default function App() {
     setLoading(isFetching);
   }, [isFetching, setLoading]);
 
-  // Boot triage catch-up. Once per (currentAccountId × API-key state):
+  // Boot triage catch-up. Once per (currentAccountId × LLM-provider state):
   //   - waits for sync to settle (no active progressive sync) and at least
   //     one email loaded so we don't run on an empty cache.
   //   - sweeps unanalyzed inbox emails into a single analyze.analyzeBatch
   //     call — capped at 50 by runTriageCatchUp so the call returns in a
   //     reasonable window. Subsequent boots keep chipping away at the
   //     backlog.
-  //   - silently noops when the user hasn't configured an Anthropic key
-  //     yet. The SetupWizard / Agent Tools card surface that condition.
+  //   - silently noops when the user hasn't configured ANY LLM provider
+  //     (Anthropic or OpenRouter). The SetupWizard / Agent Tools card
+  //     surface that condition.
   //   - re-runs after the user adds an API key for the first time:
   //     `apiKeyConfigured` flips from false to true and we sweep again.
   //
@@ -1608,16 +1609,19 @@ export default function App() {
     null,
   );
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
-  // Probe API key on mount so the catch-up effect can re-trigger when it
-  // flips. Polled (not subscribed) because there's no event channel for
-  // settings.set today; this is cheap (sidecar in-process) and only runs
-  // until the user lands on a configured value.
+  // Probe LLM provider configuration on mount so the catch-up effect can
+  // re-trigger when it flips. Polled (not subscribed) because there's no
+  // event channel for settings.set today; this is cheap (sidecar
+  // in-process) and only runs until the user lands on a configured value.
+  // Gated on EITHER Anthropic OR OpenRouter — the LLM router routes
+  // claude-* ids to Anthropic and everything else to OpenRouter, so either
+  // key is enough to unlock analysis.
   useEffect(() => {
     if (apiKeyConfigured === true) return; // never need to flip back
     let cancelled = false;
     const probe = async () => {
       try {
-        const has = (await window.api.diagnostics.anthropicHasApiKey()) as {
+        const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
           success?: boolean;
           data?: { configured?: boolean };
         };
@@ -1962,53 +1966,189 @@ export default function App() {
 
       {/* Titlebar */}
       <ErrorBoundary label="Titlebar">
-      <div className="titlebar-drag h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4">
-        <div className="flex items-center space-x-4">
-          <div className="w-20" /> {/* Space for traffic lights */}
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">AOS Mail</h1>
-          {/* Account Selector */}
-          {accounts.length > 0 && (
-            <div className="titlebar-no-drag relative">
-              <button
-                onClick={() => setAccountMenuOpen(!accountMenuOpen)}
-                className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-              >
-                <span className="text-gray-700 dark:text-gray-300 truncate max-w-[200px]">
-                  {currentAccount?.email || "Select account"}
-                </span>
-                {/* Sync status indicator */}
-                {isSyncing && (
+        <div className="titlebar-drag h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4">
+          <div className="flex items-center space-x-4">
+            <div className="w-20" /> {/* Space for traffic lights */}
+            <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">AOS Mail</h1>
+            {/* Account Selector */}
+            {accounts.length > 0 && (
+              <div className="titlebar-no-drag relative">
+                <button
+                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                  className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                >
+                  <span className="text-gray-700 dark:text-gray-300 truncate max-w-[200px]">
+                    {currentAccount?.email || "Select account"}
+                  </span>
+                  {/* Sync status indicator */}
+                  {isSyncing && (
+                    <svg
+                      className="w-4 h-4 text-blue-500 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                  )}
+                  {!isSyncing && !isCurrentAccountExpired && currentSyncStatus === "idle" && (
+                    <span className="w-2 h-2 rounded-full bg-green-500" title="Connected" />
+                  )}
+                  {isCurrentAccountExpired && (
+                    <span className="w-2 h-2 rounded-full bg-amber-500" title="Session expired" />
+                  )}
+                  {!isCurrentAccountExpired && currentSyncStatus === "error" && (
+                    <span className="w-2 h-2 rounded-full bg-red-500" title="Sync error" />
+                  )}
                   <svg
-                    className="w-4 h-4 text-blue-500 animate-spin"
+                    className="w-4 h-4 text-gray-500 dark:text-gray-400"
                     fill="none"
+                    stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
                     <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
                     />
                   </svg>
+                </button>
+
+                {/* Account dropdown menu */}
+                {accountMenuOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
+                    <div className="py-1">
+                      {accounts.map((account) => {
+                        const isExpired = expiredAccountIds.has(account.id);
+                        return (
+                          <div
+                            key={account.id}
+                            className={`flex items-stretch ${
+                              account.id === currentAccountId
+                                ? "bg-blue-50 dark:bg-blue-900/30"
+                                : ""
+                            }`}
+                          >
+                            <button
+                              onClick={() => handleAccountSwitch(account.id)}
+                              className="flex-1 min-w-0 px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                            >
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <span
+                                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                    isExpired
+                                      ? "bg-amber-500"
+                                      : account.isConnected
+                                        ? "bg-green-500"
+                                        : "bg-gray-400 dark:bg-gray-500"
+                                  }`}
+                                />
+                                <span className="truncate">{account.email}</span>
+                              </div>
+                              {account.isPrimary && !isExpired && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                                  Primary
+                                </span>
+                              )}
+                            </button>
+                            {isExpired && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAccountMenuOpen(false);
+                                  void handleReauth(account.id);
+                                }}
+                                disabled={reauthingAccountId !== null}
+                                aria-label={`Reconnect ${account.provider === "imap" ? "IMAP" : "Gmail"} for ${account.email}`}
+                                className="px-2 mr-2 my-1 self-center text-xs font-medium rounded bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors disabled:opacity-50"
+                              >
+                                {account.provider === "imap" ? "Reconnect" : "Reconnect Gmail"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div className="border-t border-gray-200 dark:border-gray-700 mt-1 pt-1">
+                        <button
+                          onClick={() => {
+                            setAccountMenuOpen(false);
+                            setShowSettings(true);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          + Add account...
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
-                {!isSyncing && !isCurrentAccountExpired && currentSyncStatus === "idle" && (
-                  <span className="w-2 h-2 rounded-full bg-green-500" title="Connected" />
-                )}
-                {isCurrentAccountExpired && (
-                  <span className="w-2 h-2 rounded-full bg-amber-500" title="Session expired" />
-                )}
-                {!isCurrentAccountExpired && currentSyncStatus === "error" && (
-                  <span className="w-2 h-2 rounded-full bg-red-500" title="Sync error" />
-                )}
+              </div>
+            )}
+            {/* Update indicator — inline next to account picker */}
+            <UpdateBanner />
+          </div>
+          <div className="titlebar-no-drag flex items-center space-x-2">
+            {/* Calendar / Inbox toggle — Calendar V1 lives alongside the inbox
+              as a sidebar accessory. Toggling sets viewMode and renders
+              <CalendarView/> below in place of the email surface. */}
+            <button
+              onClick={() => {
+                const store = useAppStore.getState();
+                store.setViewMode(store.viewMode === "calendar" ? "split" : "calendar");
+              }}
+              aria-label={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
+              aria-pressed={viewMode === "calendar"}
+              className={`p-2 rounded-lg transition-colors flex items-center gap-1 ${
+                viewMode === "calendar"
+                  ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              }`}
+              title={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              </svg>
+            </button>
+
+            {/* Search button */}
+            <button
+              onClick={openSearch}
+              aria-label="Search"
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1"
+              title="Search (/)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </button>
+            {/* Outbox badge (show when there are pending messages and online) */}
+            {isOnline && outboxStats.pending > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-lg text-sm">
                 <svg
-                  className="w-4 h-4 text-gray-500 dark:text-gray-400"
+                  className="w-4 h-4 animate-pulse"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -2017,132 +2157,168 @@ export default function App() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
                   />
                 </svg>
-              </button>
+                <span>{outboxStats.pending} sending</span>
+              </div>
+            )}
+            {/* Outbox badge for failed messages */}
+            {outboxStats.failed > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-lg text-sm">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+                <span>{outboxStats.failed} failed</span>
+              </div>
+            )}
+            {/* Scheduled send badge (clickable) */}
+            {scheduledMessageStats.scheduled > 0 && (
+              <div className="relative" ref={scheduledPanelRef}>
+                <button
+                  onClick={() => setScheduledPanelOpen(!scheduledPanelOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-lg text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                  title="View scheduled messages"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span>{scheduledMessageStats.scheduled} scheduled</span>
+                  <svg
+                    className={`w-3 h-3 transition-transform ${scheduledPanelOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </button>
 
-              {/* Account dropdown menu */}
-              {accountMenuOpen && (
-                <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
-                  <div className="py-1">
-                    {accounts.map((account) => {
-                      const isExpired = expiredAccountIds.has(account.id);
-                      return (
-                        <div
-                          key={account.id}
-                          className={`flex items-stretch ${
-                            account.id === currentAccountId ? "bg-blue-50 dark:bg-blue-900/30" : ""
-                          }`}
-                        >
-                          <button
-                            onClick={() => handleAccountSwitch(account.id)}
-                            className="flex-1 min-w-0 px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
-                          >
-                            <div className="flex items-center space-x-2 min-w-0">
-                              <span
-                                className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                  isExpired
-                                    ? "bg-amber-500"
-                                    : account.isConnected
-                                      ? "bg-green-500"
-                                      : "bg-gray-400 dark:bg-gray-500"
-                                }`}
-                              />
-                              <span className="truncate">{account.email}</span>
-                            </div>
-                            {account.isPrimary && !isExpired && (
-                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
-                                Primary
-                              </span>
-                            )}
-                          </button>
-                          {isExpired && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAccountMenuOpen(false);
-                                void handleReauth(account.id);
-                              }}
-                              disabled={reauthingAccountId !== null}
-                              aria-label={`Reconnect ${account.provider === "imap" ? "IMAP" : "Gmail"} for ${account.email}`}
-                              className="px-2 mr-2 my-1 self-center text-xs font-medium rounded bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors disabled:opacity-50"
-                            >
-                              {account.provider === "imap" ? "Reconnect" : "Reconnect Gmail"}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div className="border-t border-gray-200 dark:border-gray-700 mt-1 pt-1">
-                      <button
-                        onClick={() => {
-                          setAccountMenuOpen(false);
-                          setShowSettings(true);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                      >
-                        + Add account...
-                      </button>
+                {/* Scheduled messages dropdown */}
+                {scheduledPanelOpen && (
+                  <div className="absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
+                    <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        Scheduled Messages
+                      </h3>
                     </div>
+                    {scheduledMessages.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No scheduled messages
+                      </div>
+                    ) : (
+                      <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700/50">
+                        {scheduledMessages.map((msg) => (
+                          <div
+                            key={msg.id}
+                            className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  {msg.subject || "(no subject)"}
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                                  To: {msg.to.join(", ")}
+                                </div>
+                                <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                  {new Date(msg.scheduledAt).toLocaleString([], {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleCancelScheduled(msg.id)}
+                                className="flex-shrink-0 px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                title="Cancel and save as draft"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-          {/* Update indicator — inline next to account picker */}
-          <UpdateBanner />
-        </div>
-        <div className="titlebar-no-drag flex items-center space-x-2">
-          {/* Calendar / Inbox toggle — Calendar V1 lives alongside the inbox
-              as a sidebar accessory. Toggling sets viewMode and renders
-              <CalendarView/> below in place of the email surface. */}
-          <button
-            onClick={() => {
-              const store = useAppStore.getState();
-              store.setViewMode(store.viewMode === "calendar" ? "split" : "calendar");
-            }}
-            aria-label={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
-            aria-pressed={viewMode === "calendar"}
-            className={`p-2 rounded-lg transition-colors flex items-center gap-1 ${
-              viewMode === "calendar"
-                ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-            title={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-          </button>
-
-          {/* Search button */}
-          <button
-            onClick={openSearch}
-            aria-label="Search"
-            className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1"
-            title="Search (/)"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-          </button>
-          {/* Outbox badge (show when there are pending messages and online) */}
-          {isOnline && outboxStats.pending > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-lg text-sm">
+                )}
+              </div>
+            )}
+            {/* Agent activity — surfaces the last few agent calls + today's
+              cost so users have a quick view into what the inbox agent is
+              doing in the background. The full audit log lives in
+              Settings → Agent Tools → Agent Activity. */}
+            <AgentActivityTray />
+            {/* Compose button — disabled while offline so we don't open a
+              compose surface the user can't actually send from. The
+              OfflineBanner above the titlebar already explains why. */}
+            <button
+              onClick={() => {
+                openCompose("new");
+                setViewMode("full");
+              }}
+              disabled={!isOnline}
+              aria-label="Compose new message"
+              className="px-3 py-1.5 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isOnline ? "Compose (C)" : "Offline — reconnect to compose"}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              Compose
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              aria-label="Settings"
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors focus:outline-none"
+              title="Settings"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={isFetching || isSyncing}
+              aria-label="Refresh"
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+              title="Refresh"
+            >
               <svg
-                className="w-4 h-4 animate-pulse"
+                className={`w-5 h-5 ${isFetching || isSyncing ? "animate-spin" : ""}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -2151,182 +2327,12 @@ export default function App() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              <span>{outboxStats.pending} sending</span>
-            </div>
-          )}
-          {/* Outbox badge for failed messages */}
-          {outboxStats.failed > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-lg text-sm">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <span>{outboxStats.failed} failed</span>
-            </div>
-          )}
-          {/* Scheduled send badge (clickable) */}
-          {scheduledMessageStats.scheduled > 0 && (
-            <div className="relative" ref={scheduledPanelRef}>
-              <button
-                onClick={() => setScheduledPanelOpen(!scheduledPanelOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-lg text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-                title="View scheduled messages"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <span>{scheduledMessageStats.scheduled} scheduled</span>
-                <svg
-                  className={`w-3 h-3 transition-transform ${scheduledPanelOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </button>
-
-              {/* Scheduled messages dropdown */}
-              {scheduledPanelOpen && (
-                <div className="absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
-                  <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      Scheduled Messages
-                    </h3>
-                  </div>
-                  {scheduledMessages.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                      No scheduled messages
-                    </div>
-                  ) : (
-                    <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700/50">
-                      {scheduledMessages.map((msg) => (
-                        <div
-                          key={msg.id}
-                          className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                {msg.subject || "(no subject)"}
-                              </div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                                To: {msg.to.join(", ")}
-                              </div>
-                              <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                                {new Date(msg.scheduledAt).toLocaleString([], {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                })}
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleCancelScheduled(msg.id)}
-                              className="flex-shrink-0 px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                              title="Cancel and save as draft"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Agent activity — surfaces the last few agent calls + today's
-              cost so users have a quick view into what the inbox agent is
-              doing in the background. The full audit log lives in
-              Settings → Agent Tools → Agent Activity. */}
-          <AgentActivityTray />
-          {/* Compose button — disabled while offline so we don't open a
-              compose surface the user can't actually send from. The
-              OfflineBanner above the titlebar already explains why. */}
-          <button
-            onClick={() => {
-              openCompose("new");
-              setViewMode("full");
-            }}
-            disabled={!isOnline}
-            aria-label="Compose new message"
-            className="px-3 py-1.5 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={isOnline ? "Compose (C)" : "Offline — reconnect to compose"}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Compose
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            aria-label="Settings"
-            className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors focus:outline-none"
-            title="Settings"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={isFetching || isSyncing}
-            aria-label="Refresh"
-            className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            title="Refresh"
-          >
-            <svg
-              className={`w-5 h-5 ${isFetching || isSyncing ? "animate-spin" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
+            </button>
+          </div>
         </div>
-      </div>
       </ErrorBoundary>
 
       {/* Auth banners */}
