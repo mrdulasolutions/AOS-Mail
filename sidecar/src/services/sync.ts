@@ -11,6 +11,8 @@ import { getDb } from "../db/index.js";
 import {
   getImapMessageFull,
   listImapMessageHeaders,
+  listImapSentHeaders,
+  type ImapMessageHeader,
 } from "./providers/imap-fetch.js";
 import {
   getGmailHeaders,
@@ -131,6 +133,76 @@ function upsertEmail(row: UpsertEmail): boolean {
   return true;
 }
 
+/**
+ * Resolve the thread_id for an IMAP SENT message.
+ *
+ * IMAP doesn't have Gmail's server-side thread concept — every message
+ * just stands on its own with a Message-ID and an optional In-Reply-To
+ * header. The sync layer's job is to make sent replies share a thread_id
+ * with the original inbox message they reply to so the conversation
+ * view can render them inline.
+ *
+ * Order of preference:
+ *   1. Look up the inbox row whose message_id matches our In-Reply-To.
+ *      That's the message we're replying to; reuse its thread_id (which
+ *      may itself derive from the X-GM-THRID-style server thread header,
+ *      a longer reply chain, or the original message's own id).
+ *   2. Fall back to the In-Reply-To value itself. If the inbox message
+ *      hasn't been synced yet we still want sent replies to a future
+ *      inbox sync to merge — and the inbox row's threadId is set to
+ *      `env.inReplyTo ?? env.messageId` (see imap-fetch.ts), so a sent
+ *      reply with the same in-reply-to value already lines up.
+ *   3. Fall back to our own message_id. A standalone sent message
+ *      starts its own thread.
+ *   4. Last resort: the message's own id. Matches the inbox-side
+ *      convention in listImapMessageHeaders so single-message sent
+ *      threads still get a stable id.
+ */
+function resolveImapThreadId(sentMessage: ImapMessageHeader): string {
+  if (sentMessage.inReplyTo) {
+    const row = getDb()
+      .prepare("SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1")
+      .get(sentMessage.inReplyTo) as { thread_id: string } | undefined;
+    if (row?.thread_id) return row.thread_id;
+    return sentMessage.inReplyTo;
+  }
+  if (sentMessage.messageId) return sentMessage.messageId;
+  return sentMessage.id;
+}
+
+/**
+ * Convert an IMAP message header into the row we INSERT into the emails
+ * table. The threadId override lets the SENT path swap in the resolved
+ * thread_id (see resolveImapThreadId) instead of the message's own
+ * messageId/uid; INBOX rows pass `header.threadId` unchanged.
+ */
+function imapHeaderToUpsert(
+  accountId: string,
+  h: ImapMessageHeader,
+  labels: string[],
+  threadIdOverride?: string,
+): UpsertEmail {
+  return {
+    id: h.id,
+    account_id: accountId,
+    thread_id: threadIdOverride ?? h.threadId,
+    subject: h.subject,
+    from_address: h.from,
+    to_address: h.to,
+    cc_address: h.cc,
+    bcc_address: h.bcc,
+    body: "", // body fetched on demand
+    body_text: null,
+    snippet: h.snippet,
+    date: h.date,
+    fetched_at: Date.now(),
+    label_ids: JSON.stringify(labels),
+    attachments: null,
+    message_id: h.messageId,
+    in_reply_to: h.inReplyTo,
+  };
+}
+
 export async function syncAccountNow(accountId: string): Promise<SyncResult> {
   const row = getAccountRow(accountId);
   if (!row) {
@@ -160,62 +232,97 @@ export async function syncAccountNow(accountId: string): Promise<SyncResult> {
   const newEmails: DashboardEmailRow[] = [];
   const errors: string[] = [];
 
+  // Pull INBOX and SENT in parallel. Without SENT, the user's own replies
+  // never show up in the thread view because they live exclusively in the
+  // server's sent folder — and emails.getThread joins by thread_id against
+  // the local emails table, so the sent rows have to land here too.
+  let inboxHeaders: ImapMessageHeader[] = [];
+  let sentHeaders: ImapMessageHeader[] = [];
   try {
-    const { headers } = await listImapMessageHeaders(accountId, "INBOX", { limit: 50 });
-    const now = Date.now();
-    for (const h of headers) {
-      try {
-        const labels = ["INBOX"];
-        if (!h.isUnread) labels.push("READ");
-        if (h.isStarred) labels.push("STARRED");
-        const upsertRow: UpsertEmail = {
-          id: h.id,
-          account_id: accountId,
-          thread_id: h.threadId,
-          subject: h.subject,
-          from_address: h.from,
-          to_address: h.to,
-          cc_address: h.cc,
-          bcc_address: h.bcc,
-          body: "", // body fetched on demand
-          body_text: null,
-          snippet: h.snippet,
-          date: h.date,
-          fetched_at: now,
-          label_ids: JSON.stringify(labels),
-          attachments: null,
-          message_id: h.messageId,
-          in_reply_to: h.inReplyTo,
-        };
-        const inserted = upsertEmail(upsertRow);
-        fetched++;
-        if (inserted) {
-          newRows++;
-          newEmails.push(
-            rowToDashboard({
-              id: upsertRow.id,
-              thread_id: upsertRow.thread_id,
-              account_id: upsertRow.account_id,
-              subject: upsertRow.subject,
-              from_address: upsertRow.from_address,
-              to_address: upsertRow.to_address,
-              cc_address: upsertRow.cc_address,
-              bcc_address: upsertRow.bcc_address,
-              date: upsertRow.date,
-              snippet: upsertRow.snippet,
-              body: upsertRow.body,
-              label_ids: upsertRow.label_ids,
-              message_id: upsertRow.message_id,
-              in_reply_to: upsertRow.in_reply_to,
-            }),
-          );
-        }
-      } catch (err) {
-        errors.push(err instanceof Error ? err.message : String(err));
-      }
-    }
+    const [inboxRes, sentRes] = await Promise.all([
+      listImapMessageHeaders(accountId, "INBOX", { limit: 100 }),
+      listImapSentHeaders(accountId, { limit: 100 }),
+    ]);
+    inboxHeaders = inboxRes.headers;
+    sentHeaders = sentRes.headers;
   } catch (err) {
     errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  // INBOX upserts. Inbox rows get the standard label set the renderer's
+  // useThreadedEmails relies on for "is this the inbox view?".
+  for (const h of inboxHeaders) {
+    try {
+      const labels = ["INBOX"];
+      if (!h.isUnread) labels.push("READ");
+      if (h.isStarred) labels.push("STARRED");
+      const upsertRow = imapHeaderToUpsert(accountId, h, labels);
+      const inserted = upsertEmail(upsertRow);
+      fetched++;
+      if (inserted) {
+        newRows++;
+        newEmails.push(
+          rowToDashboard({
+            id: upsertRow.id,
+            thread_id: upsertRow.thread_id,
+            account_id: upsertRow.account_id,
+            subject: upsertRow.subject,
+            from_address: upsertRow.from_address,
+            to_address: upsertRow.to_address,
+            cc_address: upsertRow.cc_address,
+            bcc_address: upsertRow.bcc_address,
+            date: upsertRow.date,
+            snippet: upsertRow.snippet,
+            body: upsertRow.body,
+            label_ids: upsertRow.label_ids,
+            message_id: upsertRow.message_id,
+            in_reply_to: upsertRow.in_reply_to,
+          }),
+        );
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // SENT upserts. Sent rows are always treated as already-read (otherwise
+  // every send would bump the inbox unread count) and labeled SENT so the
+  // renderer's threading logic (useThreadedEmails) can include them in
+  // conversation views without surfacing them as standalone inbox rows.
+  // Resolve thread_id AFTER inbox upsert so a sent reply to a just-synced
+  // inbox row picks up the right thread.
+  for (const h of sentHeaders) {
+    try {
+      const threadId = resolveImapThreadId(h);
+      const labels = ["SENT", "READ"];
+      if (h.isStarred) labels.push("STARRED");
+      const upsertRow = imapHeaderToUpsert(accountId, h, labels, threadId);
+      const inserted = upsertEmail(upsertRow);
+      fetched++;
+      if (inserted) {
+        newRows++;
+        newEmails.push(
+          rowToDashboard({
+            id: upsertRow.id,
+            thread_id: upsertRow.thread_id,
+            account_id: upsertRow.account_id,
+            subject: upsertRow.subject,
+            from_address: upsertRow.from_address,
+            to_address: upsertRow.to_address,
+            cc_address: upsertRow.cc_address,
+            bcc_address: upsertRow.bcc_address,
+            date: upsertRow.date,
+            snippet: upsertRow.snippet,
+            body: upsertRow.body,
+            label_ids: upsertRow.label_ids,
+            message_id: upsertRow.message_id,
+            in_reply_to: upsertRow.in_reply_to,
+          }),
+        );
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return { accountId, fetched, newRows, newEmails, errors };
@@ -399,47 +506,66 @@ async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
   }
 
   if (useFullSync) {
-    try {
+    // Pull headers from a Gmail label and upsert. Returns the historyId
+    // associated with the listing so the caller can persist sync state.
+    // Errors per-message are captured in the outer `errors` array.
+    const upsertGmailLabel = async (labelId: string): Promise<string | null> => {
       const { messageIds, historyId } = await listGmailMessages(accountId, {
-        maxResults: 50,
+        maxResults: 100,
+        labelIds: [labelId],
       });
-      if (messageIds.length > 0) {
-        const headers = await getGmailHeaders(
-          accountId,
-          messageIds.map((m) => m.id),
-        );
-        for (const h of headers) {
-          try {
-            const upsertRow = gmailHeaderToUpsert(accountId, h);
-            const inserted = upsertEmail(upsertRow);
-            fetched++;
-            if (inserted) {
-              newRows++;
-              newEmails.push(
-                rowToDashboard({
-                  id: upsertRow.id,
-                  thread_id: upsertRow.thread_id,
-                  account_id: upsertRow.account_id,
-                  subject: upsertRow.subject,
-                  from_address: upsertRow.from_address,
-                  to_address: upsertRow.to_address,
-                  cc_address: upsertRow.cc_address,
-                  bcc_address: upsertRow.bcc_address,
-                  date: upsertRow.date,
-                  snippet: upsertRow.snippet,
-                  body: upsertRow.body,
-                  label_ids: upsertRow.label_ids,
-                  message_id: upsertRow.message_id,
-                  in_reply_to: upsertRow.in_reply_to,
-                }),
-              );
-            }
-          } catch (err) {
-            errors.push(err instanceof Error ? err.message : String(err));
+      if (messageIds.length === 0) return historyId;
+      const headers = await getGmailHeaders(
+        accountId,
+        messageIds.map((m) => m.id),
+      );
+      for (const h of headers) {
+        try {
+          const upsertRow = gmailHeaderToUpsert(accountId, h);
+          const inserted = upsertEmail(upsertRow);
+          fetched++;
+          if (inserted) {
+            newRows++;
+            newEmails.push(
+              rowToDashboard({
+                id: upsertRow.id,
+                thread_id: upsertRow.thread_id,
+                account_id: upsertRow.account_id,
+                subject: upsertRow.subject,
+                from_address: upsertRow.from_address,
+                to_address: upsertRow.to_address,
+                cc_address: upsertRow.cc_address,
+                bcc_address: upsertRow.bcc_address,
+                date: upsertRow.date,
+                snippet: upsertRow.snippet,
+                body: upsertRow.body,
+                label_ids: upsertRow.label_ids,
+                message_id: upsertRow.message_id,
+                in_reply_to: upsertRow.in_reply_to,
+              }),
+            );
           }
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
         }
       }
-      if (historyId) setGmailSyncState(accountId, historyId);
+      return historyId;
+    };
+
+    try {
+      // Pull INBOX first; sent rows later get the right thread_id
+      // automatically because Gmail's threadId is server-assigned and
+      // shared across all messages in the conversation. We persist the
+      // historyId returned with the INBOX listing so incremental sync
+      // can start from there. The SENT listing returns the same profile
+      // historyId, so either is fine to persist.
+      const inboxHistoryId = await upsertGmailLabel("INBOX");
+      // Then SENT — without this, the user's own replies stay invisible
+      // on first sync because the History API only kicks in after a
+      // historyId is stored. (Subsequent incremental syncs already track
+      // SENT via getGmailHistoryChanges' fetchLabel("SENT") call.)
+      await upsertGmailLabel("SENT");
+      if (inboxHistoryId) setGmailSyncState(accountId, inboxHistoryId);
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
