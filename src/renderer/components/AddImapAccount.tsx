@@ -119,8 +119,17 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
       };
       const result = await window.api.imap.addAccount(input);
       if (!result.success) {
-        setError(result.error ?? "Failed to add IMAP account");
-        if (/(?:auth|login|password|denied|invalid credentials)/i.test(result.error ?? "")) {
+        // Strip the bridge.call wrapper so users see the actionable
+        // message the sidecar produced, not the IPC plumbing prefix.
+        // Format coming in: "bridge.call(imap.addAccount) failed: sidecar
+        // returned error: <real message>"
+        const cleaned =
+          (result.error ?? "Failed to add IMAP account").replace(
+            /^bridge\.call\([^)]+\) failed:\s*(?:sidecar returned error:\s*)?/i,
+            "",
+          ) || "Failed to add IMAP account";
+        setError(cleaned);
+        if (/(?:auth|login|password|denied|invalid credentials)/i.test(cleaned)) {
           setAuthFailure(true);
         }
         return;

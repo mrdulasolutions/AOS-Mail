@@ -40,6 +40,44 @@ interface AddAccountInput {
   tls?: boolean;
 }
 
+/**
+ * Translate the raw imapflow / network error from a failed testConnection
+ * into a user-facing message that actually tells the user what to do.
+ *
+ * imapflow tends to surface auth failures as a generic "Command failed"
+ * which is true but useless. Likewise getaddrinfo errors and TLS handshake
+ * failures show up as cryptic strings. We classify here so the renderer
+ * doesn't have to regex on a server-defined string format.
+ */
+function friendlyImapError(test: { error?: string; authFailure?: boolean }): string {
+  const raw = test.error ?? "IMAP connection failed";
+  if (test.authFailure) {
+    return (
+      "Authentication failed — your email address or password didn't work. " +
+      "Many providers (Gmail, iCloud, Yahoo, Outlook, Hostinger) require an " +
+      "app-specific password rather than your account password. Check your " +
+      "provider's account-security page for one. " +
+      `(Server response: ${raw})`
+    );
+  }
+  if (/ENOTFOUND|getaddrinfo/i.test(raw)) {
+    return `Couldn't reach the IMAP server — double-check the host name (${raw}).`;
+  }
+  if (/ECONNREFUSED/i.test(raw)) {
+    return `The IMAP server refused the connection — check the host and port (${raw}).`;
+  }
+  if (/timeout/i.test(raw)) {
+    return `The IMAP server didn't respond in time. Check your network connection and try again. (${raw})`;
+  }
+  if (/TLS|SSL|certificate|handshake/i.test(raw)) {
+    return (
+      `TLS/SSL handshake failed — try toggling 'Use TLS / SSL', or verify the port ` +
+      `(993 for IMAP-over-TLS, 143 for STARTTLS). (${raw})`
+    );
+  }
+  return raw;
+}
+
 function upsertImapAccountRow(input: AddAccountInput): void {
   const db = getDb();
   const accountId = input.email;
@@ -106,7 +144,7 @@ export function registerImapMethods(): void {
     if (!input?.email || !input.password || !input.imapHost) {
       throw new Error("imap.testConnection: requires { email, password, imapHost, ... }");
     }
-    return testImapConnection({
+    const result = await testImapConnection({
       email: input.email,
       imapHost: input.imapHost,
       imapPort: input.imapPort ?? 993,
@@ -116,6 +154,12 @@ export function registerImapMethods(): void {
       password: input.password,
       tls: input.tls ?? true,
     });
+    // Replace the raw imapflow message with something user-facing for the
+    // renderer's Test button. authFailure is preserved so the UI can branch.
+    if (!result.ok) {
+      return { ...result, error: friendlyImapError(result) };
+    }
+    return result;
   });
 
   registerMethod("imap.addAccount", async (params) => {
@@ -148,8 +192,11 @@ export function registerImapMethods(): void {
       throw err;
     }
     if (!test.ok) {
-      log.warn("addAccount: testConnection failed", { error: test.error });
-      throw new Error(test.error ?? "IMAP connection failed");
+      log.warn("addAccount: testConnection failed", {
+        error: test.error,
+        authFailure: test.authFailure,
+      });
+      throw new Error(friendlyImapError(test));
     }
     log.info("addAccount: testConnection succeeded");
 
