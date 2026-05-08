@@ -19,8 +19,8 @@ export function SnippetsEditor() {
     const loadSnippets = async () => {
       try {
         const result = await window.api.snippets.getAll();
-        if ((result as { success: boolean }).success) {
-          setSnippets((result as { data: Snippet[] }).data);
+        if (result.success) {
+          setSnippets(result.data);
         }
       } finally {
         setIsLoading(false);
@@ -34,16 +34,16 @@ export function SnippetsEditor() {
     setIsSaving(true);
     setCrudError(null);
     try {
-      const result = (await window.api.snippets.create({
+      const result = await window.api.snippets.create({
         accountId: currentAccountId,
         name,
         body,
         shortcut: shortcut || undefined,
-      })) as { success: boolean; data?: Snippet; error?: string };
+      });
       if (result.success && result.data) {
         setSnippets([...allSnippets, result.data]);
         setIsCreating(false);
-      } else {
+      } else if (!result.success) {
         setCrudError(result.error ?? "Failed to create snippet");
       }
     } finally {
@@ -56,15 +56,11 @@ export function SnippetsEditor() {
     setCrudError(null);
     try {
       const { id, ...updates } = snippet;
-      const result = (await window.api.snippets.update(id, updates)) as {
-        success: boolean;
-        data?: Snippet;
-        error?: string;
-      };
+      const result = await window.api.snippets.update(id, updates);
       if (result.success && result.data) {
-        setSnippets(allSnippets.map((s) => (s.id === id ? result.data! : s)));
+        setSnippets(allSnippets.map((s) => (s.id === id ? result.data : s)));
         setEditingSnippet(null);
-      } else {
+      } else if (!result.success) {
         setCrudError(result.error ?? "Failed to update snippet");
       }
     } finally {
@@ -77,10 +73,7 @@ export function SnippetsEditor() {
     setIsSaving(true);
     setCrudError(null);
     try {
-      const result = (await window.api.snippets.delete(id)) as {
-        success: boolean;
-        error?: string;
-      };
+      const result = await window.api.snippets.delete(id);
       if (result.success) {
         setSnippets(allSnippets.filter((s) => s.id !== id));
       } else {

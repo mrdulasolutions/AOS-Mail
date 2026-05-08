@@ -35,11 +35,7 @@ interface ThreadSummaryState {
   createdAt?: number;
 }
 
-function PriorityPill({
-  priority,
-}: {
-  priority: "high" | "medium" | "low" | "skip" | undefined;
-}) {
+function PriorityPill({ priority }: { priority: "high" | "medium" | "low" | "skip" | undefined }) {
   const map: Record<string, { label: string; classes: string }> = {
     high: {
       label: "High",
@@ -67,9 +63,7 @@ function PriorityPill({
     );
   }
   return (
-    <span
-      className={`px-2 py-0.5 text-xs font-medium rounded-full border ${v.classes}`}
-    >
+    <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${v.classes}`}>
       {v.label}
     </span>
   );
@@ -87,9 +81,7 @@ function Section({
   return (
     <div className="px-4 py-3 border-b border-gray-100">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-          {title}
-        </h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h4>
         {action}
       </div>
       {children}
@@ -97,10 +89,7 @@ function Section({
   );
 }
 
-export const V1AgentPanel = memo(function V1AgentPanel({
-  email,
-  accountId,
-}: V1AgentPanelProps) {
+export const V1AgentPanel = memo(function V1AgentPanel({ email, accountId }: V1AgentPanelProps) {
   const updateEmail = useAppStore((s) => s.updateEmail);
   const allEmails = useAppStore((s) => s.emails);
   const [triageBusy, setTriageBusy] = useState(false);
@@ -184,7 +173,11 @@ export const V1AgentPanel = memo(function V1AgentPanel({
       // analysis.analyze runs the triage on the sidecar, persists to the
       // analyses table, and returns the row. We project it into the same
       // shape the email.analysis field uses.
-      const result = (await window.api.analysis.analyze(email.id)) as {
+      // TODO(typed-bridge): the sidecar's analysis.analyze returns
+      // AnalysisResult with snake_case fields (needs_reply); this UI
+      // expects camelCase (needsReply). Likely a stale call site that
+      // should map the result instead of expecting the wrong shape.
+      const result = (await window.api.analysis.analyze(email.id)) as unknown as {
         success: boolean;
         data?: {
           needsReply: boolean;
@@ -220,13 +213,13 @@ export const V1AgentPanel = memo(function V1AgentPanel({
     try {
       // drafts.rerunAgent generates a fresh draft via Claude using the
       // user's style profile + the analyzer's reasoning. Returns the body.
-      const result = (await window.api.drafts.rerunAgent(email.id)) as {
-        success: boolean;
-        data?: { body: string };
-        error?: string;
-      };
-      if (!result.success || !result.data) {
+      const result = await window.api.drafts.rerunAgent(email.id);
+      if (!result.success) {
         setError(result.error ?? "Draft generation failed");
+        return;
+      }
+      if (!result.data) {
+        setError("Draft generation returned no body");
         return;
       }
       updateEmail(email.id, {
@@ -330,8 +323,8 @@ export const V1AgentPanel = memo(function V1AgentPanel({
             </div>
           ) : (
             <p className="text-sm text-gray-400">
-              Click Summarize to extract what&apos;s happening in this thread plus any
-              action items or decisions.
+              Click Summarize to extract what&apos;s happening in this thread plus any action items
+              or decisions.
             </p>
           )}
         </Section>
@@ -358,11 +351,7 @@ export const V1AgentPanel = memo(function V1AgentPanel({
             disabled={triageBusy}
             className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
           >
-            {triageBusy
-              ? "Running…"
-              : email.analysis
-                ? "Re-run"
-                : "Run Triage"}
+            {triageBusy ? "Running…" : email.analysis ? "Re-run" : "Run Triage"}
           </button>
         }
       >
@@ -374,14 +363,12 @@ export const V1AgentPanel = memo(function V1AgentPanel({
                 {email.analysis.needsReply ? "Needs reply" : "No reply needed"}
               </span>
             </div>
-            <p className="text-sm text-gray-700 leading-snug">
-              {email.analysis.reason}
-            </p>
+            <p className="text-sm text-gray-700 leading-snug">{email.analysis.reason}</p>
           </div>
         ) : (
           <p className="text-sm text-gray-400">
-            Not yet triaged. Run the analyzer to label priority and decide whether
-            this needs a reply.
+            Not yet triaged. Run the analyzer to label priority and decide whether this needs a
+            reply.
           </p>
         )}
       </Section>
@@ -394,11 +381,7 @@ export const V1AgentPanel = memo(function V1AgentPanel({
             disabled={draftBusy}
             className="text-xs font-medium text-purple-600 hover:text-purple-800 disabled:text-gray-400"
           >
-            {draftBusy
-              ? "Drafting…"
-              : email.draft?.body
-                ? "Regenerate"
-                : "Generate"}
+            {draftBusy ? "Drafting…" : email.draft?.body ? "Regenerate" : "Generate"}
           </button>
         }
       >
@@ -435,8 +418,8 @@ export const V1AgentPanel = memo(function V1AgentPanel({
           </div>
         ) : (
           <p className="text-sm text-gray-400">
-            No draft yet. Generate a reply in your voice using the analyzer&apos;s
-            reasoning + your style profile.
+            No draft yet. Generate a reply in your voice using the analyzer&apos;s reasoning + your
+            style profile.
           </p>
         )}
       </Section>

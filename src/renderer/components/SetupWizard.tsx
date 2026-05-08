@@ -53,8 +53,13 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
       setVisibleSteps([]);
       return;
     }
+    // TODO(typed-bridge): the contract's `gmail.checkAuth` returns
+    // `{ accounts: Array<...> }`, not the legacy `{ hasCredentials,
+    // hasTokens, hasAnthropicKey }` shape this site expects. Cast
+    // through unknown until the call site is reshaped to read from
+    // `accounts` directly.
     (
-      window.api.gmail.checkAuth() as Promise<
+      window.api.gmail.checkAuth() as unknown as Promise<
         IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasAnthropicKey: boolean }>
       >
     )
@@ -106,10 +111,10 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
       // populates the same in-memory copy for the live process.
       await setKeychainSecret("googleClientId", googleClientId.trim());
       await setKeychainSecret("googleClientSecret", googleClientSecret.trim());
-      const result = (await window.api.gmail.saveCredentials(
+      const result = await window.api.gmail.saveCredentials(
         googleClientId.trim(),
         googleClientSecret.trim(),
-      )) as IpcResponse<void>;
+      );
       if (result.success) {
         const credIdx = visibleSteps.indexOf("credentials");
         const next = visibleSteps[credIdx + 1];
@@ -137,9 +142,7 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
 
     try {
       // Validate the key with a real API call before saving
-      const validation = (await window.api.settings.validateApiKey(
-        apiKey.trim(),
-      )) as IpcResponse<void>;
+      const validation = await window.api.settings.validateApiKey(apiKey.trim());
       if (!validation.success) {
         setError(validation.error ?? "Invalid API key");
         return;
@@ -154,7 +157,13 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
         setError(err instanceof Error ? err.message : "Failed to save API key");
         return;
       }
-      const authResult = (await window.api.gmail.checkAuth()) as IpcResponse<{
+      // TODO(typed-bridge): the contract's `gmail.checkAuth` result shape
+      // is `{ accounts: Array<...> }`, not `{ hasCredentials, hasTokens,
+      // hasAnthropicKey }`. The renderer assumes the legacy Electron-era
+      // shape — likely a stale call site that the sidecar lift didn't
+      // update. Keeping the cast (and leaving a TODO) until the call site
+      // is reshaped to read from `accounts` directly.
+      const authResult = (await window.api.gmail.checkAuth()) as unknown as IpcResponse<{
         hasCredentials: boolean;
         hasTokens: boolean;
         hasAnthropicKey: boolean;
@@ -205,9 +214,7 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
   const enterExtensionsStep = useCallback(async () => {
     setIsLoading(true);
     try {
-      const result = (await window.api.extensions.getPendingAuths()) as IpcResponse<
-        ExtensionAuthInfo[]
-      >;
+      const result = await window.api.extensions.getPendingAuths();
       if (result.success && result.data.length > 0 && result.data.some((ext) => ext.needsAuth)) {
         setExtensionAuths(result.data.filter((ext) => ext.needsAuth));
         setStep("extensions");
@@ -236,7 +243,13 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
     try {
       let success = false;
       if (authType === "agent") {
-        const result = (await window.api.agent.authenticate(extensionId)) as IpcResponse<{
+        // TODO(typed-bridge): agent.authenticate's runtime shape is
+        // `{ success: boolean }` per the legacy preload contract; the
+        // V2 stub in the shim returns the IpcResponse-failure shape.
+        // Cast through unknown until the V2 lift sets a real signature.
+        const result = (await window.api.agent.authenticate(
+          extensionId,
+        )) as unknown as IpcResponse<{
           success: boolean;
         }>;
         if (result.success) {
@@ -250,7 +263,7 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
           );
         }
       } else {
-        const result = (await window.api.extensions.authenticate(extensionId)) as IpcResponse<void>;
+        const result = await window.api.extensions.authenticate(extensionId);
         success = result.success;
         if (!result.success) {
           setError(result.error ?? "Authentication failed");
@@ -590,9 +603,9 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 onClick={async () => {
                   setIsLoading(true);
                   try {
-                    const result = (await window.api.settings.set({
+                    const result = await window.api.settings.set({
                       posthog: { enabled: analyticsEnabled, sessionReplay: analyticsEnabled },
-                    })) as IpcResponse<void>;
+                    });
                     if (!result.success) {
                       console.error("[SetupWizard] Failed to save analytics config");
                     }

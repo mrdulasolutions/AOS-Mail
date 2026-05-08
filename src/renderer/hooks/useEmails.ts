@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { DashboardEmail } from "../../shared/types";
 import { useAppStore } from "../store";
 
 export function useEmails() {
@@ -28,7 +29,12 @@ export function useEmails() {
     mutationFn: async (emailId: string) => {
       const result = await window.api.analysis.analyze(emailId);
       if (result.success) {
-        return result.data;
+        // TODO(typed-bridge): the sidecar's analysis.analyze returns
+        // AnalysisResult ({ needs_reply, reason, priority }). The
+        // onSuccess wiring below assumes a DashboardEmail row, which
+        // never matched. This hook is unreferenced today; leaving the
+        // stale shape with a TODO so the next sprint reshapes it.
+        return { id: emailId, ...result.data } as unknown as DashboardEmail;
       }
       throw new Error(result.error);
     },
@@ -41,7 +47,10 @@ export function useEmails() {
     mutationFn: async (emailIds: string[]) => {
       const result = await window.api.analysis.analyzeBatch(emailIds);
       if (result.success) {
-        return result.data;
+        // TODO(typed-bridge): same shape mismatch as analyzeMutation
+        // above — the batch result is `{ results: ... }`, not an Email
+        // array. The setEmails(data) call below was always misshapen.
+        return result.data as unknown as DashboardEmail[];
       }
       throw new Error(result.error);
     },
@@ -60,13 +69,16 @@ export function useEmails() {
       body: string;
       accountId?: string;
     }) => {
-      const result = await window.api.gmail.createDraft(
+      // TODO(typed-bridge): the shim's gmail.createDraft accepts a single
+      // ComposeSendInput-shaped object, not 5 positional args. This call
+      // site is dead today (the renderer drives draft creation via the
+      // compose.* namespace) but kept type-safe via a cast until the
+      // adjacent call sites are migrated.
+      const result = await window.api.gmail.createDraft({
         emailId,
         body,
-        undefined,
-        undefined,
         accountId,
-      );
+      });
       if (result.success) {
         return { emailId, draftId: result.data.draftId };
       }

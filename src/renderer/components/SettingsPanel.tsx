@@ -19,7 +19,6 @@ import {
   type ModelConfig,
   type ModelTier,
   type CliToolConfig,
-  type IpcResponse,
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
 import { reconfigurePostHog, trackEvent } from "../services/posthog";
@@ -127,13 +126,14 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [isRerunningAll, setIsRerunningAll] = useState(false);
   const [rerunResult, setRerunResult] = useState<string | null>(null);
 
-  // Calendar visibility state
+  // Calendar visibility state — shape mirrors the contract's CalendarRow.
   const [calendars, setCalendars] = useState<
     Array<{
       accountId: string;
       calendarId: string;
-      calendarName: string | null;
-      calendarColor: string | null;
+      calendarName: string;
+      calendarColor: string;
+      primary: boolean;
       visible: boolean;
     }>
   >([]);
@@ -282,8 +282,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
   useEffect(() => {
     if (prompts) {
-      setAnalysisPrompt(prompts.analysisPrompt);
-      setDraftPrompt(prompts.draftPrompt);
+      setAnalysisPrompt(prompts.analysisPrompt ?? "");
+      setDraftPrompt(prompts.draftPrompt ?? "");
       setArchiveReadyPrompt(prompts.archiveReadyPrompt || DEFAULT_ARCHIVE_READY_PROMPT);
       setStylePrompt(prompts.stylePrompt || DEFAULT_STYLE_PROMPT);
       setAgentDrafterPrompt(prompts.agentDrafterPrompt || DEFAULT_AGENT_DRAFTER_PROMPT);
@@ -395,12 +395,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   useEffect(() => {
     if (activeTab !== "agents") return;
     setClaudeAuthStatus("checking");
-    (
-      window.api.agent.claudeAuthStatus() as Promise<{
-        success: boolean;
-        data?: { cliAvailable: boolean; authenticated: boolean; email?: string };
-      }>
-    )
+    window.api.agent
+      .claudeAuthStatus()
       .then((result) => {
         if (result.success && result.data) {
           setClaudeCliAvailable(result.data.cliAvailable);
@@ -421,19 +417,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   useEffect(() => {
     if (activeTab !== "calendar") return;
     setCalendarLoading(true);
-    (
-      window.api.calendar.getCalendars() as Promise<{
-        success: boolean;
-        calendars?: Array<{
-          accountId: string;
-          calendarId: string;
-          calendarName: string | null;
-          calendarColor: string | null;
-          visible: boolean;
-        }>;
-        accountEmails?: Record<string, string>;
-      }>
-    )
+    window.api.calendar
+      .getCalendars()
       .then((result) => {
         if (result.success && result.calendars) {
           setCalendars(result.calendars);
@@ -519,7 +504,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const handleCheckForUpdates = async () => {
     setUpdateStatus({ state: "checking" });
     try {
-      const result = (await window.api.updates.check()) as { success: boolean; error?: string };
+      const result = await window.api.updates.check();
       if (!result.success) {
         setUpdateStatus({ state: "error", message: result.error || "Check failed" });
       }
@@ -612,14 +597,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setIsInferring(true);
     setInferError(null);
     try {
-      const result = (await window.api.style.infer()) as {
-        success: boolean;
-        data?: string;
-        error?: string;
-      };
+      const result = await window.api.style.infer();
       if (result.success && result.data) {
         setStylePrompt(result.data);
-      } else {
+      } else if (!result.success) {
         setInferError(result.error || "Failed to infer writing style");
       }
     } catch {
@@ -743,10 +724,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     try {
       const trimmed = openRouterApiKey.trim();
       if (trimmed) {
-        const validation = (await window.api.openrouter.validateApiKey(trimmed)) as {
-          success: boolean;
-          error?: string;
-        };
+        const validation = await window.api.openrouter.validateApiKey(trimmed);
         if (!validation.success) {
           setOpenRouterError(validation.error || "Validation failed");
           return;
@@ -776,14 +754,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setIsLoadingModels(true);
     setModelsLoadError(null);
     try {
-      const result = (await window.api.openrouter.listFreeModels()) as {
-        success: boolean;
-        data?: Array<{ id: string; name: string; contextLength: number }>;
-        error?: string;
-      };
+      const result = await window.api.openrouter.listFreeModels();
       if (result.success && Array.isArray(result.data)) {
         setFreeModels(result.data);
-      } else {
+      } else if (!result.success) {
         setModelsLoadError(result.error || "Failed to load models");
       }
     } finally {
@@ -795,17 +769,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const result = (await window.api.agent.claudeLogin()) as {
+      // TODO(typed-bridge): agent.claudeLogin / claudeAuthStatus carry
+      // a richer return shape than the V2 stub declares. The cast through
+      // unknown bridges this until the V2 lift wires the real return.
+      const result = (await window.api.agent.claudeLogin()) as unknown as {
         success: boolean;
         data?: { success: boolean; error?: string };
         error?: string;
       };
       if (result.success && result.data?.success) {
         // Re-check status after login
-        const statusResult = (await window.api.agent.claudeAuthStatus()) as {
-          success: boolean;
-          data?: { authenticated: boolean; email?: string };
-        };
+        const statusResult = await window.api.agent.claudeAuthStatus();
         if (statusResult.success && statusResult.data) {
           setClaudeAuthStatus(
             statusResult.data.authenticated ? "authenticated" : "not_authenticated",
@@ -834,14 +808,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   // Gmail OAuth or IMAP add so the new row is immediately visible without
   // forcing the user to reload the panel. Uses the same shape App.tsx does.
   const refreshAccounts = async () => {
-    type AccountRow = {
-      id: string;
-      email: string;
-      displayName?: string;
-      isPrimary: boolean;
-      provider?: string;
-    };
-    const res = (await window.api.accounts.list()) as IpcResponse<AccountRow[]>;
+    const res = await window.api.accounts.list();
     if (!res.success || !Array.isArray(res.data)) return;
     setAccounts(
       res.data.map((row) => ({
@@ -878,7 +845,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         trackEvent("account_added", { account_count: accounts.length + 1 });
         // Sidecar truth is authoritative — pull provider + canonical row.
         await refreshAccounts();
-      } else if (!result.cancelled) {
+      } else if (!result.success && !result.cancelled) {
         setAccountError(result.error || "Failed to add account");
       }
     } catch (err) {
@@ -932,10 +899,10 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setSavingGmailCreds(true);
     setGmailCredsError(null);
     try {
-      const result = (await window.api.gmail.saveCredentials(
+      const result = await window.api.gmail.saveCredentials(
         gmailClientId.trim(),
         gmailClientSecret.trim(),
-      )) as IpcResponse<unknown>;
+      );
       if (!result.success) {
         setGmailCredsError(result.error ?? "Failed to save credentials");
         return;
@@ -1664,11 +1631,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     setIsExportingLogs(true);
                     setExportLogsError(null);
                     try {
-                      const result = (await window.api.settings.exportLogs()) as {
-                        success: boolean;
-                        error?: string;
-                      };
-                      if (!result?.success && result?.error) {
+                      const result = await window.api.settings.exportLogs();
+                      if (!result.success && result.error) {
                         setExportLogsError(result.error);
                       }
                     } finally {
@@ -3322,11 +3286,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         setIsRerunningAll(true);
                         setRerunResult(null);
                         try {
-                          const result = (await window.api.drafts.rerunAllAgents()) as {
-                            success: boolean;
-                            data?: { clearedCount: number };
-                            error?: string;
-                          };
+                          const result = await window.api.drafts.rerunAllAgents();
                           if (result.success) {
                             // Clear pending drafts from the store in a single atomic update
                             // (not via buffered prompts:changed which races with agent:draft-saved)
@@ -4027,44 +3987,24 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 }
 
 // ---- Usage / Cost Tracking ----
-
-interface UsageStats {
-  today: { totalCostCents: number; totalCalls: number };
-  thisWeek: { totalCostCents: number; totalCalls: number };
-  thisMonth: { totalCostCents: number; totalCalls: number };
-  byModel: Array<{ model: string; costCents: number; calls: number }>;
-  byCaller: Array<{ caller: string; costCents: number; calls: number }>;
-}
-
-interface LlmCallRecord {
-  id: string;
-  created_at: string;
-  model: string;
-  caller: string;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_create_tokens: number;
-  cost_cents: number;
-  duration_ms: number;
-  success: number;
-  error_message: string | null;
-}
+//
+// Usage stats / history shapes come from the typed window-api surface
+// (UsageStatsBreakdown / LlmCallRow in the contract). The renderer no
+// longer redeclares them locally — the queryFns return the exact shape.
 
 const formatCost = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 function UsageCostSection() {
   const { data: statsResult } = useQuery({
     queryKey: ["usage-stats"],
-    queryFn: () => window.api.usage.getStats() as Promise<{ success: boolean; data: UsageStats }>,
+    queryFn: () => window.api.usage.getStats(),
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
 
   const { data: historyResult } = useQuery({
     queryKey: ["call-history"],
-    queryFn: () =>
-      window.api.usage.getCallHistory(50) as Promise<{ success: boolean; data: LlmCallRecord[] }>,
+    queryFn: () => window.api.usage.getCallHistory(50),
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
@@ -4261,15 +4201,6 @@ interface LlmCallAuditRow {
   error_message: string | null;
 }
 
-interface UsageWindowStatsResult {
-  totalCostCents: number;
-  totalCalls: number;
-  successCalls: number;
-  failedCalls: number;
-  topCaller: string | null;
-  topCallerCalls: number;
-}
-
 type SortKey = "created_at" | "caller" | "model" | "cost_cents" | "duration_ms";
 type SortDir = "asc" | "desc";
 
@@ -4291,21 +4222,19 @@ function AgentActivitySection() {
 
   const { data: historyResult } = useQuery({
     queryKey: ["agent-activity", "audit-history"],
-    queryFn: () =>
-      window.api.usage.getCallHistoryWithSubjects(200) as Promise<IpcResponse<LlmCallAuditRow[]>>,
+    queryFn: () => window.api.usage.getCallHistoryWithSubjects(200),
     refetchOnWindowFocus: true,
     staleTime: 15_000,
   });
   const { data: todayResult } = useQuery({
     queryKey: ["agent-activity", "stats-today"],
-    queryFn: () => window.api.usage.getStatsToday() as Promise<IpcResponse<UsageWindowStatsResult>>,
+    queryFn: () => window.api.usage.getStatsToday(),
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
   const { data: monthResult } = useQuery({
     queryKey: ["agent-activity", "stats-month"],
-    queryFn: () =>
-      window.api.usage.getStatsThisMonth() as Promise<IpcResponse<UsageWindowStatsResult>>,
+    queryFn: () => window.api.usage.getStatsThisMonth(),
     refetchOnWindowFocus: true,
     staleTime: 60_000,
   });
@@ -4685,8 +4614,7 @@ function LearnedRulesSection() {
   const queryClient = useQueryClient();
   const { data: result, refetch } = useQuery({
     queryKey: ["learned-rules", "list"],
-    queryFn: () =>
-      window.api.learnedRules.list() as Promise<IpcResponse<{ rules: LearnedRuleUiRow[] }>>,
+    queryFn: () => window.api.learnedRules.list(),
     refetchOnWindowFocus: true,
     staleTime: 15_000,
   });
@@ -4700,9 +4628,7 @@ function LearnedRulesSection() {
   const [confirmReset, setConfirmReset] = useState(false);
 
   const handleToggle = async (rule: LearnedRuleUiRow, next: boolean): Promise<void> => {
-    const res = (await window.api.learnedRules.toggle(rule.id, next)) as IpcResponse<{
-      rule: LearnedRuleUiRow;
-    }>;
+    const res = await window.api.learnedRules.toggle(rule.id, next);
     if (res.success) {
       // Optimistic refetch so the toggle reflects state. The sidecar
       // returns the updated row but we re-pull the list so all visible

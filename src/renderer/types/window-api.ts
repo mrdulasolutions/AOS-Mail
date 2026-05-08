@@ -1,12 +1,17 @@
-// Stand-in for the Electron-era `ElectronAPI` type that env.d.ts used to
-// import. The renderer's component-local `declare global { interface Window
-// { api: SomeShape } }` blocks merge with this — making it `any` here means
-// every site-local shape is treated as a refinement, not a conflict.
+// Renderer-side re-export of the renderer's `window.api` type.
 //
-// Replacing this `any` with a real generated contract (one shape derived
-// from sidecar/src/methods/* + the shim's installRealNamespaces) is the
-// next migration pass. Until then, the loud auto-stub warning in
-// electron-shim.ts is the runtime safety net for missing wires.
+// Historical note: this file used to alias `ElectronAPI` to `any` because
+// the surface was so dynamic and the contract so sparse that nothing
+// short-of-runtime caught a typo. With sidecar-contract.ts now feeding
+// SidecarMethodResult into `src/shared/window-api.ts`, every namespace is
+// type-checked at the call site and `satisfies WindowApi` enforces the
+// shim provides every method the renderer expects.
 //
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ElectronAPI = any;
+// `ElectronAPI` is kept as a name alias so env.d.ts and any third-party
+// types referencing it continue to resolve without a churn pass.
+
+import type { WindowApi } from "../../shared/window-api";
+
+export type ElectronAPI = WindowApi;
+export type { WindowApi };
+export type { IpcResponse } from "../../shared/window-api";

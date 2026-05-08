@@ -65,10 +65,7 @@ export async function runTriageCatchUp(source: TriageSource): Promise<number> {
   // card flagging the key. The gate is "any LLM" (Anthropic OR OpenRouter)
   // so OpenRouter-only users aren't silently locked out.
   try {
-    const has = (await window.api.diagnostics.hasAnyLlmProvider()) as {
-      success?: boolean;
-      data?: { configured?: boolean };
-    };
+    const has = await window.api.diagnostics.hasAnyLlmProvider();
     if (!has?.success || !has.data?.configured) return 0;
   } catch (err) {
     console.warn("[triage] hasAnyLlmProvider probe failed:", err);

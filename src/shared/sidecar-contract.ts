@@ -495,8 +495,14 @@ export interface SidecarMethods {
     result: DashboardEmailRow[];
   };
   "sync.prefetchBodies": {
-    params: { ids: string[] };
+    // P3 #10: cancelToken lets the renderer abort an in-flight prefetch run
+    // when it switches accounts mid-fetch. Optional for back-compat.
+    params: { ids: string[]; cancelToken?: string };
     result: Array<{ id: string; body: string }>;
+  };
+  "sync.prefetchBodiesCancel": {
+    params: { cancelToken: string };
+    result: { ok: true };
   };
   "sync.fetchBody": {
     params: { emailId: string };

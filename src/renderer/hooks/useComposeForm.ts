@@ -139,7 +139,14 @@ export function useComposeForm({
   useEffect(() => {
     if (typeof window.api.compose.getSendAsAliases !== "function") return;
 
-    (window.api.compose.getSendAsAliases(accountId) as Promise<IpcResponse<SendAsAlias[]>>)
+    // TODO(typed-bridge): contract returns `{ aliases: unknown[] }`,
+    // renderer wants `SendAsAlias[]`. Mapping should happen in the shim,
+    // but until that's wired, cast here.
+    (
+      window.api.compose.getSendAsAliases(accountId) as unknown as Promise<
+        IpcResponse<SendAsAlias[]>
+      >
+    )
       .then((result) => {
         if (result.success && result.data.length > 0) {
           setSendAsAliases(result.data);
@@ -360,7 +367,7 @@ export function useComposeForm({
 
   // --- Send ---
   const send = useCallback(async (): Promise<
-    IpcResponse<{ id: string; threadId: string }> | "undo-queued" | null
+    IpcResponse<{ id: string; threadId: string; queued?: boolean }> | "undo-queued" | null
   > => {
     const hasAnyRecipient = to.length > 0 || cc.length > 0 || bcc.length > 0;
     if (isSending || (!bodyText.trim() && !subject.trim()) || !hasAnyRecipient) return null;

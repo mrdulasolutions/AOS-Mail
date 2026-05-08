@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import type { IpcResponse, SnoozedEmail } from "../../shared/types";
+import type { SnoozedEmail } from "../../shared/types";
 import { trackEvent } from "../services/posthog";
-
 
 interface SnoozeOption {
   label: string;
