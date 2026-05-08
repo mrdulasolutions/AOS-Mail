@@ -89,11 +89,7 @@ function getPriorityLabel(thread: EmailThread): { text: string; className: strin
   }
   const priority = thread.analysis.priority || "medium";
   const className =
-    priority === "high"
-      ? "priority-high"
-      : priority === "low"
-        ? "priority-low"
-        : "priority-medium";
+    priority === "high" ? "priority-high" : priority === "low" ? "priority-low" : "priority-medium";
   return {
     text: priority.charAt(0).toUpperCase() + priority.slice(1),
     className,
@@ -132,12 +128,13 @@ export const EmailRow = memo(
 
     const showChecked = isChecked || isMultiSelectActive;
 
-    // Three visual states: selected (filled black), checked (subtle tint),
-    // default (white with hover). Black-on-white selection keeps brand
-    // discipline; the previous blue-on-white fought the AOS palette.
+    // Three visual states: selected (50%-transparent black overlay), checked
+    // (subtle tint), default (white with hover). The half-opacity black is
+    // softer than a fully opaque fill while still reading as "active" — the
+    // page background bleeds through enough to feel less heavy in long lists.
     const rowState =
       isSelected && !isChecked
-        ? "bg-aos-text text-white"
+        ? "bg-black/50 text-white"
         : isChecked
           ? "bg-aos-bg-sunk text-aos-text"
           : "hover:bg-aos-bg-soft text-aos-text";
@@ -153,12 +150,14 @@ export const EmailRow = memo(
         : isVisuallyUnread
           ? "text-aos-text"
           : "text-aos-text-soft";
-    const snippetColor = isSelected && !isChecked ? "text-white/70" : "text-aos-text-muted";
-    const dashColor =
-      isSelected && !isChecked ? "text-white/40" : "text-aos-line-strong";
+    // Selected-row text colors are bumped one notch higher than the previous
+    // solid-black variant — the new bg-black/50 is roughly mid-gray on white,
+    // so muted whites need more opacity to stay legible.
+    const snippetColor = isSelected && !isChecked ? "text-white/80" : "text-aos-text-muted";
+    const dashColor = isSelected && !isChecked ? "text-white/50" : "text-aos-line-strong";
     const timeColor =
       isSelected && !isChecked
-        ? "text-white/60"
+        ? "text-white/75"
         : snoozeInfo
           ? "text-aos-warning"
           : "text-aos-text-muted";
@@ -210,9 +209,7 @@ export const EmailRow = memo(
           className="flex-1 flex items-center gap-2 min-w-0 h-full text-left"
         >
           {/* Sender name */}
-          <div
-            className={`${ds.senderWidth} truncate font-medium flex-shrink-0 ${senderColor}`}
-          >
+          <div className={`${ds.senderWidth} truncate font-medium flex-shrink-0 ${senderColor}`}>
             {senderName}
           </div>
 
@@ -220,7 +217,7 @@ export const EmailRow = memo(
           {priorityLabel && (
             <span
               className={`${ds.priorityBadge} rounded flex-shrink-0 uppercase font-medium tracking-wide ${
-                isSelected && !isChecked ? "bg-white/15 text-white" : priorityLabel.className
+                isSelected && !isChecked ? "bg-white/25 text-white" : priorityLabel.className
               }`}
             >
               {priorityLabel.text}
@@ -231,9 +228,7 @@ export const EmailRow = memo(
           <div
             className={`flex-1 min-w-0 flex items-center ${density === "compact" ? "gap-1.5" : "gap-2"}`}
           >
-            <span
-              className={`font-medium truncate flex-shrink-0 max-w-[85%] ${subjectColor}`}
-            >
+            <span className={`font-medium truncate flex-shrink-0 max-w-[85%] ${subjectColor}`}>
               {decodeHtmlEntities(thread.subject)}
             </span>
             <span className={`flex-shrink ${dashColor}`}>—</span>
@@ -296,9 +291,7 @@ export const EmailRow = memo(
           )}
 
           {/* Time */}
-          <span
-            className={`${ds.time} text-right flex-shrink-0 tabular-nums ${timeColor}`}
-          >
+          <span className={`${ds.time} text-right flex-shrink-0 tabular-nums ${timeColor}`}>
             {snoozeInfo ? formatSnoozeCountdown(snoozeInfo.snoozeUntil) : time}
           </span>
 
@@ -307,7 +300,7 @@ export const EmailRow = memo(
             <span
               className={`${ds.threadBadge} rounded-full flex items-center justify-center flex-shrink-0 ${
                 isSelected && !isChecked
-                  ? "bg-white/15 text-white"
+                  ? "bg-white/25 text-white"
                   : "bg-aos-bg-sunk text-aos-text-muted"
               }`}
             >

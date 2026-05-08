@@ -5,6 +5,7 @@ import App from "./App";
 import "./styles/index.css";
 import { installElectronShim } from "./lib/electron-shim";
 import { installMenuBridge } from "./lib/menu-bridge";
+import { installDragBridge } from "./lib/drag-bridge";
 
 // Under Tauri there is no Electron preload — install a window.api proxy so
 // legacy components don't crash on first call. No-op under Electron (preload
@@ -15,6 +16,11 @@ installElectronShim();
 // Tauri events; this hooks them up to DOM custom events the rest of the
 // app can subscribe to.
 installMenuBridge();
+
+// Tauri 2 doesn't honor `-webkit-app-region: drag`, so the .titlebar-drag
+// regions need an explicit JS handler that asks Tauri to drag the window
+// on mousedown and toggles maximize on double-click. No-op under Electron.
+installDragBridge();
 
 const queryClient = new QueryClient({
   defaultOptions: {
