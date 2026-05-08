@@ -76,6 +76,43 @@ function recordSentEmail(
   return { id, threadId };
 }
 
+// Test-only hook: when COMPOSE_TEST_HOOKS=1 (and NODE_ENV != production)
+// the compose.send handler accepts a `__testHookResult` parameter that
+// short-circuits the SMTP/Gmail send path with a synthetic
+// {messageId, accepted, rejected} triple. The integration test for
+// partial-send needs to exercise the "DB row was inserted, then we
+// throw" code path — without this hook the test would have to stand up
+// a real SMTP server (the production code paths all bottom out in
+// nodemailer / googleapis network calls).
+//
+// Defense-in-depth: gate on BOTH the explicit env var AND a non-production
+// NODE_ENV. Same pattern as learned-rules' devRecordOverride hook (see
+// post-mortem P3 #19). A misconfigured packaged binary that somehow had
+// COMPOSE_TEST_HOOKS=1 set would still need NODE_ENV != production to
+// open this surface.
+const COMPOSE_HOOKS_ENABLED =
+  process.env.COMPOSE_TEST_HOOKS === "1" && process.env.NODE_ENV !== "production";
+
+interface TestHookResult {
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+}
+
+function readTestHookResult(input: unknown): TestHookResult | null {
+  if (!COMPOSE_HOOKS_ENABLED) return null;
+  const hook = (input as { __testHookResult?: unknown })?.__testHookResult;
+  if (!hook || typeof hook !== "object") return null;
+  const h = hook as { messageId?: unknown; accepted?: unknown; rejected?: unknown };
+  if (typeof h.messageId !== "string") return null;
+  if (!Array.isArray(h.accepted) || !Array.isArray(h.rejected)) return null;
+  return {
+    messageId: h.messageId,
+    accepted: h.accepted.filter((x): x is string => typeof x === "string"),
+    rejected: h.rejected.filter((x): x is string => typeof x === "string"),
+  };
+}
+
 export function registerComposeMethods(): void {
   registerMethod("compose.send", async (params) => {
     const input = params as SendInput;
@@ -97,7 +134,14 @@ export function registerComposeMethods(): void {
     let messageId: string;
     let accepted: string[] = [];
     let rejected: string[] = [];
-    if (account.provider === "gmail") {
+    const hook = readTestHookResult(input);
+    if (hook) {
+      // Test-only path — bypass real SMTP/Gmail. Used by the integration
+      // suite to drive the partial-send code path.
+      messageId = hook.messageId;
+      accepted = hook.accepted;
+      rejected = hook.rejected;
+    } else if (account.provider === "gmail") {
       const sent = await sendViaGmail(enrichedInput);
       messageId = sent.messageId;
       // Gmail's API doesn't return per-recipient delivery status — anything
