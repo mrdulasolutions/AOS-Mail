@@ -11,6 +11,7 @@
 
 import { registerMethod } from "../rpc.js";
 import { analyzeEmail, type AnalysisResult } from "../services/email-analyzer.js";
+import { recordOverride } from "../services/learned-rules.js";
 import { getDb } from "../db/index.js";
 import { createLogger } from "../lib/logger.js";
 
@@ -31,6 +32,15 @@ interface AccountRow {
   email: string;
 }
 
+interface PriorAnalysisRow {
+  needs_reply: number;
+  priority: string | null;
+}
+
+interface EmailAccountRow {
+  account_id: string;
+}
+
 function getEmailRow(emailId: string): EmailRowForAnalysis | null {
   return (
     (getDb()
@@ -43,9 +53,9 @@ function getEmailRow(emailId: string): EmailRowForAnalysis | null {
 }
 
 function getAccountEmail(accountId: string): string | null {
-  const row = getDb()
-    .prepare("SELECT email FROM accounts WHERE id = ?")
-    .get(accountId) as AccountRow | undefined;
+  const row = getDb().prepare("SELECT email FROM accounts WHERE id = ?").get(accountId) as
+    | AccountRow
+    | undefined;
   return row?.email ?? null;
 }
 
@@ -56,13 +66,7 @@ function persistAnalysis(emailId: string, result: AnalysisResult): void {
          (email_id, needs_reply, reason, priority, analyzed_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(
-      emailId,
-      result.needsReply ? 1 : 0,
-      result.reason,
-      result.priority ?? null,
-      Date.now(),
-    );
+    .run(emailId, result.needsReply ? 1 : 0, result.reason, result.priority ?? null, Date.now());
 }
 
 async function analyzeOne(emailId: string): Promise<AnalysisResult> {
@@ -133,17 +137,55 @@ export function registerAnalysisMethods(): void {
         reason?: string;
       }) ?? {};
     if (!emailId) throw new Error("analysis.overridePriority: requires { emailId }");
+
+    // Read what the analyzer previously said BEFORE we overwrite — if the
+    // user is contradicting the analyzer (e.g. analyzer said
+    // "needsReply=true, priority=medium" but the user says
+    // "needsReply=false"), that's a learned-rules signal we need to
+    // capture before persistAnalysis clobbers the original row.
+    const prior = getDb()
+      .prepare("SELECT needs_reply, priority FROM analyses WHERE email_id = ?")
+      .get(emailId) as PriorAnalysisRow | undefined;
+
     persistAnalysis(emailId, {
       needsReply: !!newNeedsReply,
       reason: reason ?? "Manual override",
       priority: (newPriority ?? null) as AnalysisResult["priority"],
     });
+
+    // Mirror maybeRecordOverride in emails.ts: if the analyzer thought
+    // this email needed a reply and the user just said "no, it doesn't",
+    // that's an archive-style override. Feed it to learned-rules so
+    // future similar mail can be auto-handled. Fire-and-forget — the
+    // learned-rules engine includes a Claude classify call that we don't
+    // want to block the IPC verb on.
+    if (prior && prior.needs_reply === 1 && newNeedsReply === false) {
+      const emailRow = getDb()
+        .prepare("SELECT account_id FROM emails WHERE id = ?")
+        .get(emailId) as EmailAccountRow | undefined;
+      if (emailRow?.account_id) {
+        recordOverride({
+          emailId,
+          accountId: emailRow.account_id,
+          override: {
+            from: { needsReply: true, priority: prior.priority },
+            to: { needsReply: false, priority: newPriority ?? null },
+            action: "archived",
+          },
+        }).catch((err) => {
+          log.warn("recordOverride failed for manual override", {
+            emailId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
+
     return { ok: true };
   });
 
   registerMethod("analysis.list", (params) => {
-    const { accountId, limit } =
-      (params as { accountId?: string; limit?: number }) ?? {};
+    const { accountId, limit } = (params as { accountId?: string; limit?: number }) ?? {};
     const cap = Math.min(Math.max(limit ?? 200, 1), 1000);
     const rows = accountId
       ? (getDb()

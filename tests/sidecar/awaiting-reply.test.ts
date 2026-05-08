@@ -174,6 +174,92 @@ describe("awaitingReply.list — detector behavior", () => {
     });
     assert.equal(rows.length, 0);
   });
+
+  // P2 #24: a snoozed thread should NOT appear in the awaiting-reply
+  // list. The user explicitly said "hide this until later"; surfacing
+  // it in the rail badge contradicts that intent.
+  it("excludes threads with an active snooze (snooze_until > now)", async () => {
+    const accountId = seedAccount(h, { email: "user-snooze@example.com" });
+    // SENT 5 days ago — well past the default 3-day threshold, so
+    // would normally surface.
+    seedEmail(h, {
+      id: `t-snooze:out`,
+      accountId,
+      threadId: "t-snooze",
+      from: "user-snooze@example.com",
+      to: "external@example.com",
+      subject: "Following up",
+      date: isoDaysAgo(5),
+      labelIds: ["SENT"],
+    });
+
+    // Snooze the thread for 1 day in the future via the public API.
+    const oneDayFromNow = Date.now() + DAY_MS;
+    await h.call("snooze.snooze", {
+      emailId: `t-snooze:out`,
+      threadId: "t-snooze",
+      accountId,
+      snoozeUntil: oneDayFromNow,
+    });
+
+    const rows = await h.call<AwaitingReplyRow[]>("awaitingReply.list", {
+      accountId,
+    });
+    assert.equal(rows.length, 0, "snoozed thread should not appear in awaiting-reply list");
+  });
+
+  it("includes threads whose snooze has expired (snooze_until < now)", async () => {
+    const accountId = seedAccount(h, { email: "user-snooze2@example.com" });
+    seedEmail(h, {
+      id: `t-snooze2:out`,
+      accountId,
+      threadId: "t-snooze2",
+      from: "user-snooze2@example.com",
+      to: "alice@example.com",
+      subject: "Old followup",
+      date: isoDaysAgo(5),
+      labelIds: ["SENT"],
+    });
+
+    // Snooze with a past snoozeUntil. snooze.snooze will reject negative
+    // durations in the public API, so we write the row directly via a
+    // second DB connection — same pattern the seed helpers use.
+    const { createRequire } = await import("node:module");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, resolve } = await import("node:path");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sidecarRequire = createRequire(resolve(here, "..", "..", "sidecar", "package.json"));
+    const Db = sidecarRequire("better-sqlite3") as typeof import("better-sqlite3");
+    const conn = new Db(h.dbPath);
+    try {
+      conn
+        .prepare(
+          `INSERT INTO snoozed_emails (id, email_id, thread_id, account_id, snooze_until, snoozed_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "stale-snooze-1",
+          `t-snooze2:out`,
+          "t-snooze2",
+          accountId,
+          // 1 day ago — already expired.
+          Date.now() - DAY_MS,
+          Date.now() - 2 * DAY_MS,
+        );
+    } finally {
+      conn.close();
+    }
+
+    const rows = await h.call<AwaitingReplyRow[]>("awaitingReply.list", {
+      accountId,
+    });
+    assert.equal(
+      rows.length,
+      1,
+      "stale snooze (snooze_until in the past) should NOT silence the thread",
+    );
+    assert.equal(rows[0]?.threadId, "t-snooze2");
+  });
 });
 
 describe("awaitingReply.draftNudge", () => {
