@@ -215,8 +215,35 @@ function AccountFolderBlock({ account, isCurrent }: AccountFolderBlockProps) {
             <div className="pl-7 pr-2 py-1 text-xs text-aos-text-faint italic">Loading…</div>
           )}
           {error && (
-            <div className="pl-7 pr-2 py-1 text-xs text-red-500" title={error}>
-              Failed to load folders
+            <div className="pl-7 pr-2 py-1 space-y-1">
+              <p className="text-xs text-red-500" title={error}>
+                {/* DNS / network failures surface as "getaddrinfo ENOTFOUND <host>"
+                    — translate the canonical cases to friendly copy. Anything
+                    else falls through with the raw message so we never hide a
+                    real problem. */}
+                {error.includes("ENOTFOUND") || error.includes("getaddrinfo")
+                  ? "Couldn't reach the mail server. Check your connection."
+                  : error.includes("ECONNREFUSED") || error.includes("ETIMEDOUT")
+                    ? "Mail server didn't respond. Try again in a moment."
+                    : error.includes("Invalid credentials") ||
+                        error.includes("LOGIN") ||
+                        error.includes("AUTHENTICATIONFAILED")
+                      ? "Sign-in failed. Re-enter the IMAP password in Settings → Accounts."
+                      : `Couldn't load folders: ${error}`}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setFolders(null);
+                  // re-trigger the fetch by toggling expand off and on
+                  setExpanded(false);
+                  setTimeout(() => setExpanded(true), 0);
+                }}
+                className="text-xs text-aos-text-soft underline hover:text-aos-text"
+              >
+                Retry
+              </button>
             </div>
           )}
           {folders?.map((f) => {
