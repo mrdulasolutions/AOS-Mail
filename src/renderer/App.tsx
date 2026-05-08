@@ -1892,83 +1892,12 @@ export default function App() {
     return <SetupWizard onComplete={handleSetupComplete} initialStep={wizardInitialStep} />;
   }
 
-  // Skipped setup with no accounts yet → show a friendly empty state instead
-  // of the chrome with a blank inbox. User can connect Gmail OAuth, drop
-  // straight into the IMAP form, or just open Settings.
-  if (accounts.length === 0) {
-    return (
-      <div className="h-screen flex flex-col bg-aos-bg-soft">
-        <div className="titlebar-drag h-12 bg-white border-b border-aos-line flex items-center px-4">
-          <div className="w-20" />
-          <h1 className="text-lg font-semibold text-aos-text">AOS Mail</h1>
-          <div className="ml-auto titlebar-no-drag">
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="aos-btn-quiet"
-              aria-label="Open settings"
-            >
-              Settings
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-          <div className="aos-card aos-fade-in max-w-md w-full p-10 text-center">
-            <div className="mx-auto w-12 h-12 rounded-aos-lg bg-aos-bg-sunk flex items-center justify-center mb-5">
-              <svg
-                className="w-6 h-6 text-aos-text-soft"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="1.75"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-aos-text mb-2 tracking-tight">
-              Connect an inbox
-            </h2>
-            <p className="text-aos-text-soft text-sm leading-relaxed mb-6">
-              AOS Mail handles triage, summaries, and drafts in your voice — once it has access to a
-              mailbox. Pick a provider:
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setWizardInitialStep(undefined);
-                  setNeedsSetup(true);
-                }}
-                className="aos-btn-primary py-2.5"
-              >
-                Connect Gmail (OAuth)
-              </button>
-              <button
-                onClick={() => {
-                  setWizardInitialStep("imap");
-                  setNeedsSetup(true);
-                }}
-                className="aos-btn-secondary py-2.5"
-              >
-                Connect IMAP (iCloud, Fastmail, Yahoo, Outlook…)
-              </button>
-              <button onClick={() => setShowSettings(true)} className="aos-btn-quiet py-2">
-                Adjust settings instead
-              </button>
-            </div>
-          </div>
-        </div>
-        {showSettings && (
-          <div className="absolute inset-0 z-50">
-            <SettingsPanel onClose={() => setShowSettings(false)} initialTab={settingsInitialTab} />
-          </div>
-        )}
-      </div>
-    );
-  }
+  // 0-account state used to short-circuit to a special "Connect an inbox"
+  // page here. That looked enough like Settings to confuse people who just
+  // wanted to bypass setup and see the app — so we now fall through to the
+  // main shell and surface the connect CTAs as an inline banner above the
+  // empty inbox (rendered down in the email-list pane, see
+  // `accounts.length === 0` branch around the EmailList mount).
 
   // Get current account and its sync status
   const currentAccount = accounts.find((a) => a.id === currentAccountId);
@@ -2656,6 +2585,58 @@ export default function App() {
                 : "none",
           }}
         >
+          {/* No-account inline banner — shown only in split mode when the
+              user has skipped setup and never added an inbox. Three CTAs
+              keep parity with the old standalone empty-state page (Gmail
+              OAuth, IMAP, jump to Settings) without removing the user from
+              the main app shell. */}
+          {accounts.length === 0 && (
+            <div className="border-b border-aos-line bg-aos-bg-soft px-6 py-5">
+              <div className="max-w-2xl mx-auto flex items-center gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-aos-lg bg-white flex items-center justify-center">
+                  <svg
+                    className="w-5 h-5 text-aos-text-soft"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-aos-text">No inboxes connected yet</p>
+                  <p className="text-xs text-aos-text-soft mt-0.5">
+                    Connect Gmail or IMAP to start triaging mail.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      setWizardInitialStep(undefined);
+                      setNeedsSetup(true);
+                    }}
+                    className="aos-btn-primary text-xs px-3 py-1.5"
+                  >
+                    Gmail
+                  </button>
+                  <button
+                    onClick={() => {
+                      setWizardInitialStep("imap");
+                      setNeedsSetup(true);
+                    }}
+                    className="aos-btn-secondary text-xs px-3 py-1.5"
+                  >
+                    IMAP
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <ErrorBoundary label="Email list">
             <EmailList />
           </ErrorBoundary>
