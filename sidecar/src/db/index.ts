@@ -76,6 +76,11 @@ export function initDatabase(): DatabaseInstance {
     // nextPageToken so the next "Load more" click resumes mid-list; IMAP
     // doesn't need a cursor (it derives from the current min UID in DB).
     "ALTER TABLE sync_state ADD COLUMN load_more_token TEXT",
+    // archive_ready.dismissed — defensive ALTER for any DB created before
+    // the column landed in the canonical schema. CREATE TABLE IF NOT
+    // EXISTS won't add columns to an existing table, so the migration
+    // covers in-place upgrades.
+    "ALTER TABLE archive_ready ADD COLUMN dismissed INTEGER DEFAULT 0",
   ]) {
     try {
       db.exec(ddl);

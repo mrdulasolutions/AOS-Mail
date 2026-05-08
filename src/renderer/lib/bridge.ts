@@ -34,13 +34,7 @@ import type {
   SidecarMethodResult,
 } from "../../shared/sidecar-contract";
 
-type JSONValue =
-  | null
-  | string
-  | number
-  | boolean
-  | JSONValue[]
-  | { [k: string]: JSONValue };
+type JSONValue = null | string | number | boolean | JSONValue[] | { [k: string]: JSONValue };
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 type Listen = <T>(channel: string, cb: (event: { payload: T }) => void) => Promise<() => void>;
@@ -102,6 +96,7 @@ const RETRYABLE_METHOD_PATTERNS: ReadonlyArray<string> = [
   "theme.get",
   "anthropic.ping",
   "anthropic.hasApiKey",
+  "anthropic.hasAnyLlmProvider",
   "openrouter.hasApiKey",
   "openrouter.listFreeModels",
   "openrouter.validateApiKey",
@@ -246,10 +241,7 @@ export async function call<T = JSONValue>(
   method: string,
   params?: Record<string, unknown>,
 ): Promise<T>;
-export async function call(
-  method: string,
-  params: unknown = {},
-): Promise<unknown> {
+export async function call(method: string, params: unknown = {}): Promise<unknown> {
   const invoke = await loadInvoke();
   if (!invoke) {
     throw new Error(

@@ -6,8 +6,14 @@
 //   archiveReady.analyzeBatch(threadIds, accountId)  — same, in parallel (≤4);
 //                                                       returns per-id results so the
 //                                                       renderer can fan-out updates.
-//   archiveReady.list(accountId, limit)              — read recent rows.
+//   archiveReady.list(accountId, limit)              — read recent rows; excludes
+//                                                       dismissed entries.
 //   archiveReady.override(threadId, accountId, ...)  — manual override, persists.
+//   archiveReady.dismiss(threadId, accountId)        — mark a row dismissed so it
+//                                                       no longer surfaces in the
+//                                                       Archive Ready tab. Called by
+//                                                       UndoActionToast after the
+//                                                       user archives the thread.
 
 import { registerMethod } from "../rpc.js";
 import {
@@ -35,10 +41,7 @@ interface AccountRow {
   email: string;
 }
 
-function getThreadEmails(
-  threadId: string,
-  accountId: string,
-): ThreadEmailForAnalysis[] {
+function getThreadEmails(threadId: string, accountId: string): ThreadEmailForAnalysis[] {
   const rows = getDb()
     .prepare(
       `SELECT id, from_address, to_address, subject, date, body, snippet, label_ids
@@ -58,9 +61,9 @@ function getThreadEmails(
 }
 
 function getAccountEmail(accountId: string): string | null {
-  const row = getDb()
-    .prepare("SELECT email FROM accounts WHERE id = ?")
-    .get(accountId) as AccountRow | undefined;
+  const row = getDb().prepare("SELECT email FROM accounts WHERE id = ?").get(accountId) as
+    | AccountRow
+    | undefined;
   return row?.email ?? null;
 }
 
@@ -75,19 +78,10 @@ function persistArchiveReady(
          (thread_id, account_id, is_ready, reason, analyzed_at, dismissed)
        VALUES (?, ?, ?, ?, ?, 0)`,
     )
-    .run(
-      threadId,
-      accountId,
-      result.isReady ? 1 : 0,
-      result.reason,
-      Date.now(),
-    );
+    .run(threadId, accountId, result.isReady ? 1 : 0, result.reason, Date.now());
 }
 
-async function analyzeOne(
-  threadId: string,
-  accountId: string,
-): Promise<ArchiveReadyResult> {
+async function analyzeOne(threadId: string, accountId: string): Promise<ArchiveReadyResult> {
   const emails = getThreadEmails(threadId, accountId);
   if (emails.length === 0) {
     throw new Error(`thread ${threadId} not found for account ${accountId}`);
@@ -104,28 +98,20 @@ async function analyzeOne(
 
 export function registerArchiveReadyMethods(): void {
   registerMethod("archiveReady.analyze", async (params) => {
-    const { threadId, accountId } =
-      (params as { threadId?: string; accountId?: string }) ?? {};
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
     if (!threadId || !accountId) {
-      throw new Error(
-        "archiveReady.analyze: requires { threadId, accountId }",
-      );
+      throw new Error("archiveReady.analyze: requires { threadId, accountId }");
     }
     return analyzeOne(threadId, accountId);
   });
 
   registerMethod("archiveReady.analyzeBatch", async (params) => {
-    const { threadIds, accountId } =
-      (params as { threadIds?: string[]; accountId?: string }) ?? {};
+    const { threadIds, accountId } = (params as { threadIds?: string[]; accountId?: string }) ?? {};
     if (!Array.isArray(threadIds)) {
-      throw new Error(
-        "archiveReady.analyzeBatch: requires { threadIds: string[], accountId }",
-      );
+      throw new Error("archiveReady.analyzeBatch: requires { threadIds: string[], accountId }");
     }
     if (!accountId) {
-      throw new Error(
-        "archiveReady.analyzeBatch: requires { threadIds, accountId }",
-      );
+      throw new Error("archiveReady.analyzeBatch: requires { threadIds, accountId }");
     }
     const acct = accountId;
     const results: Array<{
@@ -166,9 +152,7 @@ export function registerArchiveReadyMethods(): void {
         reason?: string;
       }) ?? {};
     if (!threadId || !accountId) {
-      throw new Error(
-        "archiveReady.override: requires { threadId, accountId, isReady }",
-      );
+      throw new Error("archiveReady.override: requires { threadId, accountId, isReady }");
     }
     persistArchiveReady(threadId, accountId, {
       isReady: !!isReady,
@@ -178,15 +162,17 @@ export function registerArchiveReadyMethods(): void {
   });
 
   registerMethod("archiveReady.list", (params) => {
-    const { accountId, limit } =
-      (params as { accountId?: string; limit?: number }) ?? {};
+    const { accountId, limit } = (params as { accountId?: string; limit?: number }) ?? {};
     const cap = Math.min(Math.max(limit ?? 200, 1), 1000);
+    // Excludes dismissed rows — once the user archives a thread from the
+    // Archive Ready tab, UndoActionToast calls archiveReady.dismiss to
+    // mark it, and the tab should never resurface that thread.
     const rows = accountId
       ? (getDb()
           .prepare(
             `SELECT thread_id, account_id, is_ready, reason, analyzed_at, dismissed
              FROM archive_ready
-             WHERE account_id = ?
+             WHERE account_id = ? AND dismissed = 0
              ORDER BY analyzed_at DESC LIMIT ?`,
           )
           .all(accountId, cap) as Array<{
@@ -201,6 +187,7 @@ export function registerArchiveReadyMethods(): void {
           .prepare(
             `SELECT thread_id, account_id, is_ready, reason, analyzed_at, dismissed
              FROM archive_ready
+             WHERE dismissed = 0
              ORDER BY analyzed_at DESC LIMIT ?`,
           )
           .all(cap) as Array<{
@@ -219,5 +206,24 @@ export function registerArchiveReadyMethods(): void {
       analyzedAt: r.analyzed_at,
       dismissed: r.dismissed === 1,
     }));
+  });
+
+  // Mark a row dismissed so list() no longer returns it. Called from the
+  // renderer's UndoActionToast after a successful archive of a thread that
+  // came from the Archive Ready tab. Idempotent — UPDATE with a WHERE on
+  // (thread_id, account_id); a missing row is silently a no-op (counts is
+  // returned for the caller's bookkeeping, not as an error signal).
+  registerMethod("archiveReady.dismiss", (params) => {
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
+    if (!threadId || !accountId) {
+      throw new Error("archiveReady.dismiss: requires { threadId, accountId }");
+    }
+    const result = getDb()
+      .prepare(
+        `UPDATE archive_ready SET dismissed = 1
+         WHERE thread_id = ? AND account_id = ?`,
+      )
+      .run(threadId, accountId);
+    return { ok: true, dismissed: result.changes };
   });
 }
