@@ -70,7 +70,13 @@ function AwaitingReplyRow({ row, onDrafted }: RowProps) {
         setError(result.error);
         return;
       }
-      onDrafted(row, result.data.body);
+      try {
+        onDrafted(row, result.data.body);
+      } catch (err) {
+        // handleDrafted throws when the thread isn't loaded into the store
+        // yet — surface that locally so the user sees what to do.
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -156,14 +162,39 @@ export function AwaitingReplyView() {
   const handleDrafted = useCallback(
     (row: AwaitingReplyThreadRow, body: string) => {
       // Pivot the user back into the thread with the inline-reply composer
-      // open and the nudge prefilled. Same flow as opening a saved draft.
+      // open and the nudge prefilled. The trick is `openCompose("reply",
+      // undefined, ...)` doesn't actually work — EmailDetail's compose
+      // useEffect calls `compose.getReplyInfo(replyToEmailId, ...)` which
+      // errors on undefined and then RESETS the composer back to null,
+      // making the prefilled body flash and disappear. So we need a real
+      // replyToEmailId. Pull the latest sent message in this thread from
+      // the store — the detector already proved one exists, and the
+      // store is populated from the same sync.getEmails the inbox uses.
+      const emailsInThread = useAppStore
+        .getState()
+        .emails.filter((e) => e.threadId === row.threadId);
+      const sentInThread = emailsInThread.filter((e) => e.labelIds?.includes("SENT"));
+      const latestSent = sentInThread.sort((a, b) =>
+        b.date.localeCompare(a.date),
+      )[0];
+
       setSelectedThreadId(row.threadId);
-      // We don't carry the SENT message id back from the sidecar; the
-      // inline composer treats threadId + null emailId as "compose against
-      // the latest in this thread" — same as the draft-restore path.
-      setSelectedEmailId(null);
+      setSelectedEmailId(latestSent?.id ?? null);
       setViewMode("full");
-      openCompose("reply", undefined, {
+
+      if (!latestSent) {
+        // Fallback: thread isn't in the store (user opened nudge view
+        // before inbox finished syncing). The compose pane needs a real
+        // emailId to work; without one, the body would silently flash and
+        // disappear (see EmailDetail.tsx ~line 2823 fallback path that
+        // resets composeMode on a sidecar error). Surface a clear error.
+        // Caller renders this as a toast.
+        throw new Error(
+          "Couldn't find the original message in your inbox. Refresh and try again.",
+        );
+      }
+
+      openCompose("reply", latestSent.id, {
         bodyHtml: draftBodyToHtml(body),
         bodyText: body,
         skipAutoFocus: false,
