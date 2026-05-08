@@ -279,6 +279,73 @@ export interface ExtensionManifestSummary {
   }>;
 }
 
+// ── morning briefing ─────────────────────────────────────────────────────
+//
+// Daily 3-paragraph executive briefing of yesterday's inbox activity +
+// today's calendar / unreplied threads. One row per (accountId, isoDate)
+// in the daily_briefings table; lazy-generated on first call per day.
+
+export interface BriefingStats {
+  newEmails: number;
+  needsReplyCount: number;
+  autoHandledCount: number;
+  draftsReadyCount: number;
+  snoozedCount: number;
+  upcomingEventsCount: number;
+}
+
+export interface BriefingActionItem {
+  threadId: string;
+  emailId: string;
+  subject: string;
+  fromEmail: string;
+  fromName: string | null;
+  reason: string;
+  priority: "high" | "medium" | "low";
+}
+
+export interface DailyBriefing {
+  accountId: string;
+  /** YYYY-MM-DD in the user's local timezone. */
+  date: string;
+  briefingText: string;
+  actionItems: BriefingActionItem[];
+  stats: BriefingStats;
+  generatedAt: number;
+  /** ms-epoch when the user clicked "Got it". null = still active. */
+  dismissedAt: number | null;
+}
+
+// ── permissions tray ─────────────────────────────────────────────────────
+//
+// Aggregated list of agent actions awaiting approval — pending drafts
+// (ready to send) + archive-ready threads (ready to archive). The
+// renderer dispatches Approve/Skip via the existing compose / drafts /
+// emails / archiveReady namespaces; this method just surfaces the queue.
+
+export type PermissionItemKind = "draft" | "archive";
+
+export interface PermissionItem {
+  kind: PermissionItemKind;
+  id: string;
+  accountId: string;
+  createdAt: number;
+  subject: string;
+  preview: string;
+  emailId?: string;
+  threadId?: string;
+  reason?: string;
+}
+
+export interface PermissionsListResult {
+  items: PermissionItem[];
+  counts: {
+    drafts: number;
+    archives: number;
+    total: number;
+  };
+}
+
 // ── learned rules ────────────────────────────────────────────────────────
 //
 // One promoted rule that the analyzer pipeline now treats as
@@ -702,6 +769,32 @@ export interface SidecarMethods {
   "archiveReady.dismiss": {
     params: { threadId: string; accountId: string };
     result: { ok: true; dismissed: number };
+  };
+
+  // ── morning briefing ──────────────────────────────────────────────────
+  // Daily Morning Briefing — Tier-1 wake-up-to-finished-inbox feature.
+  // First call per (account, date) generates + caches; subsequent calls
+  // return the cached row. `force: true` re-generates.
+  "briefing.getOrGenerate": {
+    params: { accountId: string; date?: string; force?: boolean };
+    result: DailyBriefing;
+  };
+  "briefing.dismiss": {
+    params: { accountId: string; date?: string };
+    result: { ok: true; briefing: DailyBriefing | null };
+  };
+  "briefing.list": {
+    params: { accountId: string; limit?: number };
+    result: DailyBriefing[];
+  };
+
+  // ── permissions tray ──────────────────────────────────────────────────
+  // Items awaiting user sign-off — pending drafts + archive-ready threads.
+  // The renderer's PermissionsTray fetches this; Approve/Skip dispatch
+  // through the existing compose / drafts / emails / archiveReady verbs.
+  "permissions.list": {
+    params: { accountId?: string } | void;
+    result: PermissionsListResult;
   };
 }
 

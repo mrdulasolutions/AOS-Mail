@@ -2548,6 +2548,58 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // briefing — daily Morning Briefing. Generated lazily on first call per
+  // (account, date); the renderer's MorningBriefing.tsx pulls today's row
+  // on boot, then dismisses when the user clicks "Got it — open inbox".
+  real.briefing = {
+    getOrGenerate: async (
+      accountId: string,
+      date?: string,
+      force?: boolean,
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("briefing.getOrGenerate", {
+          accountId,
+          date,
+          force,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    dismiss: async (accountId: string, date?: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("briefing.dismiss", { accountId, date });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    list: async (accountId: string, limit?: number): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("briefing.list", { accountId, limit });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
+  // permissions — agent activity awaiting approval. Combines pending
+  // drafts + archive-ready threads. Approve/Skip dispatch through the
+  // existing compose / drafts / emails / archiveReady namespaces.
+  real.permissions = {
+    list: async (accountId?: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("permissions.list", { accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   return real;
 }
 
