@@ -70,9 +70,9 @@ interface UpsertEmail {
 function upsertEmail(row: UpsertEmail): boolean {
   const db = getDb();
   // Returns true if inserted (new), false if updated (existing).
-  const existing = db
-    .prepare("SELECT id FROM emails WHERE id = ?")
-    .get(row.id) as { id: string } | undefined;
+  const existing = db.prepare("SELECT id FROM emails WHERE id = ?").get(row.id) as
+    | { id: string }
+    | undefined;
   if (existing) {
     db.prepare(
       `UPDATE emails SET
@@ -356,10 +356,7 @@ function setGmailSyncState(accountId: string, historyId: string): void {
     .run(accountId, historyId, Date.now());
 }
 
-function gmailHeaderToUpsert(
-  accountId: string,
-  h: GmailMessageHeader,
-): UpsertEmail {
+function gmailHeaderToUpsert(accountId: string, h: GmailMessageHeader): UpsertEmail {
   return {
     id: h.id,
     account_id: accountId,
@@ -447,14 +444,12 @@ async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
         // Remove INBOX from label_ids so the row stops showing up in the
         // inbox query. We don't DELETE; the row may still be needed for
         // thread context or search.
-        const stmt = getDb().prepare(
-          "UPDATE emails SET label_ids = ? WHERE id = ?",
-        );
+        const stmt = getDb().prepare("UPDATE emails SET label_ids = ? WHERE id = ?");
         for (const gid of changes.removedIds) {
           const id = `gmail:${accountId}:${gid}`;
-          const row = getDb()
-            .prepare("SELECT label_ids FROM emails WHERE id = ?")
-            .get(id) as { label_ids: string | null } | undefined;
+          const row = getDb().prepare("SELECT label_ids FROM emails WHERE id = ?").get(id) as
+            | { label_ids: string | null }
+            | undefined;
           if (!row) continue;
           let labels: string[] = [];
           try {
@@ -467,14 +462,12 @@ async function syncGmailAccountNow(accountId: string): Promise<SyncResult> {
       }
       // Read/unread flips — toggle the UNREAD label in the stored JSON.
       const flipUnread = (gids: string[], unread: boolean): void => {
-        const stmt = getDb().prepare(
-          "UPDATE emails SET label_ids = ? WHERE id = ?",
-        );
+        const stmt = getDb().prepare("UPDATE emails SET label_ids = ? WHERE id = ?");
         for (const gid of gids) {
           const id = `gmail:${accountId}:${gid}`;
-          const row = getDb()
-            .prepare("SELECT label_ids FROM emails WHERE id = ?")
-            .get(id) as { label_ids: string | null } | undefined;
+          const row = getDb().prepare("SELECT label_ids FROM emails WHERE id = ?").get(id) as
+            | { label_ids: string | null }
+            | undefined;
           if (!row) continue;
           let labels: string[] = [];
           try {
@@ -726,8 +719,7 @@ function rowToDashboard(r: RawEmailRow): DashboardEmailRow {
 
   // Joined draft row.
   if (r.d_draft_body !== undefined && r.d_draft_body !== null) {
-    const status =
-      r.d_status === "created" || r.d_status === "edited" ? r.d_status : "pending";
+    const status = r.d_status === "created" || r.d_status === "edited" ? r.d_status : "pending";
     const composeMode =
       r.d_compose_mode === "reply" ||
       r.d_compose_mode === "reply-all" ||
@@ -783,9 +775,12 @@ export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmail
     try {
       const full = await getGmailMessageFull(parsed.accountId, parsed.gmailId);
       if (!full) return rowToDashboard(row);
-      db.prepare(
-        "UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?",
-      ).run(full.body, full.bodyText, Date.now(), emailId);
+      db.prepare("UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?").run(
+        full.body,
+        full.bodyText,
+        Date.now(),
+        emailId,
+      );
       return rowToDashboard({ ...row, body: full.body });
     } catch (err) {
       log.warn("fetchBodyForEmail (gmail) failed", {
@@ -807,9 +802,12 @@ export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmail
   try {
     const full = await getImapMessageFull(row.account_id, folder, Number(uidStr));
     if (!full) return rowToDashboard(row);
-    db.prepare(
-      "UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?",
-    ).run(full.body, full.bodyText, Date.now(), emailId);
+    db.prepare("UPDATE emails SET body = ?, body_text = ?, fetched_at = ? WHERE id = ?").run(
+      full.body,
+      full.bodyText,
+      Date.now(),
+      emailId,
+    );
     return rowToDashboard({ ...row, body: full.body });
   } catch (err) {
     log.warn("fetchBodyForEmail failed", {
@@ -826,10 +824,7 @@ export async function fetchBodyForEmail(emailId: string): Promise<DashboardEmail
  * opens a conversation. Sorted oldest-first to match the conversation
  * UI's render order.
  */
-export function getEmailsForThread(
-  threadId: string,
-  accountId: string,
-): DashboardEmailRow[] {
+export function getEmailsForThread(threadId: string, accountId: string): DashboardEmailRow[] {
   const rows = getDb()
     .prepare(
       `SELECT e.id, e.thread_id, e.account_id, e.subject,
@@ -861,13 +856,42 @@ export function getEmailsForThread(
 
 export function getEmailsForAccount(
   accountId: string,
-  opts: { sent?: boolean } = {},
+  opts: {
+    sent?: boolean;
+    /** IMAP folder name or system path — matched against label_ids. */
+    folder?: string;
+    /** Gmail label id — matched against label_ids. */
+    label?: string;
+    limit?: number;
+  } = {},
 ): DashboardEmailRow[] {
-  // V1 doesn't track sent vs inbox separately — IMAP path stores INBOX
-  // only. When the user actually sends, we'll insert with a SENT label.
-  const where = opts.sent
-    ? "e.account_id = ? AND e.label_ids LIKE '%SENT%'"
-    : "e.account_id = ? AND (e.label_ids LIKE '%INBOX%' OR e.label_ids IS NULL)";
+  // Filtering by folder (IMAP) or label (Gmail) — both ride on the same
+  // label_ids column. The IMAP write path stores `["INBOX"]` for inbox
+  // rows; the SENT-folder writer stores SENT alongside the folder name
+  // (e.g. `["SENT","Sent Items"]`) so a click on either resolves here.
+  // Gmail's labelIds array is mirrored verbatim, so passing a Gmail label
+  // id like "Label_42" as `label` does the right thing.
+  //
+  // SQL LIKE '%<token>%' is good enough — label_ids is a JSON array
+  // serialised to text so we look for the quoted token verbatim. The
+  // surrounding quotes guard against partial matches (e.g. searching
+  // for "SENT" wouldn't accidentally match a label called "PRESENTED").
+  const params: unknown[] = [accountId];
+  let where: string;
+  if (opts.folder) {
+    where = "e.account_id = ? AND e.label_ids LIKE ?";
+    params.push(`%"${opts.folder}"%`);
+  } else if (opts.label) {
+    where = "e.account_id = ? AND e.label_ids LIKE ?";
+    params.push(`%"${opts.label}"%`);
+  } else if (opts.sent) {
+    where = "e.account_id = ? AND e.label_ids LIKE '%SENT%'";
+  } else {
+    // Default: INBOX-only listing. IMAP rows without label_ids set
+    // (legacy) are also returned — they're the user's real inbox.
+    where = "e.account_id = ? AND (e.label_ids LIKE '%INBOX%' OR e.label_ids IS NULL)";
+  }
+  const limit = Math.min(Math.max(opts.limit ?? 500, 1), 2_000);
   // LEFT JOIN analyses + drafts so the renderer's EmailRow can render the
   // priority badge + draft pill on the first paint. Without this join the
   // renderer paints empty rows even when the DB has analyses, because no
@@ -896,8 +920,8 @@ export function getEmailsForAccount(
        LEFT JOIN drafts   d ON d.email_id = e.id
        WHERE ${where}
        ORDER BY e.date DESC
-       LIMIT 500`,
+       LIMIT ${limit}`,
     )
-    .all(accountId) as RawEmailRow[];
+    .all(...params) as RawEmailRow[];
   return rows.map(rowToDashboard);
 }

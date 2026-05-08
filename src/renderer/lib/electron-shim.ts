@@ -777,9 +777,12 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    getEmails: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    getEmails: async (
+      accountId: string,
+      opts?: { folder?: string; label?: string; limit?: number },
+    ): Promise<IpcResponse<unknown>> => {
       try {
-        const data = await bridge.call("sync.getEmails", { accountId });
+        const data = await bridge.call("sync.getEmails", { accountId, ...(opts ?? {}) });
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -889,9 +892,27 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    listFolders: async (accountId: string): Promise<IpcResponse<unknown>> => {
+    listFolders: async (
+      accountId: string,
+    ): Promise<
+      IpcResponse<{
+        folders: Array<{
+          name: string;
+          path: string;
+          specialUse: string | null;
+          isSystem: boolean;
+        }>;
+      }>
+    > => {
       try {
-        const data = await bridge.call("imap.listFolders", { accountId });
+        const data = (await bridge.call("imap.listFolders", { accountId })) as {
+          folders: Array<{
+            name: string;
+            path: string;
+            specialUse: string | null;
+            isSystem: boolean;
+          }>;
+        };
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -929,12 +950,16 @@ function installRealNamespaces(): Record<string, unknown> {
     fetchUnread: async (
       _maxResults?: number,
       accountId?: string,
+      opts?: { folder?: string; label?: string; limit?: number },
     ): Promise<IpcResponse<unknown>> => {
       try {
         if (!accountId) {
           return { success: true, data: [] };
         }
-        const data = await bridge.call("sync.getEmails", { accountId });
+        const data = await bridge.call("sync.getEmails", {
+          accountId,
+          ...(opts ?? {}),
+        });
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -1023,6 +1048,29 @@ function installRealNamespaces(): Record<string, unknown> {
     createDraft: async (input: Record<string, unknown>): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("gmail.createDraft", input);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // List labels for the left-rail folder picker. Mirrors imap.listFolders
+    // for the Gmail provider.
+    listLabels: async (
+      accountId: string,
+    ): Promise<
+      IpcResponse<{
+        labels: Array<{ id: string; name: string; type: "system" | "user"; color: string | null }>;
+      }>
+    > => {
+      try {
+        const data = (await bridge.call("gmail.listLabels", { accountId })) as {
+          labels: Array<{
+            id: string;
+            name: string;
+            type: "system" | "user";
+            color: string | null;
+          }>;
+        };
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };

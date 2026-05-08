@@ -186,10 +186,95 @@ describe("sync.getEmails with analysis/draft joins", () => {
   });
 
   it("throws when accountId is missing", async () => {
+    await assert.rejects(() => h.call("sync.getEmails", {}), /requires \{ accountId \}/);
+  });
+
+  it("filters by folder name on the IMAP path", async () => {
+    // IMAP path stores folder names in label_ids alongside system tags
+    // (e.g. ["SENT","Sent Items"]). A click on "Sent Items" in the rail
+    // should resolve via the LIKE-based folder filter.
+    const accountId = seedAccount(h, { email: "imap-folders@example.com", provider: "imap" });
+    seedEmail(h, { accountId, subject: "Inbox row", labelIds: ["INBOX"] });
+    seedEmail(h, {
+      accountId,
+      subject: "Sent row",
+      labelIds: ["SENT", "Sent Items"],
+    });
+    seedEmail(h, {
+      accountId,
+      subject: "Custom row",
+      labelIds: ["Receipts"],
+    });
+
+    const sent = await h.call<DashboardEmailRow[]>("sync.getEmails", {
+      accountId,
+      folder: "Sent Items",
+    });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]?.subject, "Sent row");
+
+    const receipts = await h.call<DashboardEmailRow[]>("sync.getEmails", {
+      accountId,
+      folder: "Receipts",
+    });
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0]?.subject, "Custom row");
+  });
+
+  it("filters by Gmail label id", async () => {
+    // Gmail's labelIds are stored verbatim in label_ids (e.g.
+    // ["INBOX","Label_42"]). Passing the label id resolves through the
+    // same LIKE filter as folder.
+    const accountId = seedAccount(h, { email: "gmail-labels@example.com", provider: "gmail" });
+    seedEmail(h, { accountId, subject: "Just inbox", labelIds: ["INBOX"] });
+    seedEmail(h, {
+      accountId,
+      subject: "Tagged row",
+      labelIds: ["INBOX", "Label_42"],
+    });
+
+    const tagged = await h.call<DashboardEmailRow[]>("sync.getEmails", {
+      accountId,
+      label: "Label_42",
+    });
+    assert.equal(tagged.length, 1);
+    assert.equal(tagged[0]?.subject, "Tagged row");
+  });
+});
+
+describe("imap.listFolders + gmail.listLabels — error paths", () => {
+  // Smoke tests: with no real account configured, both calls surface a
+  // structured error instead of crashing the sidecar. We can't drive
+  // real IMAP/Gmail calls from the test harness, but the auth-failure
+  // branch is enough to verify the wiring.
+  let h: Harness;
+  before(async () => {
+    h = await spawnSidecar();
+  });
+  after(async () => {
+    await h.close();
+  });
+
+  it("imap.listFolders rejects when no IMAP creds are stored", async () => {
     await assert.rejects(
-      () => h.call("sync.getEmails", {}),
-      /requires \{ accountId \}/,
+      () => h.call("imap.listFolders", { accountId: "no-account" }),
+      /No IMAP credentials/,
     );
+  });
+
+  it("imap.listFolders requires accountId", async () => {
+    await assert.rejects(() => h.call("imap.listFolders", {}), /requires \{ accountId \}/);
+  });
+
+  it("gmail.listLabels rejects when no tokens are stored", async () => {
+    await assert.rejects(
+      () => h.call("gmail.listLabels", { accountId: "no-account" }),
+      /No tokens for account/,
+    );
+  });
+
+  it("gmail.listLabels requires accountId", async () => {
+    await assert.rejects(() => h.call("gmail.listLabels", {}), /requires \{ accountId \}/);
   });
 });
 
@@ -266,10 +351,7 @@ describe("sync.start / sync.stop / sync.setInterval", () => {
   });
 
   it("sync.start without accountId throws", async () => {
-    await assert.rejects(
-      () => h.call("sync.start", {}),
-      /requires \{ accountId \}/,
-    );
+    await assert.rejects(() => h.call("sync.start", {}), /requires \{ accountId \}/);
   });
 
   it("sync.start returns the current intervalMs", async () => {

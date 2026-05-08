@@ -102,19 +102,7 @@ export async function openImapClient(accountId: string): Promise<ImapFlow> {
   return client;
 }
 
-/** Return all available mailboxes on the IMAP server. */
-export async function listImapFolders(accountId: string): Promise<
-  Array<{ name: string; path: string; specialUse: string | null }>
-> {
-  const client = await openImapClient(accountId);
-  try {
-    const list = await client.list();
-    return list.map((box) => ({
-      name: box.name,
-      path: box.path,
-      specialUse: box.specialUse ?? null,
-    }));
-  } finally {
-    await client.logout();
-  }
-}
+// listImapFolders moved to ./imap-folders.ts so the rail UI gets the
+// richer shape (isSystem flag, NoSelect filtering). The old surface only
+// returned name/path/specialUse — kept the export name there so any
+// caller that imported it still resolves.

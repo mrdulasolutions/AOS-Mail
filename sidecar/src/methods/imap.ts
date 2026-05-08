@@ -21,8 +21,8 @@ import {
   testImapConnection,
   persistImapCredentials,
   dropImapCredentials,
-  listImapFolders,
 } from "../services/providers/imap.js";
+import { listImapFolders } from "../services/providers/imap-folders.js";
 import { getDb } from "../db/index.js";
 
 interface AddAccountInput {
@@ -40,9 +40,9 @@ interface AddAccountInput {
 function upsertImapAccountRow(input: AddAccountInput): void {
   const db = getDb();
   const accountId = input.email;
-  const existing = db
-    .prepare("SELECT id FROM accounts WHERE id = ?")
-    .get(accountId) as { id: string } | undefined;
+  const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(accountId) as
+    | { id: string }
+    | undefined;
   const tls = input.tls ?? true;
   if (existing) {
     db.prepare(

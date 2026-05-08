@@ -342,7 +342,10 @@ export interface SidecarMethods {
     params: { accountId: string };
     result: { accountId: string; status: "idle" | "syncing" | "error" };
   };
-  "sync.getEmails": { params: { accountId: string }; result: DashboardEmailRow[] };
+  "sync.getEmails": {
+    params: { accountId: string; folder?: string; label?: string; limit?: number };
+    result: DashboardEmailRow[];
+  };
   "sync.getSentEmails": {
     params: { accountId: string };
     result: DashboardEmailRow[];
@@ -428,6 +431,32 @@ export interface SidecarMethods {
   "gmail.createDraft": {
     params: ComposeSendInput & { gmailDraftId?: string };
     result: { draftId: string; messageId: string; threadId: string };
+  };
+  "gmail.listLabels": {
+    params: { accountId: string };
+    result: {
+      labels: Array<{
+        id: string;
+        name: string;
+        type: "system" | "user";
+        color: string | null;
+      }>;
+    };
+  };
+
+  // ── imap (provider) ───────────────────────────────────────────────────
+  // Folder list for the rail. Gmail-via-IMAP returns the same shape; the
+  // rail component branches on account.provider, not on the result.
+  "imap.listFolders": {
+    params: { accountId: string };
+    result: {
+      folders: Array<{
+        name: string;
+        path: string;
+        specialUse: string | null;
+        isSystem: boolean;
+      }>;
+    };
   };
 
   // ── thread summary ────────────────────────────────────────────────────

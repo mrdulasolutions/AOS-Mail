@@ -255,6 +255,11 @@ interface AppState {
   splits: InboxSplit[];
   currentSplitId: string | null;
 
+  // Current IMAP folder / Gmail label for the left-rail picker. `null`
+  // means default behaviour — INBOX-only listing. Setting this pivots
+  // sync.getEmails to a label-specific query.
+  currentFolder: string | null;
+
   // Snippets state
   snippets: Snippet[];
 
@@ -433,6 +438,7 @@ interface AppState {
   // Inbox splits actions
   setSplits: (splits: InboxSplit[]) => void;
   setCurrentSplitId: (id: string | null) => void;
+  setCurrentFolder: (folder: string | null) => void;
 
   // Snippets actions
   setSnippets: (snippets: Snippet[]) => void;
@@ -621,6 +627,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Once Anthropic API key is set + analyses populate, the user can flip
   // to Priority via the tab strip.
   currentSplitId: "__other__",
+
+  // Default: no folder pinned — show INBOX (the existing behaviour).
+  currentFolder: null,
 
   // Snippets state
   snippets: [],
@@ -883,6 +892,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedEmailId: null,
       globalAgentTaskKey: null,
       currentSplitId: nextSplitId,
+      // Folders are per-account — reset to default (INBOX) on switch.
+      currentFolder: null,
     });
   },
   setSyncStatus: (accountId, status) =>
@@ -1069,6 +1080,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Inbox splits actions
   setSplits: (splits) => set({ splits }),
   setCurrentSplitId: (id) => set({ currentSplitId: id }),
+  setCurrentFolder: (folder) => set({ currentFolder: folder }),
 
   // Snippets actions
   setSnippets: (snippets) => set({ snippets }),
