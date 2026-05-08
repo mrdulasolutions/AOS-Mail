@@ -170,9 +170,6 @@ export interface LlmCallRowWithSubject extends LlmCallRow {
 // Visibility is a renderer-wide preference (per accountId+calendarId);
 // events come from a 60s in-memory cache keyed by (accountId, calendarId,
 // timeMin, timeMax).
-//
-// The list shape mirrors what SettingsPanel.tsx already consumes (so the
-// existing Settings → Calendar code keeps working without changes).
 
 export interface CalendarRow {
   accountId: string;
@@ -213,6 +210,47 @@ export interface CalendarEventRow {
 }
 
 export type CalendarRsvpResponse = "accepted" | "declined" | "tentative";
+
+// ── sender / extensions ─────────────────────────────────────────────────
+//
+// SenderProfileLegacy mirrors the historic `sender_profiles` SQLite row
+// shape. SenderProfile is the new shape returned by the extensions
+// framework — includes role/sources/isAutomated.
+
+export interface SenderProfileLegacy {
+  email: string;
+  name: string | null;
+  summary: string;
+  linkedinUrl: string | null;
+  company: string | null;
+  title: string | null;
+  lookupAt: number;
+}
+
+export interface SenderProfile {
+  email: string;
+  name: string | null;
+  role: string | null;
+  company: string | null;
+  summary: string;
+  linkedinUrl: string | null;
+  sources: Array<{ title: string; url: string }>;
+  cachedAt: number;
+  isAutomated: boolean;
+}
+
+export interface ExtensionManifestSummary {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  enabled: boolean;
+  panels: Array<{
+    id: string;
+    scope: "sender" | "email";
+    title: string;
+  }>;
+}
 
 // ── The contract ────────────────────────────────────────────────────────
 
@@ -402,6 +440,38 @@ export interface SidecarMethods {
       cached: boolean;
       createdAt?: number;
     };
+  };
+
+  // ── sender (web-search-backed profile lookup) ─────────────────────────
+  // Used by the sender-profile bundled extension. The renderer's
+  // useExtensionPanels hook calls extensions.getEnrichment which dispatches
+  // to sender.lookup; sender.getCached is for cheap pre-render hits.
+  "sender.getProfile": {
+    params: { email: string };
+    result: SenderProfileLegacy | null;
+  };
+  "sender.getCached": {
+    params: { email: string };
+    result: SenderProfile | null;
+  };
+  "sender.lookup": {
+    params: { email: string; name?: string; accountId?: string };
+    result: SenderProfile;
+  };
+
+  // ── extensions (V1 bundled framework) ─────────────────────────────────
+  "extensions.list": {
+    params: void;
+    result: ExtensionManifestSummary[];
+  };
+  "extensions.getEnrichment": {
+    params: {
+      extensionId: string;
+      accountId?: string;
+      email: string;
+      name?: string;
+    };
+    result: Record<string, unknown> | null;
   };
 
   // ── usage / agent activity ────────────────────────────────────────────

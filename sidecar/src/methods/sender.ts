@@ -1,15 +1,24 @@
 // `sender` IPC namespace — sender profile / enrichment cache lookup.
 //
-// V1 lift handles only the sender_profiles legacy table. The extension
-// enrichment cache lookup (`getEnrichmentBySender(...)`) lifts when the
-// extensions namespace + enrichment-store come over. Until then, the
-// "extension cache hit" branch is skipped and we fall through to the
-// legacy table — which is the intended Electron behavior anyway.
+// Two methods:
+//   - `sender.getProfile` / `sender.getCached` — read-only cache hit, returns
+//      null when the cache is empty or stale (>7 days). Same surface area as
+//      the legacy Electron handler.
+//   - `sender.lookup` — actual web-search-backed lookup. Forces a refresh if
+//      the cache is stale. Used by the sender-profile bundled extension.
+//
+// The lookup itself lives in services/sender-lookup.ts so the extensions
+// dispatcher (extensions.getEnrichment) can call it directly without
+// re-routing through RPC.
 
 import { registerMethod } from "../rpc.js";
-import { getDb } from "../db/index.js";
+import {
+  lookupSender as lookupSenderService,
+  getCachedSender,
+  type SenderProfile,
+} from "../services/sender-lookup.js";
 
-export interface SenderProfile {
+export interface SenderProfileLegacy {
   email: string;
   name: string | null;
   summary: string;
@@ -19,32 +28,45 @@ export interface SenderProfile {
   lookupAt: number;
 }
 
-function getSenderProfile(email: string): SenderProfile | null {
-  const row = getDb()
-    .prepare(
-      `SELECT email, name, summary, linkedin_url as linkedinUrl, company, title,
-              lookup_at as lookupAt
-       FROM sender_profiles WHERE email = ?`,
-    )
-    .get(email.toLowerCase()) as SenderProfile | undefined;
-  return row ?? null;
+/** Map the new SenderProfile shape onto the legacy {title, lookupAt} surface. */
+function toLegacyShape(profile: SenderProfile): SenderProfileLegacy {
+  return {
+    email: profile.email,
+    name: profile.name,
+    summary: profile.summary,
+    linkedinUrl: profile.linkedinUrl,
+    company: profile.company,
+    title: profile.role,
+    lookupAt: profile.cachedAt,
+  };
 }
 
 export function registerSenderMethods(): void {
   registerMethod("sender.getProfile", (params) => {
     const { email } = (params as { email?: string }) ?? {};
     if (!email) throw new Error("sender.getProfile: requires { email }");
-    return getSenderProfile(email);
+    const profile = getCachedSender(email);
+    return profile ? toLegacyShape(profile) : null;
   });
 
-  // The Electron version "lookup" also enqueued a background web-search
-  // enrichment if no cache hit existed. That side effect lives in the
-  // extension host (web-search extension) and lifts later. For now,
-  // lookup() returns the same data as getProfile() — the renderer's
-  // copy-paste UI keeps working.
-  registerMethod("sender.lookup", (params) => {
-    const { email } = (params as { email?: string; from?: string }) ?? {};
+  // No-fetch cache lookup. Returns the new SenderProfile shape directly.
+  // Used by the extension bundle to render an instant cache hit before the
+  // background lookup finishes.
+  registerMethod("sender.getCached", (params) => {
+    const { email } = (params as { email?: string }) ?? {};
+    if (!email) throw new Error("sender.getCached: requires { email }");
+    return getCachedSender(email);
+  });
+
+  // Web-search-backed lookup. Returns the cached profile if fresh,
+  // otherwise calls Claude with the web_search tool and caches the result.
+  registerMethod("sender.lookup", async (params) => {
+    const { email, name, accountId } = (params as {
+      email?: string;
+      name?: string;
+      accountId?: string;
+    }) ?? {};
     if (!email) throw new Error("sender.lookup: requires { email }");
-    return getSenderProfile(email);
+    return await lookupSenderService({ email, name, accountId });
   });
 }

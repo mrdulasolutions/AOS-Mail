@@ -2015,35 +2015,108 @@ function installRealNamespaces(): Record<string, unknown> {
     removeDraftSavedListeners: (): void => {},
   };
 
-  // extensions — V2 plugin system. SetupWizard's enterExtensionsStep checks
-  // getPendingAuths; returning an empty array makes the wizard skip the
-  // extensions step gracefully.
+  // extensions — V1 framework surface.
+  //
+  // Three categories of method here:
+  //   - Sidecar-backed: `list` (sidecar dispatches manifests), `setEnabled`
+  //     (writes preferences via settings.set), `getEnrichment` (proxies
+  //     to extensions.getEnrichment for the Settings tab refresh button).
+  //   - Stubs: `listInstalled`, `install`, `uninstall`, `authenticate` —
+  //     V1 only ships bundled extensions, so these return empty / a
+  //     not-supported error. Future V2 plumbing replaces them.
+  //   - No-op event subscriptions: `onInstalled`, `onUninstalled`,
+  //     `onEnrichmentReady` — kept so existing listeners don't crash.
+  //     The V1 host doesn't emit these events; the in-renderer host's
+  //     `onHostChange` listener covers what these used to drive.
+  type ExtensionManifestSummary = {
+    id: string;
+    name: string;
+    description: string;
+    version: string;
+    enabled: boolean;
+    panels: Array<{ id: string; scope: "sender" | "email"; title: string }>;
+  };
   real.extensions = {
     getPendingAuths: async (): Promise<IpcResponse<unknown[]>> => ({
       success: true,
       data: [],
     }),
-    list: async (): Promise<IpcResponse<unknown[]>> => ({ success: true, data: [] }),
+    // Returns the bundled-extension manifests from the sidecar. Used by
+    // Settings → Extensions and by the boot path to hydrate enabled state.
+    list: async (): Promise<IpcResponse<ExtensionManifestSummary[]>> => {
+      try {
+        const data = (await bridge.call(
+          "extensions.list",
+          {},
+        )) as ExtensionManifestSummary[];
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Persist on/off state. Reads existing extensions config from
+    // preferences, merges in the new entry, writes back via settings.set.
+    setEnabled: async (extensionId: string, enabled: boolean): Promise<IpcResponse<null>> => {
+      try {
+        const settingsResult = (await bridge.call("settings.get", {})) as
+          | Record<string, unknown>
+          | undefined;
+        const current = settingsResult ?? {};
+        const existing = (current.extensions as Record<string, { enabled?: boolean }>) ?? {};
+        const next = {
+          ...existing,
+          [extensionId]: { ...(existing[extensionId] ?? {}), enabled },
+        };
+        await bridge.call("settings.set", { extensions: next });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Trigger an enrichment from the renderer. Today the V1 hook drives
+    // enrichment through the in-renderer host (which proxies to the
+    // sidecar internally), so this is mostly here for the Settings UI's
+    // future "force refresh" button.
+    getEnrichment: async (
+      extensionId: string,
+      params: { accountId?: string; email: string; name?: string },
+    ): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("extensions.getEnrichment", {
+          extensionId,
+          accountId: params.accountId,
+          email: params.email,
+          name: params.name,
+        });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // V1 ships only bundled extensions — nothing installed at runtime.
     listInstalled: async (): Promise<IpcResponse<unknown[]>> => ({
       success: true,
       data: [],
     }),
     install: async (): Promise<IpcResponse<null>> => ({
       success: false,
-      error: "extensions.install: V2",
+      error: "extensions.install: not supported in V1 (bundled only)",
     }),
     uninstall: async (): Promise<IpcResponse<null>> => ({
       success: false,
-      error: "extensions.uninstall: V2",
+      error: "extensions.uninstall: not supported in V1 (bundled only)",
     }),
     authenticate: async (): Promise<IpcResponse<null>> => ({
       success: false,
-      error: "extensions.authenticate: V2",
+      error: "extensions.authenticate: not supported in V1",
     }),
     checkProviderHealth: async (): Promise<IpcResponse<unknown>> => ({
       success: true,
-      data: { healthy: false, reason: "no extensions installed" },
+      data: { healthy: true, reason: "ok" },
     }),
+    // The V1 hook (useExtensionPanels) doesn't call these — it talks
+    // directly to the in-renderer host. Stubs kept so any leftover
+    // call-sites don't throw.
     enrichEmail: async (): Promise<IpcResponse<null>> => ({ success: true, data: null }),
     getEnrichments: async (): Promise<IpcResponse<unknown[]>> => ({
       success: true,
