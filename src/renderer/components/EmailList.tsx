@@ -90,9 +90,35 @@ export function EmailList() {
     setLoadMoreState({ isLoading: false, hasMore: true, fetchedCount: 0 });
   }, [currentAccountId]);
 
+  // Concurrency guard: ref tracks an in-flight loadMore so the
+  // IntersectionObserver (which can fire repeatedly during scroll) cannot
+  // launch a second request while the first is pending. State alone is not
+  // enough — observer callbacks read stale state during the same tick.
+  const inFlightRef = useRef(false);
+
+  // Unmount guard: any pending response is dropped instead of calling
+  // setState on an unmounted component. The bridge does not currently
+  // support AbortController; the request still completes, we just ignore it.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Throttle: rapid scrolling can trigger the observer many times before
+  // a single load resolves. Skip new triggers within 500ms of the last one.
+  const lastLoadAtRef = useRef(0);
+
   const setEmails = useAppStore((s) => s.setEmails);
   const handleLoadMore = useCallback(async () => {
-    if (!currentAccountId || loadMoreState.isLoading || !loadMoreState.hasMore) return;
+    if (!currentAccountId) return;
+    if (inFlightRef.current) return;
+    if (!loadMoreState.hasMore) return;
+    if (Date.now() - lastLoadAtRef.current < 500) return;
+    inFlightRef.current = true;
+    lastLoadAtRef.current = Date.now();
     setLoadMoreState((s) => ({ ...s, isLoading: true }));
     try {
       const resp = await window.api.sync.loadMore(currentAccountId);
@@ -112,6 +138,7 @@ export function EmailList() {
           ? Number((data as { fetched?: number }).fetched ?? 0)
           : 0;
       const refreshed = await window.api.sync.getEmails(currentAccountId);
+      if (!isMountedRef.current) return;
       if (refreshed?.success && refreshed.data) {
         const otherAccountEmails = useAppStore
           .getState()
@@ -125,21 +152,65 @@ export function EmailList() {
       }));
     } catch (err) {
       console.error("[load-more] failed", err);
-      setLoadMoreState((s) => ({ ...s, isLoading: false }));
+      if (isMountedRef.current) {
+        setLoadMoreState((s) => ({ ...s, isLoading: false }));
+      }
+    } finally {
+      inFlightRef.current = false;
     }
-  }, [currentAccountId, loadMoreState.isLoading, loadMoreState.hasMore, setEmails]);
+  }, [currentAccountId, loadMoreState.hasMore, setEmails]);
 
-  // Show the "Load more" control only in inbox-derived views (not Sent /
-  // Drafts / Archive-Ready / Snoozed — those have their own data sources).
-  // Priority/Other/All splits all read from the same inbox set, so the
-  // button still applies there.
-  const showLoadMore =
+  // IntersectionObserver-driven auto-pagination. The sentinel below is
+  // placed at the bottom of the list; when it scrolls within 200px of the
+  // viewport we kick off a load. The manual "Load older" button below
+  // remains as a fallback (a11y / users who prefer no surprise loading).
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Stash the latest handler in a ref so the observer callback always
+  // calls the freshest closure without re-mounting the observer (which
+  // would briefly de-register the intersection target).
+  const handleLoadMoreRef = useRef(handleLoadMore);
+  useEffect(() => {
+    handleLoadMoreRef.current = handleLoadMore;
+  });
+
+  // Whether the sentinel + auto-loader should be shown. Inbox-derived
+  // views only (Sent / Drafts / Archive-Ready / Snoozed have their own
+  // data sources). Priority / Other / All splits all read from the same
+  // inbox set, so the sentinel still applies there. Hidden once the
+  // sidecar reports hasMore=false; the "End of inbox" marker takes
+  // its place.
+  const sentinelVisible =
     !isDraftsView &&
     !isSnoozedView &&
     !isArchiveReadyView &&
     !isSentView &&
     threads.length > 0 &&
     loadMoreState.hasMore;
+
+  useEffect(() => {
+    if (!sentinelVisible) return;
+    const target = sentinelRef.current;
+    if (!target) return;
+    // The scrollable parent is listRef. Anchoring the observer to it
+    // (rather than the viewport) means rootMargin is interpreted in the
+    // list's coordinate space, which is what we want — scrolling within
+    // the inbox should drive the trigger.
+    const root = listRef.current ?? null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            void handleLoadMoreRef.current();
+          }
+        }
+      },
+      { root, rootMargin: "200px 0px", threshold: 0 },
+    );
+    observer.observe(target);
+    return () => {
+      observer.disconnect();
+    };
+  }, [sentinelVisible]);
 
   // Threads with AI-generated drafts (for the Drafts tab).
   // Filter to drafts with body content — excludes placeholder shells still being generated.
@@ -921,45 +992,67 @@ export function EmailList() {
             </div>
           )
         )}
-        {/* Load more control. Lives below the virtualized list (sibling,
-             not inside, so it isn't affected by the absolute-positioned
-             rows). Visible only in inbox-derived views with at least one
-             thread, and only while the sidecar reports hasMore=true. */}
-        {showLoadMore && (
-          <div className="flex items-center justify-center py-3 border-t border-gray-100 dark:border-gray-700">
-            <button
-              type="button"
-              onClick={() => {
-                void handleLoadMore();
-              }}
-              disabled={loadMoreState.isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none"
-            >
-              {loadMoreState.isLoading ? (
-                <>
-                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
-                  Loading…
-                </>
-              ) : (
-                <>Load 100 more</>
-              )}
-            </button>
+        {/* Auto-pagination footer. Lives below the virtualized list
+             (sibling, not inside, so it isn't affected by the
+             absolute-positioned rows).
+
+             - Sentinel div is observed by an IntersectionObserver with
+               a 200px rootMargin so loadMore fires before the user hits
+               the visual bottom.
+             - While loading we show a spinner + label.
+             - When the sidecar reports hasMore=false we render an
+               "End of inbox" marker so the user knows they hit the end.
+             - The manual "Load older" button stays as a fallback for
+               a11y / users who prefer explicit loads.
+
+             Sentinel and fallback button only render in inbox-derived
+             views with at least one thread (sentinelVisible). The
+             "End of inbox" line shows in those same views once
+             hasMore=false, replacing the sentinel. */}
+        {sentinelVisible ? (
+          <div className="flex items-center justify-center gap-3 py-3 border-t border-gray-100 dark:border-gray-700">
+            <div ref={sentinelRef} aria-hidden="true" />
+            {loadMoreState.isLoading ? (
+              <span className="inline-flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Loading older messages…
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleLoadMore();
+                }}
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
+              >
+                Load older
+              </button>
+            )}
           </div>
-        )}
+        ) : !isDraftsView &&
+          !isSnoozedView &&
+          !isArchiveReadyView &&
+          !isSentView &&
+          threads.length > 0 &&
+          !loadMoreState.hasMore ? (
+          <div className="flex items-center justify-center py-3 border-t border-gray-100 dark:border-gray-700">
+            <span className="text-xs text-gray-400 dark:text-gray-500">End of inbox</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
