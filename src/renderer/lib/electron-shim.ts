@@ -1883,19 +1883,78 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
-  // calendar — V2 feature. SettingsPanel has a Calendar tab; until the
-  // calendar provider lifts we return an empty list so the tab renders
-  // a clean empty state instead of a perpetual spinner.
+  // calendar — Google Calendar V1. Real RPC forwarders to the sidecar's
+  // `calendar.*` methods. The shape is intentionally tuned to match the
+  // existing SettingsPanel calendar tab consumer:
+  //   getCalendars()                                            → { success, calendars, accountEmails }
+  //   setVisibility(accountId, calendarId, visible)             → IpcResponse
+  //   getEvents({ accountId?, calendarId? })                    → IpcResponse<CalendarEventRow[]>
+  //   respondToEvent(accountId, calendarId, eventId, response)  → IpcResponse
+  //
+  // Every method funnels errors into the IpcResponse shape so callers don't
+  // need to wrap each call in their own try/catch.
   real.calendar = {
     getCalendars: async (): Promise<{
       success: boolean;
       calendars?: unknown[];
       accountEmails?: Record<string, string>;
-    }> => ({ success: true, calendars: [], accountEmails: {} }),
-    setVisibility: async (): Promise<IpcResponse<null>> => ({
-      success: true,
-      data: null,
-    }),
+      error?: string;
+    }> => {
+      try {
+        const data = await bridge.call("calendar.list", {});
+        return data as {
+          success: true;
+          calendars: unknown[];
+          accountEmails: Record<string, string>;
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+    setVisibility: async (
+      accountId: string,
+      calendarId: string,
+      visible: boolean,
+    ): Promise<IpcResponse<null>> => {
+      try {
+        await bridge.call("calendar.setVisibility", { accountId, calendarId, visible });
+        return { success: true, data: null };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getEvents: async (params?: {
+      accountId?: string;
+      calendarId?: string;
+    }): Promise<IpcResponse<unknown[]>> => {
+      try {
+        const data = await bridge.call("calendar.getEvents", params ?? {});
+        return { success: true, data: data as unknown[] };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    respondToEvent: async (
+      accountId: string,
+      calendarId: string,
+      eventId: string,
+      response: "accepted" | "declined" | "tentative",
+    ): Promise<IpcResponse<{ ok: true }>> => {
+      try {
+        const data = await bridge.call("calendar.respondToEvent", {
+          accountId,
+          calendarId,
+          eventId,
+          response,
+        });
+        return { success: true, data: data as { ok: true } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // attachments — composer attachment download/picker. Wired-up real

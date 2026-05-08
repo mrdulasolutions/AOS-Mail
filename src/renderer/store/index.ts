@@ -235,7 +235,10 @@ interface AppState {
   remoteSearchLoadingMore: boolean;
 
   // View mode state
-  viewMode: "split" | "full";
+  // - "split": email list + detail (default inbox view)
+  // - "full":  full-window email detail (single-thread immersion)
+  // - "calendar": Calendar V1 list view, replaces the email surface
+  viewMode: "split" | "full" | "calendar";
 
   // Sidebar tab state — which sidebar panel group is active
   sidebarTab: "sender" | "email" | "agent";
@@ -401,7 +404,7 @@ interface AppState {
   setRemoteSearchLoadingMore: (loading: boolean) => void;
 
   // View mode actions
-  setViewMode: (mode: "split" | "full") => void;
+  setViewMode: (mode: "split" | "full" | "calendar") => void;
 
   // Sidebar tab actions
   setSidebarTab: (tab: "sender" | "email" | "agent") => void;

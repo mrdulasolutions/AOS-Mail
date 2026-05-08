@@ -10,6 +10,7 @@ import {
 } from "./store";
 import { EmailList } from "./components/EmailList";
 import { EmailDetail } from "./components/EmailDetail";
+import { CalendarView } from "./components/CalendarView";
 import { EmailPreviewSidebar } from "./components/EmailPreviewSidebar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SetupWizard } from "./components/SetupWizard";
@@ -1954,6 +1955,31 @@ export default function App() {
           <UpdateBanner />
         </div>
         <div className="titlebar-no-drag flex items-center space-x-2">
+          {/* Calendar / Inbox toggle — Calendar V1 lives alongside the inbox
+              as a sidebar accessory. Toggling sets viewMode and renders
+              <CalendarView/> below in place of the email surface. */}
+          <button
+            onClick={() => {
+              const store = useAppStore.getState();
+              store.setViewMode(store.viewMode === "calendar" ? "split" : "calendar");
+            }}
+            className={`p-2 rounded-lg transition-colors flex items-center gap-1 ${
+              viewMode === "calendar"
+                ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+            }`}
+            title={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
+            </svg>
+          </button>
+
           {/* Search button */}
           <button
             onClick={openSearch}
@@ -2322,13 +2348,16 @@ export default function App() {
         {isAgentsSidebarOpen && <AgentsSidebar />}
 
         {/* Search results view (shown when search is active and not viewing a specific email) */}
-        {activeSearchQuery && viewMode !== "full" && <SearchResultsView />}
+        {activeSearchQuery && viewMode !== "full" && viewMode !== "calendar" && (
+          <SearchResultsView />
+        )}
 
-        {/* Split mode: dense email list — kept mounted (hidden) in full mode AND
-           during search to preserve useMemo caches (useThreadedEmails,
-           useSplitFilteredThreads). Unmounting destroys the caches, so returning
-           from search or full view forces a full recompute of groupByThread +
-           categorization for 2500+ emails before the UI responds. */}
+        {/* Split mode: dense email list — kept mounted (hidden) in full and
+           calendar modes AND during search to preserve useMemo caches
+           (useThreadedEmails, useSplitFilteredThreads). Unmounting destroys
+           the caches, so returning from search/full/calendar view forces a
+           full recompute of groupByThread + categorization for 2500+ emails
+           before the UI responds. */}
         <div
           className={
             viewMode === "split" && !activeSearchQuery ? "flex-1 min-w-0 flex flex-col" : ""
@@ -2341,9 +2370,16 @@ export default function App() {
         {/* Full mode: full email detail view */}
         {viewMode === "full" && <EmailDetail isFullView />}
 
+        {/* Calendar mode: V1 list-style upcoming events, replaces the email
+            surface but keeps the right-rail preview sidebar unchanged. */}
+        {viewMode === "calendar" && <CalendarView />}
+
         {/* Preview sidebar — kept mounted across view mode transitions to avoid
-            expensive unmount/remount of agent trace timelines */}
-        {(!activeSearchQuery || viewMode === "full") && <EmailPreviewSidebar />}
+            expensive unmount/remount of agent trace timelines. Hidden in
+            calendar mode since there's no email to preview. */}
+        {viewMode !== "calendar" && (!activeSearchQuery || viewMode === "full") && (
+          <EmailPreviewSidebar />
+        )}
       </div>
 
       {/* Keyboard hints bar */}
