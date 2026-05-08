@@ -260,14 +260,14 @@ export function FolderRail() {
 
   if (accounts.length === 0) return null;
 
+  // Renders folder list contents only — the surrounding <aside> shell
+  // (width, border, scroll) is provided by the parent layout in App.tsx
+  // so other rail siblings (e.g. AwaitingReplyRail) can share it.
   return (
-    <aside
-      className="w-48 flex-shrink-0 bg-aos-bg-soft border-r border-aos-line overflow-y-auto py-2"
-      data-testid="folder-rail"
-    >
+    <div className="flex-1" data-testid="folder-rail">
       {accounts.map((acc) => (
         <AccountFolderBlock key={acc.id} account={acc} isCurrent={acc.id === currentAccountId} />
       ))}
-    </aside>
+    </div>
   );
 }
