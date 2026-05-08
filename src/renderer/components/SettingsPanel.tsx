@@ -480,9 +480,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
     if (!isTauri) return;
     try {
-      const { isPermissionGranted, requestPermission } = await import(
-        "@tauri-apps/plugin-notification"
-      );
+      const { isPermissionGranted, requestPermission } =
+        await import("@tauri-apps/plugin-notification");
       const granted = await isPermissionGranted();
       if (!granted) {
         await requestPermission();
@@ -2208,7 +2207,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 )}
               </div>
 
-              {/* Per-task model picker — Anthropic + free OpenRouter list */}
+              {/* Per-task model picker — Anthropic + free OpenRouter list.
+                  `anthropicOnly: true` means the feature uses Anthropic-only
+                  tooling (today: senderLookup uses the web_search_20250305
+                  tool, which has no OpenRouter equivalent). The picker only
+                  surfaces Claude models in that case and shows a small note. */}
               <div>
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                   Per-feature models
@@ -2242,54 +2245,79 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         label: "Archive-Ready Analysis",
                         description: "Detecting completed conversations",
                       },
+                      {
+                        key: "senderLookup" as const,
+                        label: "Sender Lookup",
+                        description: "Web-search-backed sender profiles",
+                        anthropicOnly: true,
+                      },
                     ] as const
-                  ).map(({ key, label, description }) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
-                    >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {label}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
-                      </div>
-                      <select
-                        value={modelConfig[key]}
-                        onChange={async (e) => {
-                          const next = e.target.value;
-                          const updated = { ...modelConfig, [key]: next };
-                          setModelConfig(updated);
-                          await window.api.settings.set({ modelConfig: updated });
-                          queryClient.invalidateQueries({ queryKey: ["general-config"] });
-                        }}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-[300px]"
+                  ).map(({ key, label, description, ...rest }) => {
+                    const anthropicOnly = "anthropicOnly" in rest ? rest.anthropicOnly : false;
+                    const isNonClaude = anthropicOnly && !modelConfig[key].startsWith("claude-");
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
                       >
-                        <optgroup label="Anthropic">
-                          {ANTHROPIC_MODEL_OPTIONS.map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </optgroup>
-                        {freeModels.length > 0 && (
-                          <optgroup label="OpenRouter (free)">
-                            {freeModels.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name}
+                        <div className="flex-1 min-w-0 mr-4">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {label}
+                            {anthropicOnly && (
+                              <span
+                                className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400"
+                                title="Uses Anthropic's web_search tool, which has no OpenRouter equivalent"
+                              >
+                                Anthropic-only
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+                          {isNonClaude && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                              Configured model is not a Claude model — sender lookup will fail until
+                              a Claude model is selected.
+                            </p>
+                          )}
+                        </div>
+                        <select
+                          value={modelConfig[key]}
+                          onChange={async (e) => {
+                            const next = e.target.value;
+                            const updated = { ...modelConfig, [key]: next };
+                            setModelConfig(updated);
+                            await window.api.settings.set({ modelConfig: updated });
+                            queryClient.invalidateQueries({ queryKey: ["general-config"] });
+                          }}
+                          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-[300px]"
+                        >
+                          <optgroup label="Anthropic">
+                            {ANTHROPIC_MODEL_OPTIONS.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.label}
                               </option>
                             ))}
                           </optgroup>
-                        )}
-                      </select>
-                    </div>
-                  ))}
+                          {!anthropicOnly && freeModels.length > 0 && (
+                            <optgroup label="OpenRouter (free)">
+                              {freeModels.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+                    );
+                  })}
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                  All five pickers are wired into the sidecar. Picking a non-Anthropic model
-                  routes that feature through OpenRouter — make sure an OpenRouter API key is
-                  configured above, otherwise the call will surface a clear &ldquo;OpenRouter API
-                  key required&rdquo; error.
+                  Picking a non-Anthropic model routes that feature through OpenRouter — make sure
+                  an OpenRouter API key is configured above, otherwise the call will surface a clear
+                  &ldquo;OpenRouter API key required&rdquo; error. Sender Lookup is the exception:
+                  it uses Anthropic&rsquo;s web_search tool, which has no OpenRouter equivalent, so
+                  the picker only offers Claude models for that feature.
                 </p>
               </div>
             </div>
@@ -4236,16 +4264,13 @@ function AgentActivitySection() {
   const { data: historyResult } = useQuery({
     queryKey: ["agent-activity", "audit-history"],
     queryFn: () =>
-      window.api.usage.getCallHistoryWithSubjects(200) as Promise<
-        IpcResponse<LlmCallAuditRow[]>
-      >,
+      window.api.usage.getCallHistoryWithSubjects(200) as Promise<IpcResponse<LlmCallAuditRow[]>>,
     refetchOnWindowFocus: true,
     staleTime: 15_000,
   });
   const { data: todayResult } = useQuery({
     queryKey: ["agent-activity", "stats-today"],
-    queryFn: () =>
-      window.api.usage.getStatsToday() as Promise<IpcResponse<UsageWindowStatsResult>>,
+    queryFn: () => window.api.usage.getStatsToday() as Promise<IpcResponse<UsageWindowStatsResult>>,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
@@ -4259,10 +4284,8 @@ function AgentActivitySection() {
 
   const history: LlmCallAuditRow[] =
     historyResult && historyResult.success ? historyResult.data : [];
-  const todayStats =
-    todayResult && todayResult.success ? todayResult.data : null;
-  const monthStats =
-    monthResult && monthResult.success ? monthResult.data : null;
+  const todayStats = todayResult && todayResult.success ? todayResult.data : null;
+  const monthStats = monthResult && monthResult.success ? monthResult.data : null;
 
   // Distinct values for the filter dropdowns. Derived from the dataset
   // we already loaded so the menu only shows callers/models that exist.
@@ -4318,12 +4341,10 @@ function AgentActivitySection() {
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
-            Agent Activity
-          </h4>
+          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">Agent Activity</h4>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Every Claude / OpenRouter call the inbox agent makes is recorded here. Use
-            this view to audit what the agent did, what it cost, and where it failed.
+            Every Claude / OpenRouter call the inbox agent makes is recorded here. Use this view to
+            audit what the agent did, what it cost, and where it failed.
           </p>
         </div>
         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
@@ -4499,19 +4520,14 @@ function AgentActivitySection() {
                     onClick={() => setExpandedId(expanded ? null : row.id)}
                   >
                     <td className="py-1.5 pr-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {new Date(
-                        row.created_at.replace(" ", "T") + "Z",
-                      ).toLocaleString()}
+                      {new Date(row.created_at.replace(" ", "T") + "Z").toLocaleString()}
                     </td>
-                    <td className="py-1.5 px-2 text-gray-900 dark:text-gray-100">
-                      {row.caller}
-                    </td>
+                    <td className="py-1.5 px-2 text-gray-900 dark:text-gray-100">{row.caller}</td>
                     <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 font-mono">
                       {row.model}
                     </td>
                     <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
-                      {formatTokens(row.input_tokens)} /{" "}
-                      {formatTokens(row.output_tokens)}
+                      {formatTokens(row.input_tokens)} / {formatTokens(row.output_tokens)}
                     </td>
                     <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
                       {formatCostUsd(row.cost_cents)}
@@ -4531,16 +4547,11 @@ function AgentActivitySection() {
                 ];
                 if (expanded) {
                   rows.push(
-                    <tr
-                      key={`${row.id}-detail`}
-                      className="bg-blue-50/30 dark:bg-blue-900/10"
-                    >
+                    <tr key={`${row.id}-detail`} className="bg-blue-50/30 dark:bg-blue-900/10">
                       <td colSpan={7} className="py-3 px-3">
                         <div className="space-y-1.5 text-xs">
                           <div>
-                            <span className="text-gray-500 dark:text-gray-400">
-                              Email subject:
-                            </span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">Email subject:</span>{" "}
                             <span className="text-gray-900 dark:text-gray-100">
                               {row.email_subject ?? (
                                 <em className="text-gray-400 dark:text-gray-500">
@@ -4562,9 +4573,7 @@ function AgentActivitySection() {
                           </div>
                           {row.account_id && (
                             <div>
-                              <span className="text-gray-500 dark:text-gray-400">
-                                Account:
-                              </span>{" "}
+                              <span className="text-gray-500 dark:text-gray-400">Account:</span>{" "}
                               <span className="text-gray-700 dark:text-gray-300 font-mono">
                                 {row.account_id}
                               </span>
@@ -4572,9 +4581,7 @@ function AgentActivitySection() {
                           )}
                           {row.error_message && (
                             <div>
-                              <span className="text-gray-500 dark:text-gray-400">
-                                Error:
-                              </span>{" "}
+                              <span className="text-gray-500 dark:text-gray-400">Error:</span>{" "}
                               <span className="text-red-700 dark:text-red-400">
                                 {row.error_message}
                               </span>
