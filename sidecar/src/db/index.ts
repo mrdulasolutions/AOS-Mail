@@ -21,6 +21,27 @@ type DatabaseInstance = Database.Database;
 
 let db: DatabaseInstance | null = null;
 
+// Errors we expect to swallow during the ad-hoc ADD COLUMN migration loop.
+// Anything outside this whitelist is a real failure (disk full, malformed
+// SQL, type mismatch, etc.) and MUST be surfaced — the previous behavior of
+// silently logging-and-continuing left the schema in a half-migrated state.
+//
+// Patterns:
+//   - duplicate column name: idempotent ALTER on a re-run after the column
+//     was already added.
+//   - "no such table": the parent table doesn't exist yet (e.g. running
+//     against a fresh DB before CREATE TABLE has run for archive_ready).
+//     The CREATE TABLE IF NOT EXISTS in SCHEMA covers this on the same
+//     init pass, but defensive against ordering surprises.
+const EXPECTED_MIGRATION_ERROR_PATTERNS: ReadonlyArray<RegExp> = [
+  /duplicate column name/i,
+  /no such table/i,
+];
+
+function isExpectedMigrationError(msg: string): boolean {
+  return EXPECTED_MIGRATION_ERROR_PATTERNS.some((p) => p.test(msg));
+}
+
 export function initDatabase(): DatabaseInstance {
   if (db) return db;
 
@@ -32,6 +53,14 @@ export function initDatabase(): DatabaseInstance {
   // the transition. Single writer at a time still applies — only run one
   // shell at once when both code paths still exist.
   db.pragma("journal_mode = WAL");
+
+  // Foreign-key enforcement is OFF by default in SQLite (a backwards-compat
+  // hangover) so FK declarations like `analyses.email_id REFERENCES
+  // emails(id)` are advisory until this pragma is set. With it ON, any
+  // ON DELETE CASCADE clause on dependent tables will fire automatically
+  // when the parent row is removed — essential for keeping `analyses` and
+  // `drafts` in sync after IMAP archive's `DELETE FROM emails`.
+  db.pragma("foreign_keys = ON");
 
   db.exec(SCHEMA);
   initFTS5(db);
@@ -63,7 +92,10 @@ export function initDatabase(): DatabaseInstance {
   // Provider columns on accounts. Older mail-app DBs only had the Gmail
   // shape; AOS Mail supports gmail + imap (and Microsoft Graph later).
   // ALTER TABLE ADD COLUMN is idempotent in SQLite via try/catch — once a
-  // column exists the second invocation throws which we swallow.
+  // column exists the second invocation throws "duplicate column name"
+  // which we swallow. Any OTHER error (disk full, type mismatch, syntax
+  // error in the DDL itself) is surfaced — the previous behavior of
+  // logging-and-continuing left a half-migrated schema in production.
   for (const ddl of [
     "ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'gmail'",
     "ALTER TABLE accounts ADD COLUMN imap_host TEXT",
@@ -86,13 +118,127 @@ export function initDatabase(): DatabaseInstance {
       db.exec(ddl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("duplicate column name")) {
-        log.warn("schema migration step failed", { ddl, err: msg });
-      }
+      if (isExpectedMigrationError(msg)) continue;
+      // Unexpected error — log loudly AND throw so a genuinely failed
+      // migration isn't lost. A half-migrated DB silently returns
+      // `undefined` for missing columns at row-mapper time, which is
+      // worse than a clean startup failure.
+      log.error("schema migration step failed", { ddl, err: msg });
+      throw new Error(`Schema migration failed for "${ddl}": ${msg}`);
     }
   }
 
+  // Add ON DELETE CASCADE to analyses(email_id) and drafts(email_id) so
+  // when an email is deleted (e.g. IMAP archive's `DELETE FROM emails`),
+  // the dependent rows go with it. SQLite has no `ALTER TABLE … ALTER
+  // CONSTRAINT`, so we rebuild the table only when the existing FK lacks
+  // a cascade clause. Idempotent: a second run sees the cascade is
+  // already in place and bails before touching the table.
+  ensureCascadeOnEmailIdFK(db, "analyses");
+  ensureCascadeOnEmailIdFK(db, "drafts");
+
   return db;
+}
+
+/**
+ * Idempotently add `ON DELETE CASCADE` to the email_id FK on a dependent
+ * table. SQLite doesn't support modifying a constraint in place, so this
+ * detects the missing cascade and rebuilds the table preserving all rows.
+ *
+ * Cheap on the common path: if the constraint already cascades (or the
+ * table doesn't exist), this is a single PRAGMA call.
+ */
+function ensureCascadeOnEmailIdFK(d: DatabaseInstance, tableName: string): void {
+  // Bail if the table doesn't exist (shouldn't happen post-SCHEMA exec, but
+  // defensive).
+  const exists = d
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  if (!exists) return;
+
+  // foreign_key_list returns one row per FK with `on_delete` (NO ACTION
+  // / RESTRICT / SET NULL / SET DEFAULT / CASCADE). We only care about
+  // the one that targets emails(id).
+  const fks = d.pragma(`foreign_key_list("${tableName}")`) as Array<{
+    id: number;
+    seq: number;
+    table: string;
+    from: string;
+    to: string;
+    on_update: string;
+    on_delete: string;
+    match: string;
+  }>;
+  const emailFk = fks.find((f) => f.table === "emails" && f.from === "email_id");
+  if (!emailFk) {
+    // No FK to emails — nothing to upgrade. Either the table is
+    // schemaless (FK was never declared) or we're looking at the wrong
+    // table; either way no-op.
+    return;
+  }
+  if (emailFk.on_delete === "CASCADE") {
+    // Already has cascade — done.
+    return;
+  }
+
+  log.info("rebuilding table to add ON DELETE CASCADE to email_id FK", { table: tableName });
+
+  // SQLite recommends the 12-step ALTER procedure
+  // (https://www.sqlite.org/lang_altertable.html); the short-form via
+  // CREATE+INSERT+DROP+RENAME inside a transaction is the standard
+  // workaround for "can't ALTER CONSTRAINT". Foreign keys must be
+  // disabled during the rename so the temp table's FK doesn't fire on
+  // the intermediate DROP.
+  //
+  // Caller already enabled foreign_keys = ON; we toggle it within this
+  // function and restore at the end. Wrapping in `transaction(() => …)`
+  // ensures atomicity — a failure halfway through rolls back fully.
+  d.pragma("foreign_keys = OFF");
+  try {
+    const rebuild = d.transaction(() => {
+      if (tableName === "analyses") {
+        d.exec(`
+          CREATE TABLE analyses__new (
+            email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
+            needs_reply INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            priority TEXT,
+            analyzed_at INTEGER NOT NULL
+          );
+          INSERT INTO analyses__new (email_id, needs_reply, reason, priority, analyzed_at)
+            SELECT email_id, needs_reply, reason, priority, analyzed_at FROM analyses;
+          DROP TABLE analyses;
+          ALTER TABLE analyses__new RENAME TO analyses;
+          CREATE INDEX IF NOT EXISTS idx_analyses_needs_reply ON analyses(needs_reply);
+        `);
+      } else if (tableName === "drafts") {
+        d.exec(`
+          CREATE TABLE drafts__new (
+            email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
+            draft_body TEXT NOT NULL,
+            gmail_draft_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at INTEGER NOT NULL,
+            agent_task_id TEXT,
+            cc TEXT,
+            bcc TEXT,
+            compose_mode TEXT,
+            to_recipients TEXT
+          );
+          INSERT INTO drafts__new (email_id, draft_body, gmail_draft_id, status, created_at,
+                                    agent_task_id, cc, bcc, compose_mode, to_recipients)
+            SELECT email_id, draft_body, gmail_draft_id, status, created_at,
+                   agent_task_id, cc, bcc, compose_mode, to_recipients FROM drafts;
+          DROP TABLE drafts;
+          ALTER TABLE drafts__new RENAME TO drafts;
+          CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
+        `);
+      }
+    });
+    rebuild();
+  } finally {
+    d.pragma("foreign_keys = ON");
+  }
 }
 
 function initFTS5(d: DatabaseInstance): void {

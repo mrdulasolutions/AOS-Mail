@@ -104,6 +104,15 @@ export function findAwaitingReplyThreads(
   // doesn't have a native "argmax"; we use the standard correlated-subquery
   // trick: filter to rows whose date matches the per-thread max. Keeps the
   // query single-pass when the (account, date) index is available.
+  //
+  // Snoozed threads are explicitly excluded — when the user snoozes a
+  // thread they're saying "hide this until later", which logically
+  // includes the awaiting-reply nudge. The NOT EXISTS subquery filters
+  // out any thread with a row in `snoozed_emails` whose `snooze_until`
+  // is still in the future. (Past snoozes have already fired and the
+  // renderer cleans them up; we double-check via the time predicate so
+  // a stale row doesn't permanently silence a thread.)
+  const nowMs = Date.now();
   const rows = getDb()
     .prepare(
       `SELECT e.thread_id, e.account_id, e.subject, e.to_address, e.date, e.label_ids
@@ -113,9 +122,15 @@ export function findAwaitingReplyThreads(
            SELECT MAX(e2.date) FROM emails e2
            WHERE e2.thread_id = e.thread_id AND e2.account_id = e.account_id
          )
+         AND NOT EXISTS (
+           SELECT 1 FROM snoozed_emails s
+           WHERE s.thread_id = e.thread_id
+             AND s.account_id = e.account_id
+             AND s.snooze_until > ?
+         )
        ORDER BY e.date DESC`,
     )
-    .all(accountId) as ThreadLatestRow[];
+    .all(accountId, nowMs) as ThreadLatestRow[];
 
   const out: AwaitingReplyThread[] = [];
   const seenThreadIds = new Set<string>();

@@ -22,12 +22,17 @@ interface AccountInfo {
 function getAccount(accountId: string): AccountInfo | null {
   return (
     (getDb()
-      .prepare("SELECT id, email, COALESCE(provider, 'gmail') as provider FROM accounts WHERE id = ?")
+      .prepare(
+        "SELECT id, email, COALESCE(provider, 'gmail') as provider FROM accounts WHERE id = ?",
+      )
       .get(accountId) as AccountInfo | undefined) ?? null
   );
 }
 
-function recordSentEmail(input: SendInput, messageId: string): {
+function recordSentEmail(
+  input: SendInput,
+  messageId: string,
+): {
   id: string;
   threadId: string;
 } {
@@ -130,6 +135,39 @@ export function registerComposeMethods(): void {
         },
       ],
     });
+
+    // Partial failure: SMTP accepted SOME recipients but the server
+    // rejected others (typically bad addresses, filter blocks, or
+    // recipient-side policy). nodemailer surfaces this as a successful
+    // send with a non-empty `rejected` array — without the throw below,
+    // the renderer treats `success: true` as "all sent" and the user
+    // never sees that some recipients didn't get the message. The
+    // message DID send to the accepted set, so we still record the sent
+    // row (above) and emit the new-sent event, then throw a structured
+    // error so the renderer can surface a clear "Sent to X, failed for
+    // Y" toast instead of a silent success.
+    //
+    // The kind: "partial-send" prefix lets the renderer parse this out
+    // of the error message without coupling to a side channel.
+    if (rejected.length > 0) {
+      const err = new Error(
+        `partial-send: delivered to ${accepted.length}, rejected ${rejected.length} (${rejected.join(", ")})`,
+      ) as Error & {
+        kind: "partial-send";
+        accepted: string[];
+        rejected: string[];
+        messageId: string;
+        id: string;
+        threadId: string;
+      };
+      err.kind = "partial-send";
+      err.accepted = accepted;
+      err.rejected = rejected;
+      err.messageId = messageId;
+      err.id = id;
+      err.threadId = threadId;
+      throw err;
+    }
 
     return { id, threadId, messageId, accepted, rejected };
   });

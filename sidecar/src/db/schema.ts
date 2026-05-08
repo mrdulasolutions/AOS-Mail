@@ -60,18 +60,22 @@ CREATE TABLE IF NOT EXISTS emails (
   in_reply_to TEXT
 );
 
--- Analysis results from Claude
+-- Analysis results from Claude.
+-- ON DELETE CASCADE so analyses are auto-removed when the underlying email
+-- is deleted (IMAP archive does DELETE FROM emails). Older DBs may have
+-- the FK without the cascade clause; ensureCascadeOnEmailIdFK in db/index.ts
+-- rebuilds the table on first open in that case.
 CREATE TABLE IF NOT EXISTS analyses (
-  email_id TEXT PRIMARY KEY REFERENCES emails(id),
+  email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
   needs_reply INTEGER NOT NULL,
   reason TEXT NOT NULL,
   priority TEXT,
   analyzed_at INTEGER NOT NULL
 );
 
--- Generated drafts
+-- Generated drafts. Same cascade rationale as analyses above.
 CREATE TABLE IF NOT EXISTS drafts (
-  email_id TEXT PRIMARY KEY REFERENCES emails(id),
+  email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
   draft_body TEXT NOT NULL,
   gmail_draft_id TEXT,
   status TEXT DEFAULT 'pending',

@@ -788,7 +788,30 @@ function installRealNamespaces(): Record<string, unknown> {
         );
         return { success: true, data };
       } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
+        const message = err instanceof Error ? err.message : String(err);
+        // Partial-send is a special case — the message DID send to the
+        // accepted recipients but some were rejected. The sidecar surfaces
+        // this as a thrown error with the `partial-send:` prefix and the
+        // full bounce list in the message text. Parse it back out so the
+        // renderer can show "Sent to X, failed for Y" instead of treating
+        // it as a total failure.
+        //
+        // Format: "partial-send: delivered to N, rejected M (a@b, c@d)"
+        const partialMatch = message.match(
+          /^partial-send: delivered to (\d+), rejected \d+ \(([^)]*)\)$/,
+        );
+        if (partialMatch) {
+          const acceptedCount = parseInt(partialMatch[1] ?? "0", 10);
+          const rejected = (partialMatch[2] ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          return {
+            success: false,
+            error: `Sent to ${acceptedCount} ${acceptedCount === 1 ? "recipient" : "recipients"} but ${rejected.length} ${rejected.length === 1 ? "address" : "addresses"} bounced: ${rejected.join(", ")}`,
+          };
+        }
+        return { success: false, error: message };
       }
     },
     listLocalDrafts: async (): Promise<IpcResponse<unknown[]>> => {
