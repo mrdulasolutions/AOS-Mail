@@ -261,6 +261,27 @@ export interface ExtensionManifestSummary {
   }>;
 }
 
+// ── learned rules ────────────────────────────────────────────────────────
+//
+// One promoted rule that the analyzer pipeline now treats as
+// auto-decision. Built from N user overrides at the same scope; surfaced
+// in Settings → Agent Tools → Learned Rules.
+
+export type LearnedRuleAction = "archived" | "trashed" | "replied" | "snoozed";
+
+export interface LearnedRuleRow {
+  id: string;
+  accountId: string;
+  scope: "person" | "domain" | "category" | "global";
+  scopeValue: string | null;
+  action: LearnedRuleAction;
+  count: number;
+  enabled: boolean;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── The contract ────────────────────────────────────────────────────────
 
 /**
@@ -569,6 +590,23 @@ export interface SidecarMethods {
       response: CalendarRsvpResponse;
     };
     result: { ok: true };
+  };
+
+  // ── learned rules ─────────────────────────────────────────────────────
+  // The analyzer pipeline can short-circuit Claude when a rule applies
+  // (e.g. user has archived 5 newsletters from acme.com → next one
+  // auto-archives). Rules are user-toggleable and resettable.
+  "learnedRules.list": {
+    params: { accountId?: string } | void;
+    result: { rules: LearnedRuleRow[] };
+  };
+  "learnedRules.toggle": {
+    params: { ruleId: string; enabled: boolean };
+    result: { rule: LearnedRuleRow };
+  };
+  "learnedRules.reset": {
+    params: { accountId?: string } | void;
+    result: { deletedRules: number; deletedObservations: number };
   };
 }
 
