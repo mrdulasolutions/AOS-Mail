@@ -28,6 +28,13 @@ import type {
 import type { RestoredDraft } from "../store";
 import { useComposeForm } from "../hooks/useComposeForm";
 import { THREAD_NAV_EVENT } from "../hooks/useKeyboardShortcuts";
+import {
+  pushArchiveUndo,
+  pushTrashUndo,
+  pushMarkUnreadUndo,
+  pushStarUndo,
+  pushSendUndo,
+} from "../lib/undo-toasts";
 import type { ComposeFormState } from "../hooks/useComposeForm";
 import { ComposeToolbar } from "./ComposeToolbar";
 import { FromSelector } from "./FromSelector";
@@ -1313,17 +1320,14 @@ function InlineReply({
   // Send with optimistic update support
   const handleSend = useCallback(async () => {
     const sendOptions = form.buildSendOptions();
-    const { undoSendDelaySeconds, addUndoSend } = useAppStore.getState();
+    const { undoSendDelaySeconds } = useAppStore.getState();
 
     if (!form.canSend || form.isSending) return;
 
     if (undoSendDelaySeconds > 0) {
       const optimisticId = `pending-${Date.now()}`;
-      addUndoSend({
-        id: crypto.randomUUID(),
+      pushSendUndo({
         sendOptions,
-        recipients: form.to.join(", "),
-        scheduledAt: Date.now(),
         delayMs: undoSendDelaySeconds * 1000,
         composeContext: {
           mode: composeMode,
@@ -2226,7 +2230,6 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
   } = useAppStore();
 
   const addRecentlyRepliedThread = useAppStore((s) => s.addRecentlyRepliedThread);
-  const addUndoAction = useAppStore((s) => s.addUndoAction);
   const snoozedThreads = useAppStore((s) => s.snoozedThreads);
   const removeSnoozedThread = useAppStore((s) => s.removeSnoozedThread);
   const showSnoozeMenu = useAppStore((s) => s.showSnoozeMenu);
@@ -3167,14 +3170,10 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     }
 
     // Queue the action with undo support (actual IPC call happens after delay)
-    addUndoAction({
-      id: `archive-${selectedThreadId}-${Date.now()}`,
-      type: "archive",
-      threadCount: 1,
-      accountId: currentAccountId,
+    pushArchiveUndo({
       emails: [...threadEmails],
-      scheduledAt: Date.now(),
-      delayMs: 5000,
+      accountId: currentAccountId,
+      threadCount: 1,
     });
   };
 
@@ -3202,14 +3201,10 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     }
 
     // Queue the action with undo support
-    addUndoAction({
-      id: `trash-${selectedThreadId}-${Date.now()}`,
-      type: "trash",
-      threadCount: 1,
-      accountId: currentAccountId,
+    pushTrashUndo({
       emails: [...threadEmails],
-      scheduledAt: Date.now(),
-      delayMs: 5000,
+      accountId: currentAccountId,
+      threadCount: 1,
     });
   };
 
@@ -3221,14 +3216,10 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     if (!currentLabels.includes("UNREAD")) {
       const previousLabels: Record<string, string[]> = { [latestEmail.id]: [...currentLabels] };
       updateEmail(latestEmail.id, { labelIds: [...currentLabels, "UNREAD"] });
-      addUndoAction({
-        id: `mark-unread-${selectedThreadId}-${Date.now()}`,
-        type: "mark-unread",
-        threadCount: 1,
-        accountId: currentAccountId,
+      pushMarkUnreadUndo({
         emails: [latestEmail],
-        scheduledAt: Date.now(),
-        delayMs: 5000,
+        accountId: currentAccountId,
+        threadCount: 1,
         previousLabels,
       });
     }
@@ -3263,15 +3254,12 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     }
 
     if (changedEmails.length > 0) {
-      addUndoAction({
-        id: `${newStarred ? "star" : "unstar"}-${selectedThreadId}-${Date.now()}`,
-        type: newStarred ? "star" : "unstar",
-        threadCount: 1,
-        accountId: currentAccountId,
+      pushStarUndo({
         emails: changedEmails,
-        scheduledAt: Date.now(),
-        delayMs: 5000,
+        accountId: currentAccountId,
+        threadCount: 1,
         previousLabels,
+        starred: newStarred,
       });
     }
   };

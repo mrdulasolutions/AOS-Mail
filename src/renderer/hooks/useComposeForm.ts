@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAppStore } from "../store";
 import { useSignature } from "./useSignature";
+import { pushSendUndo } from "../lib/undo-toasts";
 import type { ComposeAttachmentItem } from "../components/AttachmentList";
 import type {
   ReplyInfo,
@@ -375,13 +376,10 @@ export function useComposeForm({
     const sendOptions = buildSendOptions();
 
     // Check for undo send delay
-    const { undoSendDelaySeconds, addUndoSend } = useAppStore.getState();
+    const { undoSendDelaySeconds } = useAppStore.getState();
     if (undoSendDelaySeconds > 0) {
-      addUndoSend({
-        id: crypto.randomUUID(),
+      pushSendUndo({
         sendOptions,
-        recipients: to.join(", "),
-        scheduledAt: Date.now(),
         delayMs: undoSendDelaySeconds * 1000,
         composeContext: {
           mode: composeMode,

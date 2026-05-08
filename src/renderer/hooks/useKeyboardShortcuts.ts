@@ -6,6 +6,14 @@ import { mergeAndThreadSearchResults } from "../utils/searchResults";
 import { draftMatchesSplit } from "../utils/split-conditions";
 import { trackEvent } from "../services/posthog";
 import { pickSmartAction, describeSmartAction, type SmartAction } from "../lib/smart-action";
+import {
+  pushArchiveUndo,
+  pushTrashUndo,
+  pushMarkUnreadUndo,
+  pushStarUndo,
+  pushSmartActionInfo,
+} from "../lib/undo-toasts";
+import { useToastStore } from "../lib/toast-store";
 
 /** Custom event for navigating between messages within a thread (n/p keys). */
 export type ThreadNavDirection = "next" | "prev";
@@ -111,7 +119,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         addEmails,
         removeSearchResult,
         clearActiveSearch,
-        addUndoAction,
         markThreadAsRead,
       } = state;
 
@@ -459,11 +466,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       };
 
       // --- Helper: archive selected thread (all messages) ---
-      // When `smartActionToastId` is provided, the queued undo entry is
-      // tagged so UndoActionToast suppresses its own row in favor of
-      // SmartActionToast — both still share the 5s timer + Cmd+Z handler.
-      // Returns the queued undo-action id so callers can reference it.
-      const archiveSelected = (opts?: { smartActionToastId?: string }): string | null => {
+      // The smart-action key path passes `text` to override the default
+      // "Thread archived." narration with action-specific copy
+      // (e.g. "Archived — Cmd+Z to undo"). Returns the queued toast id so
+      // callers can dismiss it if a follow-on event lands.
+      const archiveSelected = (opts?: { text?: string }): string | null => {
         if (!selectedEmailId || !selectedThreadId || !currentAccountId) return null;
 
         // Collect ALL emails in the thread for optimistic removal
@@ -514,22 +521,16 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         }
 
         // Queue with undo support (works for both normal and archive-ready views)
-        const undoId = `archive-${selectedThreadId}-${Date.now()}`;
-        addUndoAction({
-          id: undoId,
-          type: "archive",
-          threadCount: 1,
-          accountId: currentAccountId,
+        const toastId = pushArchiveUndo({
           emails: [...threadEmails],
-          scheduledAt: Date.now(),
-          delayMs: 5000,
-          // If archive-ready view, include thread ID so it gets cleaned up on execute
+          accountId: currentAccountId,
+          threadCount: 1,
           archiveReadyThreadIds: isArchiveReady ? [selectedThreadId] : undefined,
-          smartActionToastId: opts?.smartActionToastId,
+          text: opts?.text,
         });
         // Tracks intent — user may still undo within 5 s
         trackEvent("email_archived", { thread_count: 1, source: "keyboard" });
-        return undoId;
+        return toastId;
       };
 
       // --- Helper: trash selected thread ---
@@ -581,14 +582,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         }
 
         // Queue with undo support
-        addUndoAction({
-          id: `trash-${selectedThreadId}-${Date.now()}`,
-          type: "trash",
-          threadCount: 1,
-          accountId: currentAccountId,
+        pushTrashUndo({
           emails: [...threadEmails],
-          scheduledAt: Date.now(),
-          delayMs: 5000,
+          accountId: currentAccountId,
+          threadCount: 1,
         });
         // Tracks intent — user may still undo within 5 s
         trackEvent("email_trashed", { thread_count: 1, source: "keyboard" });
@@ -611,14 +608,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         if (!currentLabels.includes("UNREAD")) {
           const previousLabels: Record<string, string[]> = { [latestEmail.id]: [...currentLabels] };
           updateEmail(latestEmail.id, { labelIds: [...currentLabels, "UNREAD"] });
-          addUndoAction({
-            id: `mark-unread-${selectedThreadId}-${Date.now()}`,
-            type: "mark-unread",
-            threadCount: 1,
-            accountId: currentAccountId,
+          pushMarkUnreadUndo({
             emails: [latestEmail],
-            scheduledAt: Date.now(),
-            delayMs: 5000,
+            accountId: currentAccountId,
+            threadCount: 1,
             previousLabels,
           });
         }
@@ -733,21 +726,23 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Splitting "pick" from "execute" keeps pickSmartAction pure and lets
       // us re-run the picker after triage lands without duplicating the
       // dispatch table.
+      //
+      // Each branch pushes a toast through the unified ToastStack:
+      //   - archive → undo toast (with custom narration via `text`)
+      //   - open-draft / generate-draft / trigger-triage → info toast,
+      //     auto-dismisses after 5s. The legacy SmartActionToast had its
+      //     own bookkeeping; here it's just `pushSmartActionInfo`.
       const executeSmartAction = (action: SmartAction) => {
         if (action.kind === "noop") return;
-        const toastId = `smart-${Date.now()}`;
+        const undoLabel = navigator.platform.includes("Mac") ? "Cmd+Z" : "Ctrl+Z";
 
         if (action.kind === "archive") {
-          const undoId = archiveSelected({ smartActionToastId: toastId });
-          if (!undoId) return;
-          state.setSmartActionToast({
-            id: toastId,
-            kind: "archive",
-            message: describeSmartAction(action),
-            undoActionId: undoId,
-            scheduledAt: Date.now(),
-            delayMs: 5000,
+          // Custom narration: "Archived — Cmd+Z to undo". The archive helper
+          // already pushes an undo toast; we override the default text.
+          const archived = archiveSelected({
+            text: `${describeSmartAction(action)} — ${undoLabel} to undo`,
           });
+          if (!archived) return;
           state.dismissSmartActionHint();
           trackEvent("smart_action_executed", {
             kind: action.kind,
@@ -761,17 +756,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           // most-recent thread email so the existing draft appears in the
           // editor for review.
           const targetEmailId = action.emailId;
-          // Force full view so the inline reply is visible.
           if (viewMode !== "full") setViewMode("full");
           openCompose("reply-all", targetEmailId);
-          state.setSmartActionToast({
-            id: toastId,
-            kind: "open-draft",
-            message: describeSmartAction(action),
-            // Open-draft is informational — no undo entry to bind.
-            scheduledAt: Date.now(),
-            delayMs: 5000,
-          });
+          pushSmartActionInfo(describeSmartAction(action));
           state.dismissSmartActionHint();
           trackEvent("smart_action_executed", {
             kind: action.kind,
@@ -783,28 +770,20 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         if (action.kind === "generate-draft") {
           // Fire-and-forget: kick off rerunAgent in the background; the
           // EmailDetail draft section will pick up the new draft via the
-          // store update when it lands. We surface a "Generating draft…"
+          // store update when it lands. Surface a "Generating draft…"
           // narration immediately so the user has feedback.
-          state.setSmartActionToast({
-            id: toastId,
-            kind: "generate-draft",
-            message: describeSmartAction(action),
-            scheduledAt: Date.now(),
-            delayMs: 5000,
-          });
+          pushSmartActionInfo(describeSmartAction(action));
           state.dismissSmartActionHint();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const drafts = (window as any)?.api?.drafts;
           if (drafts?.rerunAgent) {
             void drafts.rerunAgent(action.emailId).catch(() => {
-              // Surface failures on the same toast surface so the user
+              // Surface failures via the same toast surface so the user
               // isn't left wondering why nothing happened.
-              state.setSmartActionToast({
-                id: `${toastId}-fail`,
-                kind: "generate-draft",
-                message: "Couldn't generate draft — try Reply (R) instead.",
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+              useToastStore.getState().pushToast({
+                kind: "error",
+                text: "Couldn't generate draft — try Reply (R) instead.",
+                expiresAt: Date.now() + 5_000,
               });
             });
           }
@@ -818,13 +797,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         if (action.kind === "trigger-triage") {
           // Fire analysis.analyze for the email; once it lands the user
           // can press Space again to act on the freshly analyzed result.
-          state.setSmartActionToast({
-            id: toastId,
-            kind: "trigger-triage",
-            message: describeSmartAction(action),
-            scheduledAt: Date.now(),
-            delayMs: 5000,
-          });
+          pushSmartActionInfo(describeSmartAction(action));
           state.dismissSmartActionHint();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const analysis = (window as any)?.api?.analysis;
@@ -1120,15 +1093,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
                   labelIds: labels.filter((l: string) => l !== "STARRED"),
                 });
               }
-              addUndoAction({
-                id: `unstar-${selectedThreadId}-${Date.now()}`,
-                type: "unstar",
-                threadCount: 1,
-                accountId: currentAccountId,
+              pushStarUndo({
                 emails: starredEmails,
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+                accountId: currentAccountId,
+                threadCount: 1,
                 previousLabels,
+                starred: false,
               });
             } else {
               // Star: add STARRED to latest email
@@ -1136,15 +1106,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
                 [latestEmail.id]: [...currentLabels],
               };
               state.updateEmail(latestEmail.id, { labelIds: [...currentLabels, "STARRED"] });
-              addUndoAction({
-                id: `star-${selectedThreadId}-${Date.now()}`,
-                type: "star",
-                threadCount: 1,
-                accountId: currentAccountId,
+              pushStarUndo({
                 emails: [latestEmail],
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+                accountId: currentAccountId,
+                threadCount: 1,
                 previousLabels,
+                starred: true,
               });
             }
           }
@@ -1188,7 +1155,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         case "z":
           if (isGmail && !e.shiftKey) {
             e.preventDefault();
-            // Trigger the same undo mechanism as Cmd+Z in UndoActionToast
+            // Re-dispatch as Cmd+Z so the unified ToastStack listener picks
+            // it up. We don't call into the toast store directly here so
+            // the dispatch path stays single-source (Cmd+Z handler in
+            // src/renderer/components/Toast.tsx).
             window.dispatchEvent(
               new KeyboardEvent("keydown", {
                 key: "z",

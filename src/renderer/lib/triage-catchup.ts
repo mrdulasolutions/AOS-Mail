@@ -21,6 +21,8 @@
 
 import { useAppStore } from "../store";
 import type { DashboardEmail } from "../../shared/types";
+import { useToastStore } from "./toast-store";
+import { pushTriageProgress } from "./undo-toasts";
 
 export const MAX_TRIAGE_BATCH = 50;
 
@@ -39,31 +41,39 @@ function pickUnanalyzedIds(emails: DashboardEmail[], accountId: string | null): 
 }
 
 /**
+ * Match a "Triaging …" progress toast in the unified queue. We don't store
+ * a kind tag on info/progress toasts so the helper recognises by text
+ * prefix — sufficient because no other progress toast uses "Triaging".
+ */
+function findInFlightTriageToast(): string | null {
+  const toasts = useToastStore.getState().toasts;
+  for (const t of toasts) {
+    if (t.kind === "progress" && t.text.startsWith("Triaging")) return t.id;
+  }
+  return null;
+}
+
+/**
  * Run a triage sweep for the current account.
  *
  * Returns the number of emails that were submitted (0 means there was nothing
  * to do, or the API key wasn't configured — caller can use that to suppress
  * surprised feedback).
  *
- * The toast surface (renderer state `triageStatus`) is owned by this helper
- * so callers don't have to remember to clear it on the error path.
+ * The progress toast is owned by this helper so callers don't have to
+ * remember to clear it on the error path.
  */
-export async function runTriageCatchUp(source: TriageSource): Promise<number> {
+export async function runTriageCatchUp(_source: TriageSource): Promise<number> {
   const state = useAppStore.getState();
-  const { currentAccountId, emails, setTriageStatus } = state;
+  const { currentAccountId, emails } = state;
 
   // Don't stack: if a triage is already running, ignore.
-  if (state.triageStatus) return 0;
+  if (findInFlightTriageToast()) return 0;
 
   const unanalyzedIds = pickUnanalyzedIds(emails, currentAccountId).slice(0, MAX_TRIAGE_BATCH);
   if (unanalyzedIds.length === 0) return 0;
 
-  // Probe LLM provider — silently bail if missing. Boot path runs
-  // unconditionally (no provider just means no triage); manual path could
-  // surface the SetupWizard but that's a future polish; for now the user
-  // already saw the empty Priority tab + the Settings → Agent Tools intro
-  // card flagging the key. The gate is "any LLM" (Anthropic OR OpenRouter)
-  // so OpenRouter-only users aren't silently locked out.
+  // Probe LLM provider — silently bail if missing.
   try {
     const has = await window.api.diagnostics.hasAnyLlmProvider();
     if (!has?.success || !has.data?.configured) return 0;
@@ -72,13 +82,13 @@ export async function runTriageCatchUp(source: TriageSource): Promise<number> {
     return 0;
   }
 
-  setTriageStatus({ count: unanalyzedIds.length, source });
+  const toastId = pushTriageProgress(unanalyzedIds.length);
   try {
     await window.api.analysis.analyzeBatch(unanalyzedIds);
   } catch (err) {
-    console.warn(`[triage] ${source} analyze failed:`, err);
+    console.warn(`[triage] ${_source} analyze failed:`, err);
   } finally {
-    setTriageStatus(null);
+    useToastStore.getState().dismissToast(toastId);
   }
   return unanalyzedIds.length;
 }

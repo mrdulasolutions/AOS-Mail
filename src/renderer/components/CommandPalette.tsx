@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAppStore, useThreadedEmails } from "../store";
 import { splitAddressList, extractFirstName } from "../utils/address-parsing";
 import type { DashboardEmail, IpcResponse } from "../../shared/types";
+import {
+  pushArchiveUndo,
+  pushTrashUndo,
+  pushMarkUnreadUndo,
+  pushStarUndo,
+} from "../lib/undo-toasts";
 
 // --- Action types ---
 
@@ -235,14 +241,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               null,
               null,
             );
-            state.addUndoAction({
-              id: `archive-${state.selectedThreadId}-${Date.now()}`,
-              type: "archive",
-              threadCount: 1,
-              accountId: state.currentAccountId,
+            pushArchiveUndo({
               emails: [...threadEmails],
-              scheduledAt: Date.now(),
-              delayMs: 5000,
+              accountId: state.currentAccountId,
+              threadCount: 1,
             });
           }
         },
@@ -263,14 +265,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               null,
               null,
             );
-            state.addUndoAction({
-              id: `trash-${state.selectedThreadId}-${Date.now()}`,
-              type: "trash",
-              threadCount: 1,
-              accountId: state.currentAccountId,
+            pushTrashUndo({
               emails: [...threadEmails],
-              scheduledAt: Date.now(),
-              delayMs: 5000,
+              accountId: state.currentAccountId,
+              threadCount: 1,
             });
           }
         },
@@ -312,14 +310,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               if (!labels.includes("UNREAD")) {
                 const previousLabels: Record<string, string[]> = { [latest.id]: [...labels] };
                 state.updateEmail(latest.id, { labelIds: [...labels, "UNREAD"] });
-                state.addUndoAction({
-                  id: `mark-unread-${state.selectedThreadId}-${Date.now()}`,
-                  type: "mark-unread",
-                  threadCount: 1,
-                  accountId: state.currentAccountId,
+                pushMarkUnreadUndo({
                   emails: [latest],
-                  scheduledAt: Date.now(),
-                  delayMs: 5000,
+                  accountId: state.currentAccountId,
+                  threadCount: 1,
                   previousLabels,
                 });
               }
@@ -356,15 +350,12 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 ? currentLabels.filter((l) => l !== "STARRED")
                 : [...currentLabels, "STARRED"];
               state.updateEmail(email.id, { labelIds: newLabels });
-              state.addUndoAction({
-                id: `${isStarred ? "unstar" : "star"}-${email.threadId}-${Date.now()}`,
-                type: isStarred ? "unstar" : "star",
-                threadCount: 1,
-                accountId: state.currentAccountId,
+              pushStarUndo({
                 emails: [email],
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+                accountId: state.currentAccountId,
+                threadCount: 1,
                 previousLabels,
+                starred: !isStarred,
               });
             }
           }

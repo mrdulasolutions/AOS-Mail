@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { clearPendingLabelUpdates } from "../hooks-bridge";
 import { applyOptimisticReads, addOptimisticReads } from "../optimistic-reads";
+import { getSuppressedEmailIds } from "../lib/toast-store";
 import type {
   DashboardEmail,
   ComposeMode,
@@ -12,7 +13,6 @@ import type {
   InboxDensity,
   SnoozedEmail,
   ScheduledMessageStats,
-  SendMessageOptions,
   LocalDraft,
 } from "../../shared/types";
 import { emailMatchesSplit } from "../utils/split-conditions";
@@ -170,72 +170,10 @@ export type BackgroundSyncProgress = {
   error?: string;
 };
 
-// Undo send queue item
-export type UndoSendItem = {
-  id: string;
-  sendOptions: SendMessageOptions & { accountId: string };
-  recipients: string; // Display string e.g. "john@example.com"
-  scheduledAt: number; // Timestamp when added
-  delayMs: number; // Delay before actual send
-  // Context for reopening the compose UI on undo
-  composeContext?: {
-    mode: ComposeMode;
-    replyToEmailId?: string;
-    threadId?: string;
-    bodyHtml: string;
-    bodyText: string;
-    to: string[];
-    cc?: string[];
-    bcc?: string[];
-    subject?: string;
-    optimisticEmailId?: string; // Remove this phantom email from the store on undo
-  };
-};
-
-// Undo archive/delete queue item
-export type UndoActionItem = {
-  id: string;
-  type: "archive" | "trash" | "mark-unread" | "star" | "unstar" | "snooze";
-  threadCount: number;
-  accountId: string;
-  emails: DashboardEmail[];
-  scheduledAt: number;
-  delayMs: number;
-  // For label-based actions (mark-unread, star, unstar):
-  // Previous labels per email ID for restoration on undo
-  previousLabels?: Record<string, string[]>;
-  // For archive actions from archive-ready view:
-  // Thread IDs to remove from archive-ready set on execute
-  archiveReadyThreadIds?: string[];
-  // For snooze undo: thread IDs to unsnooze
-  snoozedThreadIds?: string[];
-  // When set, the smart-action toast (Space-bar key) is the visible
-  // surface — UndoActionToast hides this entry to avoid stacking two
-  // overlapping toasts. The timer/Cmd+Z dispatcher still fires from the
-  // shared UndoActionToast handler so single-source undo logic remains.
-  smartActionToastId?: string;
-};
-
-// Smart-action key surface item — driven by the Space-bar shortcut.
-// This is *not* an undo entry on its own; archive actions piggy-back on
-// UndoActionItem so the existing 5s timer + Cmd+Z dispatcher keeps
-// working. The smart-action toast just narrates which kind of action
-// landed (e.g. "Archived — Cmd+Z to undo" vs "Draft opened") and self-
-// dismisses after 5s. For non-undoable actions (open-draft) there's no
-// linked undo entry; the toast is informational only.
-export type SmartActionToastItem = {
-  id: string;
-  // Mirrors SmartAction["kind"] but as a flat string so the store stays
-  // free of imports from src/renderer/lib.
-  kind: "archive" | "open-draft" | "generate-draft" | "trigger-triage";
-  message: string;
-  // When set, links to the UndoActionItem so the toast can drive the
-  // existing undo flow (and so dismissing the toast supersedes the undo
-  // entry naturally).
-  undoActionId?: string;
-  scheduledAt: number;
-  delayMs: number;
-};
+// Toast queue, undo-send, smart-action narration, and triage-progress
+// state all live in the unified toast store at src/renderer/lib/toast-store.ts.
+// This module no longer holds any toast-shaped state. See
+// docs/POST-MORTEM-2026-05.md item #2 for the migration rationale.
 
 interface AppState {
   emails: DashboardEmail[];
@@ -342,18 +280,12 @@ interface AppState {
   unsnoozedReturnTimes: Map<string, number>; // threadId -> snoozeUntil timestamp (for chronological sorting)
   showSnoozeMenu: boolean;
 
-  // Undo send state
+  // Undo send state — only the user-configurable delay lives here. The
+  // pending-send queue itself is held by the unified toast store.
   undoSendDelaySeconds: number;
-  undoSendQueue: UndoSendItem[];
 
   // Native notifications
   notificationsEnabled: boolean;
-
-  // Triage catch-up status. Surfaced as a small toast while a batch
-  // analyze.analyzeBatch call is in flight. `count` is the number of
-  // emails being analyzed; `null` hides the toast. Cleared by the
-  // caller once the batch resolves.
-  triageStatus: { count: number; source: "boot" | "manual" } | null;
 
   // Draft-edit learned notifications
   draftEditLearned: {
@@ -368,12 +300,6 @@ interface AppState {
   } | null;
   highlightMemoryIds: string[];
 
-  // Undo archive/delete state
-  undoActionQueue: UndoActionItem[];
-
-  // Smart-action key (Space) state. Single-item queue — the most-recent
-  // smart action wins, since the user only acts on one email at a time.
-  smartActionToast: SmartActionToastItem | null;
   // True once the user has used the Space smart-action at least once.
   // Persisted to localStorage so the inline hint hides after first use.
   // Read at init time only — the store doesn't itself touch storage.
@@ -553,23 +479,13 @@ interface AppState {
   clearAnalysisOverrideLearned: () => void;
   setHighlightMemoryIds: (ids: string[]) => void;
 
-  // Undo send actions
+  // Undo send delay (user-configurable; queue is in toast-store.ts)
   setUndoSendDelay: (seconds: number) => void;
-  addUndoSend: (item: UndoSendItem) => void;
-  removeUndoSend: (id: string) => void;
 
   // Native notification preference
   setNotificationsEnabled: (enabled: boolean) => void;
 
-  // Triage catch-up status
-  setTriageStatus: (status: { count: number; source: "boot" | "manual" } | null) => void;
-
-  // Undo archive/delete actions
-  addUndoAction: (item: UndoActionItem) => void;
-  removeUndoAction: (id: string) => void;
-
-  // Smart-action key actions
-  setSmartActionToast: (toast: SmartActionToastItem | null) => void;
+  // Smart-action hint (one-time inline cue; toast queue lives elsewhere)
   dismissSmartActionHint: () => void;
 
   // Auth actions
@@ -739,23 +655,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   analysisOverrideLearned: null,
   highlightMemoryIds: [],
 
-  // Undo send state
+  // Undo send delay — user-configurable. The pending-send queue is in
+  // src/renderer/lib/toast-store.ts; only the delay persists in config.
   undoSendDelaySeconds: 5,
-  undoSendQueue: [],
 
   // Native notifications — persists in config; default true
   notificationsEnabled: true,
 
-  // Triage catch-up status — null when idle; toast is rendered when set.
-  triageStatus: null,
-
-  // Undo archive/delete state
-  undoActionQueue: [],
-
   // Smart-action key (Space) state. Hint-dismissed flag lazily reads
   // localStorage at module init so the user only sees the inline cue
-  // until they press Space once. The toast itself is purely in-memory.
-  smartActionToast: null,
+  // until they press Space once. The toast itself goes through the
+  // unified toast queue.
   smartActionHintDismissed: readSmartActionHintDismissed(),
 
   // Auth state
@@ -790,16 +700,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setEmails: (emails) => {
     set((state) => {
-      // Suppress emails pending in the undo action queue (archive/trash).
-      // Any path that replaces the store (DB reload, fetch) could resurrect
+      // Suppress emails pending in the unified toast queue (archive/trash
+      // undo toasts) and in pendingRemovals (offline queue path). Any path
+      // that replaces the store (DB reload, fetch) could otherwise resurrect
       // emails the user just archived/trashed optimistically.
-      const pendingIds = new Set<string>();
-      for (const action of state.undoActionQueue) {
-        if (action.type === "archive" || action.type === "trash") {
-          for (const e of action.emails) pendingIds.add(e.id);
-        }
-      }
-      // Also suppress from pendingRemovals (offline queue path)
+      const pendingIds = getSuppressedEmailIds();
       for (const arr of state.pendingRemovals.values()) {
         for (const e of arr) pendingIds.add(e.id);
       }
@@ -823,15 +728,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   addEmails: (newEmails) => {
     set((state) => {
-      // Suppress emails pending in the undo action queue (archive/trash).
-      // Without this, any path that adds emails (DB reload, sync) could
-      // resurrect emails the user just archived/trashed optimistically.
-      const pendingIds = new Set<string>();
-      for (const action of state.undoActionQueue) {
-        if (action.type === "archive" || action.type === "trash") {
-          for (const e of action.emails) pendingIds.add(e.id);
-        }
-      }
+      // Suppress emails pending in the unified toast queue (archive/trash
+      // undo toasts). Without this, any path that adds emails (DB reload,
+      // sync) could resurrect emails the user just archived/trashed
+      // optimistically. The undoable callback dismisses the toast BEFORE
+      // calling addEmails so the restore path isn't itself suppressed.
+      const pendingIds = getSuppressedEmailIds();
       for (const arr of state.pendingRemovals.values()) {
         for (const e of arr) pendingIds.add(e.id);
       }
@@ -1297,67 +1199,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearAnalysisOverrideLearned: () => set({ analysisOverrideLearned: null }),
   setHighlightMemoryIds: (ids) => set({ highlightMemoryIds: ids }),
 
-  // Undo send actions
+  // Undo send delay (only the user-configurable knob — pending sends are
+  // queued in the unified toast store).
   setUndoSendDelay: (seconds) => set({ undoSendDelaySeconds: seconds }),
-  addUndoSend: (item) => set((state) => ({ undoSendQueue: [...state.undoSendQueue, item] })),
-  removeUndoSend: (id) =>
-    set((state) => ({ undoSendQueue: state.undoSendQueue.filter((i) => i.id !== id) })),
 
   // Native notification preference. Persists separately via window.api.settings;
   // this state is the renderer-side mirror used by services/notifications.ts.
   setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
 
-  // Triage catch-up state. Surfaced via TriageStatusToast in App.tsx so the
-  // user gets feedback while a batch analyze.analyzeBatch is in flight.
-  setTriageStatus: (status) => set({ triageStatus: status }),
-
-  // Undo archive/delete actions — merges rapid-fire operations of the same
-  // type into a single undo action so one toast shows "N threads archived"
-  // instead of stacking separate toasts. The timer resets on each merge so
-  // you get 5s after the last action. Different types (e.g. archive then
-  // trash) or different accounts remain separate items.
-  addUndoAction: (item) =>
-    set((state) => {
-      const existing = state.undoActionQueue.find(
-        (i) =>
-          i.type === item.type &&
-          i.accountId === item.accountId &&
-          // Don't merge into an item whose timer has already elapsed —
-          // it is executing or about to execute; treat the new press as a fresh action.
-          i.scheduledAt + i.delayMs > Date.now(),
-      );
-      if (existing) {
-        const merged: UndoActionItem = {
-          ...existing,
-          emails: [...existing.emails, ...item.emails],
-          threadCount: existing.threadCount + item.threadCount,
-          scheduledAt: Date.now(),
-          archiveReadyThreadIds:
-            existing.archiveReadyThreadIds || item.archiveReadyThreadIds
-              ? [...(existing.archiveReadyThreadIds || []), ...(item.archiveReadyThreadIds || [])]
-              : undefined,
-          previousLabels:
-            existing.previousLabels || item.previousLabels
-              ? { ...(existing.previousLabels || {}), ...(item.previousLabels || {}) }
-              : undefined,
-          snoozedThreadIds:
-            existing.snoozedThreadIds || item.snoozedThreadIds
-              ? [...(existing.snoozedThreadIds || []), ...(item.snoozedThreadIds || [])]
-              : undefined,
-        };
-        return {
-          undoActionQueue: state.undoActionQueue.map((i) => (i.id === existing.id ? merged : i)),
-        };
-      }
-      return { undoActionQueue: [...state.undoActionQueue, item] };
-    }),
-  removeUndoAction: (id) =>
-    set((state) => ({ undoActionQueue: state.undoActionQueue.filter((i) => i.id !== id) })),
-
-  // Smart-action actions — single-item queue, so set replaces. The toast
-  // component handles its own 5s self-dismiss timer; the store just tracks
-  // which toast (if any) is on screen.
-  setSmartActionToast: (toast) => set({ smartActionToast: toast }),
+  // Smart-action hint — toggled to true the first time the user presses
+  // Space, persists in localStorage so the inline cue stays hidden.
   dismissSmartActionHint: () => {
     writeSmartActionHintDismissed();
     set({ smartActionHintDismissed: true });

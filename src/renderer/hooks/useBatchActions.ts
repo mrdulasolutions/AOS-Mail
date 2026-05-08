@@ -1,21 +1,26 @@
 import { useAppStore } from "../store";
 import type { DashboardEmail } from "../../shared/types";
 import { trackEvent } from "../services/posthog";
+import {
+  pushArchiveUndo,
+  pushTrashUndo,
+  pushStarUndo,
+  pushMarkUnreadUndo,
+} from "../lib/undo-toasts";
 
 /**
  * Shared batch action functions that read current state from the store.
  * Safe to call from event handlers, useCallback bodies, or keyboard shortcuts.
+ *
+ * Each batch action does the optimistic store mutation up front, then queues
+ * an undo toast via `pushArchiveUndo` / `pushTrashUndo` / etc. The toast's
+ * `onExpire` callback owns the actual gmail commit and the `undoable`
+ * callback restores optimistic state on Cmd+Z / Undo click.
  */
 
 export function batchArchive() {
-  const {
-    selectedThreadIds,
-    emails,
-    removeEmails,
-    clearSelectedThreads,
-    addUndoAction,
-    currentAccountId,
-  } = useAppStore.getState();
+  const { selectedThreadIds, emails, removeEmails, clearSelectedThreads, currentAccountId } =
+    useAppStore.getState();
   if (!currentAccountId || selectedThreadIds.size === 0) return;
 
   const threadIds = Array.from(selectedThreadIds);
@@ -34,29 +39,19 @@ export function batchArchive() {
   removeEmails(allEmailIds);
   clearSelectedThreads();
 
-  // Queue a single undo action for all threads
-  addUndoAction({
-    id: `archive-batch-${Date.now()}`,
-    type: "archive",
-    threadCount: threadIds.length,
-    accountId: currentAccountId,
+  // Queue an undo toast for the batch
+  pushArchiveUndo({
     emails: [...allEmails],
-    scheduledAt: Date.now(),
-    delayMs: 5000,
+    accountId: currentAccountId,
+    threadCount: threadIds.length,
   });
   // Tracks intent — user may still undo within 5 s
   trackEvent("email_archived", { thread_count: threadIds.length, source: "batch" });
 }
 
 export function batchTrash() {
-  const {
-    selectedThreadIds,
-    emails,
-    removeEmails,
-    clearSelectedThreads,
-    addUndoAction,
-    currentAccountId,
-  } = useAppStore.getState();
+  const { selectedThreadIds, emails, removeEmails, clearSelectedThreads, currentAccountId } =
+    useAppStore.getState();
   if (!currentAccountId || selectedThreadIds.size === 0) return;
 
   const threadIds = Array.from(selectedThreadIds);
@@ -74,29 +69,18 @@ export function batchTrash() {
   removeEmails(allEmailIds);
   clearSelectedThreads();
 
-  // Queue a single undo action for all threads
-  addUndoAction({
-    id: `trash-batch-${Date.now()}`,
-    type: "trash",
-    threadCount: threadIds.length,
-    accountId: currentAccountId,
+  pushTrashUndo({
     emails: [...allEmails],
-    scheduledAt: Date.now(),
-    delayMs: 5000,
+    accountId: currentAccountId,
+    threadCount: threadIds.length,
   });
   // Tracks intent — user may still undo within 5 s
   trackEvent("email_trashed", { thread_count: threadIds.length, source: "batch" });
 }
 
 export function batchToggleStar() {
-  const {
-    selectedThreadIds,
-    emails,
-    clearSelectedThreads,
-    updateEmail,
-    addUndoAction,
-    currentAccountId,
-  } = useAppStore.getState();
+  const { selectedThreadIds, emails, clearSelectedThreads, updateEmail, currentAccountId } =
+    useAppStore.getState();
   if (!currentAccountId || selectedThreadIds.size === 0) return;
 
   // Group emails by thread for the selected threads
@@ -139,16 +123,12 @@ export function batchToggleStar() {
   clearSelectedThreads();
 
   if (changedEmails.length > 0) {
-    const actionType = anyUnstarred ? "star" : "unstar";
-    addUndoAction({
-      id: `${actionType}-batch-${Date.now()}`,
-      type: actionType,
-      threadCount: selectedThreadIds.size,
-      accountId: currentAccountId,
+    pushStarUndo({
       emails: changedEmails,
-      scheduledAt: Date.now(),
-      delayMs: 5000,
+      accountId: currentAccountId,
+      threadCount: selectedThreadIds.size,
       previousLabels,
+      starred: anyUnstarred,
     });
     const changedThreadCount = new Set(changedEmails.map((e) => e.threadId)).size;
     trackEvent(anyUnstarred ? "email_starred" : "email_unstarred", {
@@ -158,14 +138,8 @@ export function batchToggleStar() {
 }
 
 export function batchMarkUnread() {
-  const {
-    selectedThreadIds,
-    emails,
-    clearSelectedThreads,
-    updateEmail,
-    addUndoAction,
-    currentAccountId,
-  } = useAppStore.getState();
+  const { selectedThreadIds, emails, clearSelectedThreads, updateEmail, currentAccountId } =
+    useAppStore.getState();
   if (!currentAccountId || selectedThreadIds.size === 0) return;
 
   const changedEmails: DashboardEmail[] = [];
@@ -189,14 +163,10 @@ export function batchMarkUnread() {
   clearSelectedThreads();
 
   if (changedEmails.length > 0) {
-    addUndoAction({
-      id: `mark-unread-batch-${Date.now()}`,
-      type: "mark-unread",
-      threadCount: changedEmails.length,
-      accountId: currentAccountId,
+    pushMarkUnreadUndo({
       emails: changedEmails,
-      scheduledAt: Date.now(),
-      delayMs: 5000,
+      accountId: currentAccountId,
+      threadCount: changedEmails.length,
       previousLabels,
     });
     trackEvent("email_marked_unread", {

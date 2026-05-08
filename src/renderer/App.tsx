@@ -28,12 +28,10 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { AgentActivityTray } from "./components/AgentActivityTray";
 import { PermissionsTray } from "./components/PermissionsTray";
 import { MorningBriefing } from "./components/MorningBriefing";
-import { UndoSendToast } from "./components/UndoSendToast";
-import { UndoActionToast } from "./components/UndoActionToast";
+import { ToastStack } from "./components/Toast";
+import { pushSnoozeUndo } from "./lib/undo-toasts";
 import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
 import { AnalysisOverrideLearnedToast } from "./components/AnalysisOverrideLearnedToast";
-import { TriageStatusToast } from "./components/TriageStatusToast";
-import { SmartActionToast } from "./components/SmartActionToast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SnoozeMenu } from "./components/SnoozeMenu";
 import { FindBar } from "./components/FindBar";
@@ -2734,20 +2732,17 @@ export default function App() {
         <ShortcutHelp isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
       </ErrorBoundary>
 
-      {/* Undo Toasts (send + archive/delete) + Draft Edit Learning + Triage status */}
+      {/* Unified toast surface — all undo/info/progress/error toasts go
+          through pushToast(). The two "learned" toasts stay separate
+          because they have rich custom UI (purple memory-promotion cards
+          with deep-links into the Memories settings tab); a generic info
+          toast wouldn't carry that affordance. They render in the same
+          bottom-left column above the ToastStack. */}
       <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2">
-        <UndoSendToast />
-        <UndoActionToast />
-        {/* Smart-action (Space-bar key) narration. Mounted after
-            UndoActionToast so its visible toast sits *above* in the
-            stack — UndoActionToast hides items it owns when they're
-            also linked to a SmartActionToast, so the user sees only
-            one row per action. */}
-        <SmartActionToast />
         <DraftEditLearnedToast />
         <AnalysisOverrideLearnedToast />
-        <TriageStatusToast />
       </div>
+      <ToastStack />
 
       {/* Global Snooze Menu Overlay */}
       <SnoozeOverlay />
@@ -2766,7 +2761,6 @@ function SnoozeOverlay() {
     setViewMode: _setViewMode2,
     selectedThreadIds,
     clearSelectedThreads,
-    addUndoAction,
   } = useAppStore();
   const showSnoozeMenu = useAppStore((s) => s.showSnoozeMenu);
   const setShowSnoozeMenu = useAppStore((s) => s.setShowSnoozeMenu);
@@ -2845,14 +2839,9 @@ function SnoozeOverlay() {
               });
 
               // Queue undo synchronously to avoid race with other actions in the rAF delay
-              addUndoAction({
-                id: `snooze-batch-${Date.now()}`,
-                type: "snooze",
-                threadCount: threadIdsToSnooze.length,
+              pushSnoozeUndo({
                 accountId: currentAccountId,
-                emails: [],
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+                threadCount: threadIdsToSnooze.length,
                 snoozedThreadIds: threadIdsToSnooze,
               });
 
@@ -2903,14 +2892,9 @@ function SnoozeOverlay() {
               });
 
               // Queue undo synchronously to avoid race with other actions in the rAF delay
-              addUndoAction({
-                id: `snooze-${snoozedThreadId}-${Date.now()}`,
-                type: "snooze",
-                threadCount: 1,
+              pushSnoozeUndo({
                 accountId: currentAccountId,
-                emails: [],
-                scheduledAt: Date.now(),
-                delayMs: 5000,
+                threadCount: 1,
                 snoozedThreadIds: [snoozedThreadId],
               });
             }
