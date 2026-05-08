@@ -16,6 +16,27 @@ import type {
   LocalDraft,
 } from "../../shared/types";
 import { emailMatchesSplit } from "../utils/split-conditions";
+
+// Smart-action key — local-storage flag that hides the inline "Press Space"
+// hint after first use. Stored as a single boolean string so we don't
+// shape-version it. Wrapped in try/catch because the renderer may run in
+// environments (tests, SSR-style hydration) where localStorage isn't
+// available.
+const SMART_ACTION_HINT_KEY = "aos-mail.smart-action-hint-dismissed";
+function readSmartActionHintDismissed(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(SMART_ACTION_HINT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeSmartActionHintDismissed(): void {
+  try {
+    globalThis.localStorage?.setItem(SMART_ACTION_HINT_KEY, "1");
+  } catch {
+    // Best-effort; the worst-case is the hint shows again next session.
+  }
+}
 import type {
   AgentProviderConfig,
   AgentTaskInfo,
@@ -182,6 +203,32 @@ export type UndoActionItem = {
   archiveReadyThreadIds?: string[];
   // For snooze undo: thread IDs to unsnooze
   snoozedThreadIds?: string[];
+  // When set, the smart-action toast (Space-bar key) is the visible
+  // surface — UndoActionToast hides this entry to avoid stacking two
+  // overlapping toasts. The timer/Cmd+Z dispatcher still fires from the
+  // shared UndoActionToast handler so single-source undo logic remains.
+  smartActionToastId?: string;
+};
+
+// Smart-action key surface item — driven by the Space-bar shortcut.
+// This is *not* an undo entry on its own; archive actions piggy-back on
+// UndoActionItem so the existing 5s timer + Cmd+Z dispatcher keeps
+// working. The smart-action toast just narrates which kind of action
+// landed (e.g. "Archived — Cmd+Z to undo" vs "Draft opened") and self-
+// dismisses after 5s. For non-undoable actions (open-draft) there's no
+// linked undo entry; the toast is informational only.
+export type SmartActionToastItem = {
+  id: string;
+  // Mirrors SmartAction["kind"] but as a flat string so the store stays
+  // free of imports from src/renderer/lib.
+  kind: "archive" | "open-draft" | "generate-draft" | "trigger-triage";
+  message: string;
+  // When set, links to the UndoActionItem so the toast can drive the
+  // existing undo flow (and so dismissing the toast supersedes the undo
+  // entry naturally).
+  undoActionId?: string;
+  scheduledAt: number;
+  delayMs: number;
 };
 
 interface AppState {
@@ -317,6 +364,14 @@ interface AppState {
 
   // Undo archive/delete state
   undoActionQueue: UndoActionItem[];
+
+  // Smart-action key (Space) state. Single-item queue — the most-recent
+  // smart action wins, since the user only acts on one email at a time.
+  smartActionToast: SmartActionToastItem | null;
+  // True once the user has used the Space smart-action at least once.
+  // Persisted to localStorage so the inline hint hides after first use.
+  // Read at init time only — the store doesn't itself touch storage.
+  smartActionHintDismissed: boolean;
 
   // Auth state — accounts/extensions needing re-authentication
   expiredAccountIds: Set<string>;
@@ -507,6 +562,10 @@ interface AppState {
   addUndoAction: (item: UndoActionItem) => void;
   removeUndoAction: (id: string) => void;
 
+  // Smart-action key actions
+  setSmartActionToast: (toast: SmartActionToastItem | null) => void;
+  dismissSmartActionHint: () => void;
+
   // Auth actions
   addExpiredAccount: (accountId: string) => void;
   removeExpiredAccount: (accountId: string) => void;
@@ -686,6 +745,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Undo archive/delete state
   undoActionQueue: [],
+
+  // Smart-action key (Space) state. Hint-dismissed flag lazily reads
+  // localStorage at module init so the user only sees the inline cue
+  // until they press Space once. The toast itself is purely in-memory.
+  smartActionToast: null,
+  smartActionHintDismissed: readSmartActionHintDismissed(),
 
   // Auth state
   expiredAccountIds: new Set(),
@@ -1282,6 +1347,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   removeUndoAction: (id) =>
     set((state) => ({ undoActionQueue: state.undoActionQueue.filter((i) => i.id !== id) })),
+
+  // Smart-action actions — single-item queue, so set replaces. The toast
+  // component handles its own 5s self-dismiss timer; the store just tracks
+  // which toast (if any) is on screen.
+  setSmartActionToast: (toast) => set({ smartActionToast: toast }),
+  dismissSmartActionHint: () => {
+    writeSmartActionHintDismissed();
+    set({ smartActionHintDismissed: true });
+  },
 
   // Auth actions
   addExpiredAccount: (accountId) =>

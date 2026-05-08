@@ -4,6 +4,17 @@ import { useAppStore, type UndoActionItem } from "../store";
 // Map of item ID -> cancel function for keyboard shortcut access
 const cancelHandlers = new Map<string, () => void>();
 
+// Allow other components (smart-action toast) to drive undo for an item
+// they didn't render themselves. Returns true when an undo handler was
+// found and invoked. The shared cancelHandlers map stays the single
+// source of truth for both Cmd+Z and click-to-undo paths.
+export function triggerUndoForActionId(id: string): boolean {
+  const cancel = cancelHandlers.get(id);
+  if (!cancel) return false;
+  cancel();
+  return true;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const api = () => (window as any).api;
 
@@ -152,7 +163,19 @@ async function commitAction(item: UndoActionItem, removeFromQueue: () => void): 
   cancelHandlers.delete(item.id);
 }
 
-function UndoActionToastItem({ item }: { item: UndoActionItem }) {
+function UndoActionToastItem({
+  item,
+  hidden = false,
+}: {
+  item: UndoActionItem;
+  /**
+   * When true, the timer + cancelHandler bookkeeping still runs (so the
+   * smart-action toast can drive undo via the same id), but no row is
+   * rendered. Used for items linked to a SmartActionToast which provides
+   * the visible UI.
+   */
+  hidden?: boolean;
+}) {
   const removeUndoAction = useAppStore((s) => s.removeUndoAction);
   const addEmails = useAppStore((s) => s.addEmails);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -290,6 +313,11 @@ function UndoActionToastItem({ item }: { item: UndoActionItem }) {
   const verb = verbMap[item.type];
   const label = `${noun} ${verb}.`;
 
+  if (hidden) {
+    // Effects above still run — the row is just visually suppressed.
+    return null;
+  }
+
   return (
     <div className="bg-gray-900 dark:bg-gray-700 text-white rounded-lg shadow-lg flex items-center justify-between px-4 py-3 min-w-[280px]">
       <span className="text-sm">{label}</span>
@@ -340,7 +368,11 @@ export function UndoActionToast() {
   return (
     <>
       {undoActionQueue.map((item) => (
-        <UndoActionToastItem key={item.id} item={item} />
+        // Items owned by the smart-action toast still mount so their
+        // timer and cancelHandlers keep working — they just render
+        // `null` (hidden) so the SmartActionToast is the only visible
+        // surface for that action.
+        <UndoActionToastItem key={item.id} item={item} hidden={Boolean(item.smartActionToastId)} />
       ))}
     </>
   );

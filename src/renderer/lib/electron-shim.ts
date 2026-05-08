@@ -607,6 +607,17 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    // Smart-action late-undo: called only when the optimistic 5s window has
+    // already committed and we still need to put the message back in INBOX.
+    // The in-window undo path stays optimistic and never touches the bridge.
+    unarchive: async (emailId: string, accountId: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("emails.unarchive", { emailId, accountId });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
     batchArchive: async (emailIds: string[], accountId: string): Promise<IpcResponse<unknown>> => {
       try {
         const data = await bridge.call("emails.batchArchive", { emailIds, accountId });

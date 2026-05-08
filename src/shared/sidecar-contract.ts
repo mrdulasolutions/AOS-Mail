@@ -413,6 +413,10 @@ export interface SidecarMethods {
     params: { emailId: string; accountId?: string };
     result: { ok: true };
   };
+  "emails.unarchive": {
+    params: { emailId: string; accountId?: string };
+    result: { ok: true };
+  };
   "emails.batchArchive": {
     params: { emailIds: string[]; accountId?: string };
     result: { ok: true; archived: number; errors: string[] };

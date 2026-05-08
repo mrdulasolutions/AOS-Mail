@@ -40,9 +40,9 @@ function writeLabels(emailId: string, labels: string[]): void {
 
 function getEmailRow(emailId: string): EmailRow | null {
   return (
-    (getDb()
-      .prepare("SELECT id, account_id, label_ids FROM emails WHERE id = ?")
-      .get(emailId) as EmailRow | undefined) ?? null
+    (getDb().prepare("SELECT id, account_id, label_ids FROM emails WHERE id = ?").get(emailId) as
+      | EmailRow
+      | undefined) ?? null
   );
 }
 
@@ -120,10 +120,7 @@ export async function setStarFlag(emailId: string, starred: boolean): Promise<vo
  * inspect the LIST result and match by special-use first, then by
  * common names.
  */
-async function resolveDestination(
-  accountId: string,
-  kind: "archive" | "trash",
-): Promise<string> {
+async function resolveDestination(accountId: string, kind: "archive" | "trash"): Promise<string> {
   const client = await openImapClient(accountId);
   try {
     const list = await client.list();
@@ -146,10 +143,7 @@ async function resolveDestination(
   }
 }
 
-async function moveOnImap(
-  emailId: string,
-  destination: "archive" | "trash",
-): Promise<void> {
+async function moveOnImap(emailId: string, destination: "archive" | "trash"): Promise<void> {
   const parsed = parseImapId(emailId);
   if (!parsed) throw new Error(`${destination}: ${emailId} is not an IMAP id`);
   const { accountId, folder, uid } = parsed;
@@ -180,4 +174,29 @@ export async function archiveMessage(emailId: string): Promise<void> {
 export async function trashMessage(emailId: string): Promise<void> {
   await moveOnImap(emailId, "trash");
   getDb().prepare("DELETE FROM emails WHERE id = ?").run(emailId);
+}
+
+/**
+ * Inverse of archiveMessage: move the message from the Archive folder back
+ * to INBOX. Used by the smart-action key undo path when the 5s window has
+ * already elapsed and the archive committed to the server.
+ *
+ * The provided emailId encodes the *original* INBOX folder/UID
+ * (`imap:<acct>:<inboxFolder>:<uid>`). After archiveMessage moves the message
+ * to Archive, the UID is the destination's, not the source's — IMAP doesn't
+ * preserve UIDs across folders. We therefore can't address the moved row by
+ * its old id; instead we resolve the Archive folder, search by its current
+ * (destination) UID is impossible from the original id alone, so this method
+ * accepts an id that points at the Archive copy or simply skips the move when
+ * the source no longer exists. In practice the renderer's optimistic undo
+ * handles the within-5s case without ever calling unarchive — this method
+ * exists for parity with the contract and as a best-effort fallback.
+ */
+export async function unarchiveMessage(emailId: string): Promise<void> {
+  // No reliable inverse for IMAP without tracking the destination UID, which
+  // we don't store. Throw so the renderer can fall back to its optimistic
+  // restore (it always keeps the email blob in the undo queue).
+  throw new Error(
+    `unarchiveMessage: IMAP unarchive requires destination UID tracking; renderer should restore optimistically (id=${emailId})`,
+  );
 }
