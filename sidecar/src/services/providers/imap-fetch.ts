@@ -12,6 +12,9 @@
 import { ImapFlow, type FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import { openImapClient } from "./imap.js";
+import { createLogger } from "../../lib/logger.js";
+
+const log = createLogger("imap-fetch");
 
 export interface ImapMessageHeader {
   /** Stable id we use as emails.id — `imap:<accountId>:<folder>:<uid>`. */
@@ -144,6 +147,65 @@ export async function listImapMessageHeaders(
       /* best-effort */
     });
   }
+}
+
+/**
+ * Discover the SENT folder for an IMAP account.
+ *
+ * IMAP servers don't agree on what to call the sent folder: Gmail's
+ * IMAP exposes "[Gmail]/Sent Mail", Dovecot defaults to "Sent", Cyrus
+ * uses "INBOX.Sent", and some servers go with "Sent Mail" or "Sent
+ * Items". RFC 6154 added a SPECIAL-USE attribute (`\Sent`) that
+ * standardizes discovery, so we prefer that. Fall back to the common
+ * names so older servers that don't advertise SPECIAL-USE still work.
+ *
+ * Returns null if no SENT folder can be found — caller should treat
+ * that as "this server has no SENT to sync from".
+ */
+export async function discoverSentFolder(
+  accountId: string,
+): Promise<string | null> {
+  const client = await openImapClient(accountId);
+  try {
+    const list = await client.list();
+    // Prefer the special-use mailbox if the server advertises it.
+    const bySpecial = list.find((box) => box.specialUse === "\\Sent");
+    if (bySpecial) return bySpecial.path;
+    // Fall back to common names. Match against the path (full hierarchy)
+    // because the leaf name "Sent" can collide with subfolders. Keep the
+    // exact prefix match conservative — we want "Sent" not "Sent/2024".
+    const candidates = ["Sent", "Sent Mail", "Sent Items", "[Gmail]/Sent Mail", "INBOX.Sent"];
+    for (const name of candidates) {
+      const hit = list.find((box) => box.path === name || box.name === name);
+      if (hit) return hit.path;
+    }
+    log.info("no SENT folder found for account", { accountId });
+    return null;
+  } finally {
+    await client.logout().catch(() => {
+      /* best-effort */
+    });
+  }
+}
+
+/**
+ * List the most recent message envelopes in this account's SENT folder.
+ *
+ * Same shape as listImapMessageHeaders (and re-uses it after discovery
+ * resolves the folder name) so the sync orchestrator can treat both
+ * folders uniformly. Returns headers=[] if discovery returns null —
+ * callers shouldn't have to special-case "no sent folder", and an
+ * empty result is the correct semantic.
+ */
+export async function listImapSentHeaders(
+  accountId: string,
+  opts: { limit?: number; sinceUid?: number } = {},
+): Promise<{ headers: ImapMessageHeader[]; highestUid: number; folder: string }> {
+  const folder = await discoverSentFolder(accountId);
+  if (!folder) {
+    return { headers: [], highestUid: 0, folder: "" };
+  }
+  return listImapMessageHeaders(accountId, folder, opts);
 }
 
 /**
