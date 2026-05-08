@@ -71,17 +71,71 @@ function main() {
   // Node SEA or pkg so we don't depend on this path existing.)
   const sidecarNodeModules = resolve(ROOT, "node_modules");
 
+  // Resolve `node` at sidecar-launch time. macOS apps launched from Finder /
+  // Dock / Spotlight inherit launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:
+  // /sbin`), which does NOT include /usr/local/bin or /opt/homebrew/bin where
+  // node typically lives. Without this, `exec node` fails with
+  // "node: not found" before the bundled JS even loads, the bash stub exits,
+  // and Tauri sees the sidecar terminate immediately — surfacing as
+  // "sidecar channel closed before response" on every RPC.
+  //
+  // We probe the common Homebrew / nvm / system install paths in priority
+  // order, then fall back to whatever `command -v node` finds (which uses
+  // the inherited PATH and only matters when the user launched from a
+  // terminal). If nothing's found, we print an actionable error to stderr
+  // (visible in `~/Library/Application Support/AOS Mail/sidecar.log`-adjacent
+  // logging or in the Tauri shell's debug log) and exit non-zero, which is
+  // strictly better than dying silently.
+  const nodeLookup = `
+NODE_BIN=""
+for cand in \\
+  /opt/homebrew/bin/node \\
+  /usr/local/bin/node \\
+  /opt/local/bin/node \\
+  /usr/bin/node; do
+  if [ -x "$cand" ]; then NODE_BIN="$cand"; break; fi
+done
+if [ -z "$NODE_BIN" ] && [ -d "$HOME/.nvm/versions/node" ]; then
+  for cand in $(ls -t "$HOME/.nvm/versions/node" 2>/dev/null); do
+    if [ -x "$HOME/.nvm/versions/node/$cand/bin/node" ]; then
+      NODE_BIN="$HOME/.nvm/versions/node/$cand/bin/node"
+      break
+    fi
+  done
+fi
+if [ -z "$NODE_BIN" ]; then
+  fallback="$(command -v node 2>/dev/null || true)"
+  if [ -n "$fallback" ] && [ -x "$fallback" ]; then NODE_BIN="$fallback"; fi
+fi
+if [ -z "$NODE_BIN" ]; then
+  cat >&2 <<'NODE_NOT_FOUND_EOF'
+AOS Mail: Node.js (v20+) not found.
+
+The sidecar process needs Node.js to run. We searched:
+  /opt/homebrew/bin/node, /usr/local/bin/node,
+  /opt/local/bin/node, /usr/bin/node, ~/.nvm/versions/node/*
+
+None of those contained an executable. Please install Node.js from
+https://nodejs.org/ (the LTS installer puts it in /usr/local/bin/node)
+and re-launch AOS Mail.
+NODE_NOT_FOUND_EOF
+  exit 127
+fi
+`.trim();
+
   const stub =
     `#!/usr/bin/env bash\n` +
     `set -euo pipefail\n` +
     `export NODE_PATH=${JSON.stringify(sidecarNodeModules)}\${NODE_PATH:+:$NODE_PATH}\n` +
+    nodeLookup +
+    `\n` +
     `TMP="$(mktemp -t aos-mail-sidecar.XXXXXX).cjs"\n` +
     `trap 'rm -f "$TMP"' EXIT\n` +
     `cat > "$TMP" <<'${delim}'\n` +
     bundle +
     (bundle.endsWith("\n") ? "" : "\n") +
     `${delim}\n` +
-    `exec node "$TMP" "$@"\n`;
+    `exec "$NODE_BIN" "$TMP" "$@"\n`;
 
   writeFileSync(stubDest, stub);
   chmodSync(stubDest, 0o755);
