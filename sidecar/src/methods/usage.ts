@@ -11,6 +11,11 @@
 // The renderer-side shim in installRealNamespaces preserves the legacy
 // surface name (window.api.usage.*) while the wire calls go to the new
 // names.
+//
+// We additionally surface "today" / "this month" aggregates and an enriched
+// history endpoint that joins emails to expose subjects to the renderer.
+// This powers the Agent Activity tray and the Agent Activity sub-tab in
+// Settings → Agent Tools without making the renderer chatty about emails.
 
 import { registerMethod } from "../rpc.js";
 import { getDb } from "../db/index.js";
@@ -21,6 +26,16 @@ export interface UsageStats {
   thisMonth: { totalCostCents: number; totalCalls: number };
   byModel: Array<{ model: string; costCents: number; calls: number }>;
   byCaller: Array<{ caller: string; costCents: number; calls: number }>;
+}
+
+/** Aggregate stats for one rolling window (day or month). */
+export interface UsageWindowStats {
+  totalCostCents: number;
+  totalCalls: number;
+  successCalls: number;
+  failedCalls: number;
+  topCaller: string | null;
+  topCallerCalls: number;
 }
 
 export interface LlmCallRecord {
@@ -38,6 +53,11 @@ export interface LlmCallRecord {
   duration_ms: number;
   success: number;
   error_message: string | null;
+}
+
+/** Same as LlmCallRecord plus the resolved email subject (when joinable). */
+export interface LlmCallRecordWithSubject extends LlmCallRecord {
+  email_subject: string | null;
 }
 
 function getStats(): UsageStats {
@@ -71,10 +91,84 @@ function getStats(): UsageStats {
   };
 }
 
+/**
+ * Aggregate window stats with success/failure split + top caller. Used by
+ * the Agent Activity tray (today badge) and the Settings stats card. We
+ * keep the SQL narrow and do two queries — one aggregate, one top-caller —
+ * because expressing "argmax over caller" inline gets ugly fast and the
+ * row counts are tiny.
+ */
+function getWindowStats(whereClause: string): UsageWindowStats {
+  const db = getDb();
+  const agg = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(cost_cents), 0) as cost,
+         COUNT(*) as calls,
+         SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successCalls,
+         SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failedCalls
+       FROM llm_calls
+       WHERE ${whereClause}`,
+    )
+    .get() as {
+    cost: number;
+    calls: number;
+    successCalls: number | null;
+    failedCalls: number | null;
+  };
+  const top = db
+    .prepare(
+      `SELECT caller, COUNT(*) as n
+       FROM llm_calls
+       WHERE ${whereClause}
+       GROUP BY caller
+       ORDER BY n DESC
+       LIMIT 1`,
+    )
+    .get() as { caller: string; n: number } | undefined;
+  return {
+    totalCostCents: agg.cost,
+    totalCalls: agg.calls,
+    successCalls: agg.successCalls ?? 0,
+    failedCalls: agg.failedCalls ?? 0,
+    topCaller: top?.caller ?? null,
+    topCallerCalls: top?.n ?? 0,
+  };
+}
+
+function getStatsToday(): UsageWindowStats {
+  return getWindowStats("date(created_at) = date('now')");
+}
+
+function getStatsThisMonth(): UsageWindowStats {
+  return getWindowStats("created_at >= datetime('now', '-30 days')");
+}
+
 function getHistory(limit: number): LlmCallRecord[] {
   return getDb()
     .prepare("SELECT * FROM llm_calls ORDER BY created_at DESC LIMIT ?")
     .all(limit) as LlmCallRecord[];
+}
+
+/**
+ * History rows joined with the emails table on `email_id`. The join is a
+ * LEFT JOIN so calls without a resolvable email (e.g. analysis batches,
+ * thread summaries that key on thread_id, lookups for raw message ids the
+ * client never persisted) still show up — `email_subject` is just null.
+ *
+ * We intentionally don't expose any other email fields. Subject is enough
+ * context for the audit UI; everything else stays out of the renderer.
+ */
+function getHistoryWithSubjects(limit: number): LlmCallRecordWithSubject[] {
+  return getDb()
+    .prepare(
+      `SELECT c.*, e.subject AS email_subject
+       FROM llm_calls c
+       LEFT JOIN emails e ON e.id = c.email_id
+       ORDER BY c.created_at DESC
+       LIMIT ?`,
+    )
+    .all(limit) as LlmCallRecordWithSubject[];
 }
 
 export function registerUsageMethods(): void {
@@ -85,4 +179,19 @@ export function registerUsageMethods(): void {
     const limit = Math.min(Math.max(requested, 1), 500);
     return getHistory(limit);
   });
+
+  // Enriched history for the Agent Activity UI. We keep this server-side
+  // even though filter-by-caller / filter-by-model / search-on-subject would
+  // be trivial in JS — at typical workloads (a few hundred calls / day)
+  // the full payload over the bridge is cheaper than re-fetching whenever
+  // the user toggles a filter, and we get fewer round-trips on tray opens.
+  // The renderer applies the filters client-side after one fetch.
+  registerMethod("usage.getHistoryWithSubjects", (params) => {
+    const requested = (params as { limit?: number })?.limit ?? 200;
+    const limit = Math.min(Math.max(requested, 1), 1000);
+    return getHistoryWithSubjects(limit);
+  });
+
+  registerMethod("usage.getStatsToday", () => getStatsToday());
+  registerMethod("usage.getStatsThisMonth", () => getStatsThisMonth());
 }
