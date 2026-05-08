@@ -2,9 +2,20 @@ Business Source License 1.1
 
 Parameters
 
-Licensor:             Ankit Gupta
-Licensed Work:        Exo Email Client
-                      The Licensed Work is (c) 2025-2026 Ankit Gupta.
+Licensor:             Mrdula Solutions
+Licensed Work:        AOS Mail
+                      The Licensed Work is (c) 2026 Mrdula Solutions.
+
+                      AOS Mail is a fork of Exo Email Client
+                      (https://github.com/ankitvgupta/exo), originally
+                      authored by Ankit Gupta and licensed to Mrdula
+                      Solutions under the same Business Source License
+                      1.1 with identical Parameters. The upstream
+                      copyright notice is retained below; portions of
+                      this Licensed Work copied or derived from Exo
+                      remain (c) 2025-2026 Ankit Gupta and continue to
+                      be governed by the upstream license terms.
+
 Additional Use Grant: You may make use of the Licensed Work, provided that
                       you may not use the Licensed Work for a Commercial
                       Purpose.
@@ -53,6 +64,26 @@ under an Open Source License, as stated in this License.
 
 License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
 "Business Source License" is a trademark of MariaDB Corporation Ab.
+
+Upstream attribution
+
+AOS Mail is a fork of and includes substantial portions of source code,
+configuration, documentation, and assets from Exo Email Client, located at
+https://github.com/ankitvgupta/exo. The upstream project is (c) 2025-2026
+Ankit Gupta and is licensed under the Business Source License 1.1 with
+the Parameters shown above. The fork's first commit was based on the
+upstream `main` branch, and modifications have been made by Mrdula
+Solutions and contributors thereafter. Each contributor's individual
+copyright is retained as recorded in the project's git history.
+
+Per the BUSL terms below ("All copies of the original and modified
+Licensed Work, and derivative works of the Licensed Work, are subject
+to this License"), this fork is distributed under identical Parameters.
+The Change Date is set to 2033-01-01 to match the upstream Change Date,
+so both the upstream and this fork transition to the Change License
+(Apache 2.0) on the same calendar day. The fork's own four-year clock
+under the BUSL begins at the date of this fork's first publicly
+available distribution.
 
 Terms
 

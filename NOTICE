@@ -1,0 +1,43 @@
+AOS Mail
+Copyright (c) 2026 Mrdula Solutions
+
+This product is a fork of Exo Email Client
+(https://github.com/ankitvgupta/exo), Copyright (c) 2025-2026 Ankit Gupta.
+
+The upstream Exo project is licensed under the Business Source License 1.1
+(BUSL-1.1) and includes substantial portions of code, configuration,
+documentation, and assets that have been retained, modified, or built upon
+in this fork. Per the BUSL terms, this fork is distributed under the same
+license with the same Parameters; see the LICENSE file at the project root
+for the full text and attribution details.
+
+----
+
+Third-party components
+
+AOS Mail bundles or links the following third-party software at runtime.
+Each is used under its own license; the licenses listed here apply only to
+those components, not to AOS Mail as a whole.
+
+- Tauri 2 (Apache 2.0 / MIT) — https://tauri.app/
+- React (MIT) — https://react.dev/
+- TypeScript (Apache 2.0) — https://www.typescriptlang.org/
+- Tailwind CSS (MIT) — https://tailwindcss.com/
+- Zustand (MIT) — https://zustand-demo.pmnd.rs/
+- Tiptap / ProseMirror (MIT) — https://tiptap.dev/
+- @anthropic-ai/sdk (MIT) — https://github.com/anthropics/anthropic-sdk-typescript
+- @anthropic-ai/claude-agent-sdk (MIT) — https://github.com/anthropics/claude-agent-sdk
+- @modelcontextprotocol/sdk (MIT) — https://github.com/modelcontextprotocol/typescript-sdk
+- googleapis (Apache 2.0) — https://github.com/googleapis/google-api-nodejs-client
+- imapflow (MIT) — https://github.com/postalsys/imapflow
+- nodemailer (MIT) — https://nodemailer.com/
+- mailparser (MIT) — https://github.com/nodemailer/mailparser
+- better-sqlite3 (MIT) — https://github.com/WiseLibs/better-sqlite3
+- @tanstack/react-query (MIT) — https://tanstack.com/query
+- @tanstack/react-virtual (MIT) — https://tanstack.com/virtual
+- ts-pattern (MIT) — https://github.com/gvergnaud/ts-pattern
+- zod (MIT) — https://zod.dev/
+
+The full set of runtime dependencies and their licenses is captured in
+package.json and sidecar/package.json. Run `npm ls --all` against either
+to enumerate the dependency tree.
