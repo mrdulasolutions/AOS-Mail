@@ -13,6 +13,7 @@
 
 use tauri::{Emitter, Manager};
 
+mod keychain;
 mod menu;
 mod sidecar;
 
@@ -196,6 +197,9 @@ pub fn run() {
             set_default_mail_app,
             is_default_mail_app,
             get_pending_mailto,
+            keychain::keychain_set,
+            keychain::keychain_get,
+            keychain::keychain_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -21,7 +21,7 @@
 
 import { registerMethod } from "../rpc.js";
 import { ping, setApiKey, resetClient } from "../services/anthropic.js";
-import { getPreferences } from "../lib/preferences.js";
+import { getSecret } from "../lib/secrets.js";
 import { getOpenRouterApiKey } from "../services/providers/openrouter.js";
 
 export function registerAnthropicMethods(): void {
@@ -45,27 +45,26 @@ export function registerAnthropicMethods(): void {
 
   registerMethod("anthropic.hasApiKey", () => {
     const fromEnv = !!process.env.ANTHROPIC_API_KEY?.trim();
-    const fromPrefs = !!(getPreferences() as { anthropicApiKey?: string }).anthropicApiKey?.trim();
+    // getSecret resolves env-first, then the in-memory store. We
+    // separately check the env var so the `source` field stays
+    // truthful when the user has both (env wins).
+    const configured = !!getSecret("anthropicApiKey");
     return {
-      configured: fromEnv || fromPrefs,
-      source: fromEnv ? "env" : fromPrefs ? "prefs" : null,
+      configured,
+      source: fromEnv ? "env" : configured ? "keychain" : null,
     };
   });
 
   // Boot-triage gate. Returns `configured: true` if EITHER an Anthropic key
-  // OR an OpenRouter key is set (env or prefs). This is the right gate for
-  // any feature that goes through the LLM router in services/anthropic.ts —
-  // the router transparently routes claude-* ids to Anthropic and everything
-  // else to OpenRouter, so a configured OpenRouter key is enough for the
-  // analyzer / drafter / archive-ready / etc. The narrower
-  // `anthropic.hasApiKey` should be reserved for surfaces that specifically
-  // need the Anthropic provider (e.g. its own Settings auth card).
+  // OR an OpenRouter key is set. This is the right gate for any feature
+  // that goes through the LLM router in services/anthropic.ts — the router
+  // transparently routes claude-* ids to Anthropic and everything else to
+  // OpenRouter, so a configured OpenRouter key is enough for the analyzer
+  // / drafter / archive-ready / etc. The narrower `anthropic.hasApiKey`
+  // should be reserved for surfaces that specifically need the Anthropic
+  // provider (e.g. its own Settings auth card).
   registerMethod("anthropic.hasAnyLlmProvider", () => {
-    const anthropicEnv = !!process.env.ANTHROPIC_API_KEY?.trim();
-    const anthropicPrefs = !!(
-      getPreferences() as { anthropicApiKey?: string }
-    ).anthropicApiKey?.trim();
-    const anthropicConfigured = anthropicEnv || anthropicPrefs;
+    const anthropicConfigured = !!getSecret("anthropicApiKey");
     const openRouterConfigured = !!getOpenRouterApiKey();
     return {
       configured: anthropicConfigured || openRouterConfigured,

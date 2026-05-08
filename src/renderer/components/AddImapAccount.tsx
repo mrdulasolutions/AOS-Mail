@@ -11,13 +11,14 @@
 //      provider requires one — the form surfaces a help link).
 //   3. We send the credentials to the sidecar's imap.addAccount, which
 //      tests the connection and only persists if it works.
-//
-// Security note: passwords land in the JSON file at
-// <dataDir>/imap-creds-<email>.json — same risk model as the existing
-// Gmail OAuth tokens. Production should escalate to OS Keychain.
+//   4. On success, the renderer writes the password to the OS Keychain
+//      under `imapPassword:<accountId>`. The sidecar's on-disk creds
+//      file holds only server config (host/port/TLS/username); the
+//      password itself never lands on disk in cleartext.
 
 import { useEffect, useMemo, useState } from "react";
 import type { IpcResponse } from "../../shared/types";
+import { setSecret as setKeychainSecret } from "../lib/secrets";
 
 interface ImapPreset {
   id: string;
@@ -125,12 +126,21 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
       }>;
       if (!result.success) {
         setError(result.error ?? "Failed to add IMAP account");
-        if (
-          /(?:auth|login|password|denied|invalid credentials)/i.test(result.error ?? "")
-        ) {
+        if (/(?:auth|login|password|denied|invalid credentials)/i.test(result.error ?? "")) {
           setAuthFailure(true);
         }
         return;
+      }
+      // The sidecar holds the password in memory and writes server config
+      // to disk; we mirror the password into the OS Keychain so it
+      // survives a sidecar restart without ever being persisted as
+      // cleartext on disk. Best-effort: a keychain failure here is
+      // recoverable (the user reconnects and re-types the password) and
+      // shouldn't block the success path of adding the account.
+      try {
+        await setKeychainSecret(`imapPassword:${result.data.accountId}`, password);
+      } catch (err) {
+        console.warn("[secrets] failed to mirror IMAP password to keychain", err);
       }
       onComplete({ accountId: result.data.accountId, email: result.data.email });
     } catch (err) {
@@ -143,23 +153,19 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
   return (
     <>
       <div className="flex items-baseline justify-between mb-2">
-        <h2 className="text-2xl font-semibold text-aos-text tracking-tight">
-          Add IMAP account
-        </h2>
+        <h2 className="text-2xl font-semibold text-aos-text tracking-tight">Add IMAP account</h2>
         <button onClick={onCancel} className="aos-btn-quiet" type="button">
           Back
         </button>
       </div>
       <p className="text-aos-text-soft mb-6 leading-relaxed">
-        Connect iCloud, Fastmail, Yahoo, Outlook, AOL, or any IMAP-compatible mailbox.
-        Most providers require an app-specific password — we'll surface a link to the
-        right setup page when you pick one.
+        Connect iCloud, Fastmail, Yahoo, Outlook, AOL, or any IMAP-compatible mailbox. Most
+        providers require an app-specific password — we'll surface a link to the right setup page
+        when you pick one.
       </p>
 
       {/* Provider preset picker */}
-      <label className="block text-sm font-medium text-aos-text mb-1.5">
-        Provider
-      </label>
+      <label className="block text-sm font-medium text-aos-text mb-1.5">Provider</label>
       <select
         value={presetId}
         onChange={(e) => setPresetId(e.target.value)}
@@ -180,9 +186,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
       {/* Email + display name */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
-          <label className="block text-sm font-medium text-aos-text mb-1.5">
-            Email address
-          </label>
+          <label className="block text-sm font-medium text-aos-text mb-1.5">Email address</label>
           <input
             type="email"
             value={email}
@@ -254,9 +258,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-4 rounded-aos border border-aos-line bg-aos-bg-soft">
           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-aos-text-soft mb-1">
-                IMAP host
-              </label>
+              <label className="block text-xs font-medium text-aos-text-soft mb-1">IMAP host</label>
               <input
                 type="text"
                 value={imapHost}
@@ -267,9 +269,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-aos-text-soft mb-1">
-                IMAP port
-              </label>
+              <label className="block text-xs font-medium text-aos-text-soft mb-1">IMAP port</label>
               <input
                 type="number"
                 value={imapPort}
@@ -281,9 +281,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
 
           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-aos-text-soft mb-1">
-                SMTP host
-              </label>
+              <label className="block text-xs font-medium text-aos-text-soft mb-1">SMTP host</label>
               <input
                 type="text"
                 value={smtpHost}
@@ -294,9 +292,7 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-aos-text-soft mb-1">
-                SMTP port
-              </label>
+              <label className="block text-xs font-medium text-aos-text-soft mb-1">SMTP port</label>
               <input
                 type="number"
                 value={smtpPort}
@@ -336,7 +332,12 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
             <span className="inline-flex items-center gap-2">
               <span
                 className="aos-spinner"
-                style={{ width: 14, height: 14, borderColor: "rgba(255,255,255,0.3)", borderTopColor: "white" }}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderColor: "rgba(255,255,255,0.3)",
+                  borderTopColor: "white",
+                }}
               />
               Connecting…
             </span>

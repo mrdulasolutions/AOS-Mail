@@ -10,15 +10,18 @@
 //      the user's profile, persists tokens, and resolves
 //
 // Tokens are stored as JSON files (one per account) at <dataDir>/tokens-<id>.json
-// in this V1 — production should escalate to OS Keychain. The Electron path
-// also stored them as plaintext JSON, so this matches existing risk.
+// — kept on disk because tokens (refresh + access) need to survive process
+// restarts AND would dwarf a keychain entry. The OAUTH client_secret,
+// however, lives in the in-memory secrets store (lib/secrets.ts) backed
+// by the OS Keychain via the renderer — it's small, sensitive, and
+// rotatable.
 
 import { createServer, type Server } from "node:http";
 import { writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { google, type Auth } from "googleapis";
 import { getDataDir } from "../db/data-dir.js";
-import { getPreferences, setPreference } from "../lib/preferences.js";
+import { getSecret, setSecret } from "../lib/secrets.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("oauth-gmail");
@@ -56,22 +59,24 @@ export interface AuthAccount {
   tokens: GmailTokens;
 }
 
-// ── Credentials & token persistence (preferences.json + per-account files) ──
-
-interface PrefsWithGoogle {
-  googleClientId?: string;
-  googleClientSecret?: string;
-}
+// ── Credentials & token persistence ──
+//
+// `googleClientId` and `googleClientSecret` are managed via the in-memory
+// secrets store (lib/secrets.ts), itself populated at boot from the OS
+// Keychain by the renderer. We keep them paired in the store so a
+// half-configured state ("id set, secret missing" or vice-versa) just
+// looks "not configured" to callers, which is the safe default.
 
 export function getCredentials(): GoogleCredentials | null {
-  const p = getPreferences() as PrefsWithGoogle;
-  if (!p.googleClientId || !p.googleClientSecret) return null;
-  return { clientId: p.googleClientId, clientSecret: p.googleClientSecret };
+  const clientId = getSecret("googleClientId");
+  const clientSecret = getSecret("googleClientSecret");
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
 }
 
 export function setCredentials(creds: GoogleCredentials): void {
-  setPreference("googleClientId", creds.clientId);
-  setPreference("googleClientSecret", creds.clientSecret);
+  setSecret("googleClientId", creds.clientId);
+  setSecret("googleClientSecret", creds.clientSecret);
 }
 
 function tokensPath(accountId: string): string {
@@ -112,9 +117,7 @@ export function listAccountIdsWithTokens(): string[] {
 export function createOAuthClient(): Auth.OAuth2Client {
   const creds = getCredentials();
   if (!creds) {
-    throw new Error(
-      "Google OAuth credentials not configured — call gmail.saveCredentials first",
-    );
+    throw new Error("Google OAuth credentials not configured — call gmail.saveCredentials first");
   }
   return new google.auth.OAuth2(creds.clientId, creds.clientSecret, REDIRECT_URI);
 }

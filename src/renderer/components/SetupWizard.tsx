@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { IpcResponse } from "../../shared/types";
 import { reconfigurePostHog } from "../services/posthog";
+import { setSecret as setKeychainSecret } from "../lib/secrets";
 import { AddImapAccount } from "./AddImapAccount";
 
 interface SetupWizardProps {
@@ -11,14 +12,7 @@ interface SetupWizardProps {
   initialStep?: "imap";
 }
 
-type Step =
-  | "loading"
-  | "credentials"
-  | "apikey"
-  | "oauth"
-  | "extensions"
-  | "analytics"
-  | "imap";
+type Step = "loading" | "credentials" | "apikey" | "oauth" | "extensions" | "analytics" | "imap";
 
 interface ExtensionAuthInfo {
   extensionId: string;
@@ -106,6 +100,12 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
     setError(null);
 
     try {
+      // Persist Google OAuth client_id + client_secret to the OS Keychain
+      // FIRST so a sidecar crash mid-save can't leave them in only the
+      // sidecar's in-memory map. The gmail.saveCredentials RPC below
+      // populates the same in-memory copy for the live process.
+      await setKeychainSecret("googleClientId", googleClientId.trim());
+      await setKeychainSecret("googleClientSecret", googleClientSecret.trim());
       const result = (await window.api.gmail.saveCredentials(
         googleClientId.trim(),
         googleClientSecret.trim(),
@@ -145,22 +145,24 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
         return;
       }
 
-      const result = (await window.api.settings.set({
-        anthropicApiKey: apiKey.trim(),
-      })) as IpcResponse<void>;
-      if (result.success) {
-        const authResult = (await window.api.gmail.checkAuth()) as IpcResponse<{
-          hasCredentials: boolean;
-          hasTokens: boolean;
-          hasAnthropicKey: boolean;
-        }>;
-        if (authResult.success && authResult.data.hasTokens) {
-          await enterExtensionsStep();
-        } else {
-          setStep("oauth");
-        }
+      // Persist to OS Keychain (and forward to the sidecar's in-memory
+      // store). The API key never lands on disk in cleartext — that's
+      // the whole point of issue 12 from the May 2026 post-mortem.
+      try {
+        await setKeychainSecret("anthropicApiKey", apiKey.trim());
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to save API key");
+        return;
+      }
+      const authResult = (await window.api.gmail.checkAuth()) as IpcResponse<{
+        hasCredentials: boolean;
+        hasTokens: boolean;
+        hasAnthropicKey: boolean;
+      }>;
+      if (authResult.success && authResult.data.hasTokens) {
+        await enterExtensionsStep();
       } else {
-        setError(result.error ?? "Failed to save API key");
+        setStep("oauth");
       }
     } finally {
       setIsLoading(false);
@@ -312,8 +314,8 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 Google Cloud credentials
               </h2>
               <p className="text-aos-text-soft mb-6 leading-relaxed">
-                AOS Mail needs Google OAuth credentials to access your Gmail. Create a Google
-                Cloud project with the Gmail API enabled, then paste the keys below.
+                AOS Mail needs Google OAuth credentials to access your Gmail. Create a Google Cloud
+                project with the Gmail API enabled, then paste the keys below.
               </p>
 
               {/* Alternative path — IMAP for non-Gmail providers. */}
@@ -406,8 +408,8 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 Anthropic API key
               </h2>
               <p className="text-aos-text-soft mb-6 leading-relaxed">
-                Claude powers triage, drafts, and sender lookups. Paste an Anthropic API key to
-                turn those features on.
+                Claude powers triage, drafts, and sender lookups. Paste an Anthropic API key to turn
+                those features on.
               </p>
 
               <div className="aos-callout-info mb-6">
@@ -431,9 +433,7 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
 
               <div className="space-y-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-aos-text mb-1.5">
-                    API key
-                  </label>
+                  <label className="block text-sm font-medium text-aos-text mb-1.5">API key</label>
                   <input
                     type="password"
                     value={apiKey}
@@ -559,9 +559,8 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 Help improve AOS Mail
               </h2>
               <p className="text-aos-text-soft mb-6 leading-relaxed">
-                Optional: send anonymized usage data and crash reports so we can spot real
-                problems. <strong>No email content is ever sent.</strong> Toggle anytime from
-                Settings.
+                Optional: send anonymized usage data and crash reports so we can spot real problems.{" "}
+                <strong>No email content is ever sent.</strong> Toggle anytime from Settings.
               </p>
 
               <label className="flex items-center justify-between p-4 border border-aos-line rounded-aos bg-white cursor-pointer mb-6">

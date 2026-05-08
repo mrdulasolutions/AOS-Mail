@@ -20,9 +20,9 @@
 //     [{type:"text", text}]`, with usage-token mapping
 //     prompt_tokens→input_tokens / completion_tokens→output_tokens.
 //
-// Auth: the API key lives in preferences.json under `openRouterApiKey`.
-// Same plaintext-on-disk caveat as Anthropic — fine for V1, escalate to
-// Keychain later.
+// Auth: the API key lives in the in-memory secrets store (lib/secrets.ts),
+// itself populated at boot from the OS Keychain via the renderer. The
+// process never writes the key to a regular file on disk.
 
 import type {
   MessageCreateParamsNonStreaming,
@@ -31,7 +31,7 @@ import type {
   TextBlockParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { randomUUID } from "node:crypto";
-import { getPreferences, setPreference } from "../../lib/preferences.js";
+import { getSecret, setSecret } from "../../lib/secrets.js";
 import { createLogger } from "../../lib/logger.js";
 
 const log = createLogger("openrouter");
@@ -89,15 +89,13 @@ interface OpenRouterModelListResponse {
 // ─── Key handling ────────────────────────────────────────────────────────
 
 export function getOpenRouterApiKey(): string | null {
-  const fromEnv = process.env.OPENROUTER_API_KEY?.trim();
-  if (fromEnv) return fromEnv;
-  const stored = (getPreferences() as { openRouterApiKey?: string })
-    .openRouterApiKey;
-  return stored?.trim() || null;
+  // env-var override is built into getSecret() for documented secret
+  // names — keeps dev/CI ergonomics matching the prior Anthropic path.
+  return getSecret("openRouterApiKey");
 }
 
 export function setOpenRouterApiKey(key: string): void {
-  setPreference("openRouterApiKey", key);
+  setSecret("openRouterApiKey", key);
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────
@@ -116,9 +114,7 @@ export async function validateOpenRouterKey(candidate: string): Promise<void> {
   if (!res.ok) {
     // /models is public but auth-aware — a bad key returns 401.
     const text = await safeText(res);
-    throw new Error(
-      `OpenRouter rejected the API key (HTTP ${res.status}): ${text || "no body"}`,
-    );
+    throw new Error(`OpenRouter rejected the API key (HTTP ${res.status}): ${text || "no body"}`);
   }
 }
 
@@ -138,9 +134,7 @@ export async function listFreeModels(): Promise<OpenRouterFreeModel[]> {
   });
   if (!res.ok) {
     const text = await safeText(res);
-    throw new Error(
-      `OpenRouter /models failed (HTTP ${res.status}): ${text || "no body"}`,
-    );
+    throw new Error(`OpenRouter /models failed (HTTP ${res.status}): ${text || "no body"}`);
   }
   const json = (await res.json()) as OpenRouterModelListResponse;
   const all = json.data ?? [];
@@ -209,10 +203,7 @@ export async function createMessageOpenRouter(
     let abortController: AbortController | undefined;
     if (options.timeoutMs) {
       abortController = new AbortController();
-      timeoutHandle = setTimeout(
-        () => abortController!.abort(),
-        options.timeoutMs,
-      );
+      timeoutHandle = setTimeout(() => abortController!.abort(), options.timeoutMs);
     }
 
     try {
@@ -228,9 +219,7 @@ export async function createMessageOpenRouter(
         // 429/5xx → retryable; everything else gives up immediately so we
         // surface a clean error to the caller (e.g. 400 = bad model id).
         const retryable = res.status === 429 || res.status >= 500;
-        const err = new Error(
-          `OpenRouter HTTP ${res.status}: ${text || "no body"}`,
-        );
+        const err = new Error(`OpenRouter HTTP ${res.status}: ${text || "no body"}`);
         if (!retryable || attempt >= MAX_RETRIES) throw err;
         lastError = err;
         await sleep(backoff(attempt));
@@ -276,8 +265,7 @@ export async function createMessageOpenRouter(
     } catch (err) {
       lastError = err;
       // AbortError counts as transient — retry with the next backoff.
-      const isAbort =
-        err instanceof Error && err.name === "AbortError";
+      const isAbort = err instanceof Error && err.name === "AbortError";
       if (isAbort && attempt < MAX_RETRIES) {
         await sleep(backoff(attempt));
         continue;
@@ -378,9 +366,7 @@ function flattenContent(content: MessageParam["content"]): string {
   return parts.join("\n\n");
 }
 
-function mapFinishReason(
-  reason: string | undefined,
-): Message["stop_reason"] {
+function mapFinishReason(reason: string | undefined): Message["stop_reason"] {
   // OpenAI-compat finish_reason → Anthropic stop_reason.
   switch (reason) {
     case "stop":
