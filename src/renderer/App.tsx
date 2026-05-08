@@ -44,6 +44,8 @@ import {
   addBreadcrumb,
   captureException,
 } from "./services/posthog";
+import { initNotifications, notifyNewEmails } from "./services/notifications";
+import { setDockBadge, onMailtoOpen, getPendingMailto } from "./lib/mac-polish";
 import { LocalDraftSchema } from "../shared/types";
 import type {
   DashboardEmail,
@@ -665,6 +667,7 @@ export default function App() {
   const setInboxDensity = useAppStore((s) => s.setInboxDensity);
   const setKeyboardBindings = useAppStore((s) => s.setKeyboardBindings);
   const setUndoSendDelay = useAppStore((s) => s.setUndoSendDelay);
+  const setNotificationsEnabled = useAppStore((s) => s.setNotificationsEnabled);
   const setSentEmails = useAppStore((s) => s.setSentEmails);
   const addSentEmails = useAppStore((s) => s.addSentEmails);
   const setSplits = useAppStore((s) => s.setSplits);
@@ -700,13 +703,15 @@ export default function App() {
         },
       );
 
-    // Fetch persisted inbox density, undo send delay, and PostHog config
+    // Fetch persisted inbox density, undo send delay, notifications setting,
+    // and PostHog config
     window.api.settings.get().then(
       (result: {
         success: boolean;
         data?: {
           inboxDensity?: InboxDensity;
           undoSendDelay?: number;
+          notificationsEnabled?: boolean;
           keyboardBindings?: "superhuman" | "gmail";
           posthog?: { enabled: boolean; sessionReplay?: boolean };
         };
@@ -720,6 +725,9 @@ export default function App() {
           }
           if (result.data.undoSendDelay !== undefined) {
             setUndoSendDelay(result.data.undoSendDelay);
+          }
+          if (result.data.notificationsEnabled !== undefined) {
+            setNotificationsEnabled(result.data.notificationsEnabled);
           }
           // Initialize PostHog analytics — API key is baked in at build time,
           // user can only toggle enabled/sessionReplay in settings
@@ -763,6 +771,7 @@ export default function App() {
     setInboxDensity,
     setKeyboardBindings,
     setUndoSendDelay,
+    setNotificationsEnabled,
   ]);
 
   // AOS Mail is day-only by design — white/black core with red/yellow/green
@@ -772,6 +781,44 @@ export default function App() {
     document.documentElement.classList.remove("dark");
     document.documentElement.style.colorScheme = "light";
   }, [resolvedTheme]);
+
+  // Initialize native notification subsystem once. Probes (and requests)
+  // permission, registers the click action type and routes click events
+  // back to thread selection. Idempotent — see services/notifications.ts.
+  useEffect(() => {
+    void initNotifications();
+  }, []);
+
+  // Dock-tile badge: unread INBOX threads for the current account. Counted
+  // from the raw store rather than the threaded selector to avoid running
+  // groupByThread in this hook (it already runs in useThreadedEmails).
+  // Threads are de-duped by threadId so a 12-message conversation counts
+  // once. Debounced one tick: rapid sync events arriving back-to-back
+  // settle into a single dock update.
+  const _emails = useAppStore((s) => s.emails);
+  const unreadCount = useMemo(() => {
+    const seen = new Set<string>();
+    let n = 0;
+    for (const e of _emails) {
+      if (currentAccountId && e.accountId !== currentAccountId) continue;
+      // Only count INBOX-labelled threads. Sent-only threads should never
+      // pump the badge — they are by definition things the user has read.
+      const labels = e.labelIds ?? [];
+      if (labels.length > 0 && !labels.includes("INBOX")) continue;
+      if (!labels.includes("UNREAD")) continue;
+      if (seen.has(e.threadId)) continue;
+      seen.add(e.threadId);
+      n++;
+    }
+    return n;
+  }, [_emails, currentAccountId]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void setDockBadge(unreadCount);
+    }, 100);
+    return () => window.clearTimeout(handle);
+  }, [unreadCount]);
 
   // Load inbox splits on mount (persisted in SQLite via the splits namespace,
   // independent of sync).
@@ -826,12 +873,7 @@ export default function App() {
       let fullAccounts: Account[] = [];
       if (accountsResult.success && Array.isArray(accountsResult.data)) {
         fullAccounts = accountsResult.data.map(
-          (acc: {
-            id: string;
-            email: string;
-            isPrimary: boolean;
-            displayName?: string;
-          }) => ({
+          (acc: { id: string; email: string; isPrimary: boolean; displayName?: string }) => ({
             id: acc.id,
             email: acc.email,
             displayName: acc.displayName,
@@ -840,8 +882,7 @@ export default function App() {
           }),
         );
         setAccounts(fullAccounts);
-        const primaryAccount =
-          fullAccounts.find((a) => a.isPrimary) || fullAccounts[0];
+        const primaryAccount = fullAccounts.find((a) => a.isPrimary) || fullAccounts[0];
         if (primaryAccount) {
           setCurrentAccountId(primaryAccount.id);
           identifyUser(primaryAccount.email, {
@@ -938,6 +979,10 @@ export default function App() {
     window.api.sync.onNewEmails((data: { accountId: string; emails: DashboardEmail[] }) => {
       addBreadcrumb("info", "New emails synced", { count: data.emails.length });
       bufferAddEmails(data.emails);
+      // Surface a native macOS notification (or coalesced summary) for new
+      // incoming mail. The service handles permission/setting gates and
+      // skips sent-only batches.
+      void notifyNewEmails(data.emails);
       // Also add sent emails to the sent view (no buffering needed — not in inbox navigation path)
       const sentInBatch = data.emails.filter((e) => e.labelIds?.includes("SENT"));
       if (sentInBatch.length > 0) {
@@ -948,9 +993,7 @@ export default function App() {
       // would just fail per-email and rate-limit Claude). This fills
       // the Priority tab over time without the user having to do
       // anything.
-      const incomingIds = data.emails
-        .filter((e) => !e.labelIds?.includes("SENT"))
-        .map((e) => e.id);
+      const incomingIds = data.emails.filter((e) => !e.labelIds?.includes("SENT")).map((e) => e.id);
       if (incomingIds.length > 0) {
         void (async () => {
           try {
@@ -1357,21 +1400,28 @@ export default function App() {
       setViewMode("full");
     };
 
-    const unsub = window.api.defaultMailApp.onMailtoOpen(handleMailto);
+    // Live subscription: macOS routes a mailto:// URL to AOS Mail while
+    // running. Rust forwards it as a `mailto:open` Tauri event.
+    let unsub: (() => void) | null = null;
+    onMailtoOpen(handleMailto)
+      .then((u) => {
+        unsub = u;
+      })
+      .catch(() => {
+        // Outside Tauri this is a noop; nothing to surface.
+      });
 
-    // Check for a pending mailto URL from cold start (pull-based to avoid race)
-    window.api.defaultMailApp
-      .getPending()
-      .then(
-        (
-          data: { to: string[]; cc: string[]; bcc: string[]; subject: string; body: string } | null,
-        ) => {
-          if (data) handleMailto(data);
-        },
-      )
+    // Cold-start drain: if macOS handed us a URL before this listener
+    // attached, the Rust shell cached it. Pull it now and consume.
+    void getPendingMailto()
+      .then((data) => {
+        if (data) handleMailto(data);
+      })
       .catch(() => {});
 
-    return unsub;
+    return () => {
+      if (unsub) unsub();
+    };
   }, [openCompose, setViewMode]);
 
   // Check auth status on mount.
@@ -1464,8 +1514,7 @@ export default function App() {
         // inbox shows nothing in Priority until this batch runs.
         const ids = result.data
           .filter(
-            (e: DashboardEmail) =>
-              !e.analysis && !(e.labelIds && e.labelIds.includes("SENT")),
+            (e: DashboardEmail) => !e.analysis && !(e.labelIds && e.labelIds.includes("SENT")),
           )
           .map((e: DashboardEmail) => e.id);
         if (ids.length > 0) {
@@ -1640,9 +1689,7 @@ export default function App() {
   // CTAs land the user directly in the IMAP path or the Gmail OAuth path
   // without making them click through the credentials form first.
   if (needsSetup) {
-    return (
-      <SetupWizard onComplete={handleSetupComplete} initialStep={wizardInitialStep} />
-    );
+    return <SetupWizard onComplete={handleSetupComplete} initialStep={wizardInitialStep} />;
   }
 
   // Skipped setup with no accounts yet → show a friendly empty state instead
@@ -1686,8 +1733,8 @@ export default function App() {
               Connect an inbox
             </h2>
             <p className="text-aos-text-soft text-sm leading-relaxed mb-6">
-              AOS Mail handles triage, summaries, and drafts in your voice — once it has
-              access to a mailbox. Pick a provider:
+              AOS Mail handles triage, summaries, and drafts in your voice — once it has access to a
+              mailbox. Pick a provider:
             </p>
             <div className="flex flex-col gap-2">
               <button
@@ -1716,10 +1763,7 @@ export default function App() {
         </div>
         {showSettings && (
           <div className="absolute inset-0 z-50">
-            <SettingsPanel
-              onClose={() => setShowSettings(false)}
-              initialTab={settingsInitialTab}
-            />
+            <SettingsPanel onClose={() => setShowSettings(false)} initialTab={settingsInitialTab} />
           </div>
         )}
       </div>

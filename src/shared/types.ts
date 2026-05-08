@@ -415,6 +415,10 @@ export const ConfigSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).default("system"),
   inboxDensity: z.enum(["default", "compact"]).default("compact"),
   undoSendDelay: z.number().min(0).max(30).default(5), // seconds; 0 = disabled
+  // Native macOS notifications for new mail. Honored by the renderer's
+  // notifications service; default true so first-run users see the standard
+  // mail-app behavior and can opt out from Settings → General.
+  notificationsEnabled: z.boolean().default(true),
   signatures: z.array(SignatureSchema).optional(),
   showAOSMailBranding: z.boolean().default(true),
   stylePrompt: z.string().optional(),
