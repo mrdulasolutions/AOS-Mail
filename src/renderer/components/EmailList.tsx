@@ -987,8 +987,17 @@ export function EmailList() {
                 )}
               </svg>
               <p className="text-sm">
-                {isSnoozedView ? "No snoozed emails" : isSentView ? "No sent emails" : "Inbox zero"}
+                {isSnoozedView
+                  ? "No snoozed emails"
+                  : isSentView
+                    ? "No sent emails"
+                    : "No mail yet"}
               </p>
+              {!isSnoozedView && !isSentView && (
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  Try refreshing — new mail will show up here.
+                </p>
+              )}
             </div>
           )
         )}

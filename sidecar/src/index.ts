@@ -38,6 +38,7 @@ import { registerSummaryMethods } from "./methods/summary.js";
 import { registerCalendarMethods } from "./methods/calendar.js";
 import { registerExtensionsMethods } from "./methods/extensions.js";
 import { registerAwaitingReplyMethods } from "./methods/awaiting-reply.js";
+import { registerDiagnosticsMethods } from "./methods/diagnostics.js";
 
 // Built-in: pipe smoke test.
 registerMethod("ping", async () => ({
@@ -75,6 +76,7 @@ registerSummaryMethods();
 registerCalendarMethods();
 registerExtensionsMethods();
 registerAwaitingReplyMethods();
+registerDiagnosticsMethods();
 
 // stdio loop.
 const rl = createInterface({ input: process.stdin });

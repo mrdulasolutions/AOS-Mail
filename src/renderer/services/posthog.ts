@@ -379,6 +379,42 @@ export function initPostHog(config: PostHogConfig): void {
   console.log("[PostHog] Initialized (minimal mode — exceptions dump full context)");
 }
 
+// --- PII redaction ---
+// `redactPii` is the bouncer for any telemetry payload that includes
+// user-typed text. Strips email-like patterns and URLs; we never want to
+// leak inbox content, subjects, or sender addresses through analytics.
+//
+// Patterns are deliberately broad and false-positive-friendly:
+//   - email regex matches typical RFC-5322 forms (foo+bar@host.tld)
+//   - URL regex matches scheme://host[/path] and bare www.host[/path]
+//
+// Trade-off: a non-PII string that happens to look like an email or URL
+// (e.g. "see http://docs/") gets replaced with "<url>". That's acceptable
+// for telemetry — the value of the breadcrumb is its shape, not its
+// literal content.
+//
+// `redactPiiFromObject` walks a flat object and returns a new copy with
+// every string field run through `redactPii`. We don't recurse — telemetry
+// payloads in this app are flat by convention. A nested object would
+// pass through unchanged so it's still the caller's responsibility to
+// pre-flatten anything sensitive.
+
+const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+
+export function redactPii(input: string): string {
+  if (!input) return input;
+  return input.replace(EMAIL_PATTERN, "<email>").replace(URL_PATTERN, "<url>");
+}
+
+export function redactPiiFromObject<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = typeof v === "string" ? redactPii(v) : v;
+  }
+  return out as T;
+}
+
 // --- Hashing ---
 // Hash email to a hex string so we never send raw PII as distinct_id.
 async function hashEmail(email: string): Promise<string> {

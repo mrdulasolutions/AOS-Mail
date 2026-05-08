@@ -60,7 +60,11 @@ export function SmartActionToast() {
   };
 
   return (
-    <div className="bg-gray-900 dark:bg-gray-700 text-white rounded-lg shadow-lg flex items-center justify-between px-4 py-3 min-w-[280px]">
+    <div
+      role="status"
+      aria-live="polite"
+      className="bg-gray-900 dark:bg-gray-700 text-white rounded-lg shadow-lg flex items-center justify-between px-4 py-3 min-w-[280px]"
+    >
       <span className="text-sm">
         {toast.message}
         {isUndoable ? <span className="text-gray-400 ml-2">— {undoLabel} to undo</span> : null}
@@ -68,6 +72,7 @@ export function SmartActionToast() {
       {isUndoable && (
         <button
           onClick={handleUndo}
+          aria-label={`Undo (${undoLabel})`}
           className="ml-4 text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors flex-shrink-0"
           title={undoLabel}
         >

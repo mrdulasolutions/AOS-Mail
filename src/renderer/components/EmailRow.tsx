@@ -150,14 +150,16 @@ export const EmailRow = memo(
         : isVisuallyUnread
           ? "text-aos-text"
           : "text-aos-text-soft";
-    // Selected-row text colors are bumped one notch higher than the previous
-    // solid-black variant — the new bg-black/50 is roughly mid-gray on white,
-    // so muted whites need more opacity to stay legible.
-    const snippetColor = isSelected && !isChecked ? "text-white/80" : "text-aos-text-muted";
-    const dashColor = isSelected && !isChecked ? "text-white/50" : "text-aos-line-strong";
+    // Selected-row text colors. bg-black/50 over the page background
+    // works out to roughly mid-gray, so muted whites have to land at /90
+    // or higher to clear the WCAG AA 4.5:1 contrast threshold for normal
+    // text. The dash separator stays low-contrast on purpose — it's
+    // decorative, not informational.
+    const snippetColor = isSelected && !isChecked ? "text-white/90" : "text-aos-text-muted";
+    const dashColor = isSelected && !isChecked ? "text-white/60" : "text-aos-line-strong";
     const timeColor =
       isSelected && !isChecked
-        ? "text-white/75"
+        ? "text-white/90"
         : snoozeInfo
           ? "text-aos-warning"
           : "text-aos-text-muted";
@@ -270,7 +272,7 @@ export const EmailRow = memo(
           {snoozeInfo && (
             <span
               className={`flex items-center gap-0.5 flex-shrink-0 ${
-                isSelected && !isChecked ? "text-white/70" : "text-aos-warning"
+                isSelected && !isChecked ? "text-white/90" : "text-aos-warning"
               }`}
               title={`Snoozed until ${formatSnoozeTime(snoozeInfo.snoozeUntil)}`}
             >
