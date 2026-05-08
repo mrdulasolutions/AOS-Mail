@@ -20,16 +20,11 @@
 // black-box enrichment for the "sender-profile" panel: enqueue → render.
 
 import { createMessage, isWebSearchCapableModel } from "./anthropic.js";
+import { resolveModelFor } from "./model-config.js";
 import { getDb } from "../db/index.js";
 import { createLogger } from "../lib/logger.js";
-import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("sender-lookup");
-
-// Web search is Anthropic-only. Sonnet 4.5 has the most reliable
-// citation/structured-output behavior among Claude models that support
-// web_search; default to it but allow override via modelConfig.senderLookup.
-const DEFAULT_SENDER_LOOKUP_MODEL = "claude-sonnet-4-5-20250929";
 
 // Cache TTL — 7 days. After expiry we re-fetch (modeled after the
 // Electron-era extension-storage cache).
@@ -69,21 +64,6 @@ export interface LookupInput {
 
 function isAutomatedAddress(email: string): boolean {
   return AUTOMATED_PATTERNS.some((p) => p.test(email));
-}
-
-/** Read modelConfig.senderLookup. Mirrors resolveAnalysisModel(). */
-function resolveSenderLookupModel(): string {
-  const prefs = getPreferences() as {
-    modelConfig?: { senderLookup?: unknown };
-  };
-  const raw = prefs.modelConfig?.senderLookup;
-  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_SENDER_LOOKUP_MODEL;
-  const trimmed = raw.trim();
-  // Legacy tier names — same mapping the rest of the sidecar uses.
-  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
-  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
-  if (trimmed === "opus") return "claude-opus-4-20250514";
-  return trimmed;
 }
 
 interface SenderProfileRow {
@@ -275,12 +255,14 @@ export async function lookupSender(input: LookupInput): Promise<SenderProfile> {
     return cached;
   }
 
-  const model = resolveSenderLookupModel();
-  // Use the PRICING-keyed whitelist instead of a `claude-` prefix check.
-  // The prefix check would reject any future Anthropic rename (or a
-  // versioned id like `aos-claude-…`) — and the PRICING table is the
-  // canonical list of models we actually support across the app. See
-  // post-mortem P3 #23.
+  // Sender lookup needs Anthropic-only web_search; the resolver itself is
+  // provider-agnostic, so this guard lives at the call site (see the
+  // resolver's JSDoc). Use the PRICING-keyed whitelist instead of a
+  // `claude-` prefix check — the prefix check would reject any future
+  // Anthropic rename (or a versioned id like `aos-claude-…`), and PRICING
+  // is the canonical list of models we actually support across the app.
+  // See post-mortem P3 #23.
+  const model = resolveModelFor("senderLookup");
   if (!isWebSearchCapableModel(model)) {
     throw new Error(
       `Sender lookup requires a model with Anthropic web_search support. Configured model: ${model}. Open Settings → AI Models and set sender lookup to a supported Claude model.`,

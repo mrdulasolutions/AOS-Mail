@@ -6,58 +6,15 @@
 // arrives in follow-up work.
 
 import { createMessage } from "./anthropic.js";
+import { resolveModelFor } from "./model-config.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
 import {
   UNTRUSTED_DATA_INSTRUCTION,
   wrapUntrustedEmail,
 } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
-import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("draft-generator");
-
-// Default model for draft generation/refinement when modelConfig keys are
-// not set. Sonnet preserves current behavior.
-const DEFAULT_DRAFT_MODEL = "claude-sonnet-4-5-20250929";
-
-/**
- * Resolve a stored model selection (string or undefined). Mirrors the
- * resolver in thread-summary.ts: legacy tier names map to concrete Claude
- * ids; concrete ids pass through unchanged. Returns null when nothing
- * usable is stored so callers can fall through to a feature-specific
- * default.
- */
-function resolveStoredModel(raw: unknown): string | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  const trimmed = raw.trim();
-  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
-  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
-  if (trimmed === "opus") return "claude-opus-4-20250514";
-  return trimmed;
-}
-
-/** Read modelConfig.drafts (used for fresh draft generation). */
-function resolveDraftModel(): string {
-  const prefs = getPreferences() as {
-    modelConfig?: { drafts?: unknown };
-  };
-  return resolveStoredModel(prefs.modelConfig?.drafts) ?? DEFAULT_DRAFT_MODEL;
-}
-
-/**
- * Read modelConfig.refinement, falling back to modelConfig.drafts so users
- * who only customized the drafter still get consistent behavior on refine.
- */
-function resolveRefineModel(): string {
-  const prefs = getPreferences() as {
-    modelConfig?: { drafts?: unknown; refinement?: unknown };
-  };
-  return (
-    resolveStoredModel(prefs.modelConfig?.refinement) ??
-    resolveStoredModel(prefs.modelConfig?.drafts) ??
-    DEFAULT_DRAFT_MODEL
-  );
-}
 
 export interface DraftInput {
   emailId: string;
@@ -121,7 +78,7 @@ export async function generateDraft(input: DraftInput): Promise<string> {
     {
       // Honor modelConfig.drafts; defaults to Sonnet. Same router behavior
       // as thread-summary — claude-* → Anthropic SDK, else OpenRouter.
-      model: resolveDraftModel(),
+      model: resolveModelFor("drafts"),
       max_tokens: 600,
       system: [
         { type: "text", text: UNTRUSTED_DATA_INSTRUCTION },
@@ -157,7 +114,7 @@ export async function refineDraft(input: DraftInput): Promise<string> {
     {
       // modelConfig.refinement, falling back to modelConfig.drafts so users
       // who only set the drafter get consistent refinement behavior.
-      model: resolveRefineModel(),
+      model: resolveModelFor("refinement"),
       max_tokens: 600,
       system: [
         { type: "text", text: UNTRUSTED_DATA_INSTRUCTION },

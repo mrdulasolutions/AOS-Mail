@@ -19,40 +19,10 @@ import { randomUUID } from "node:crypto";
 import { registerMethod } from "../rpc.js";
 import { getDb } from "../db/index.js";
 import { createMessage } from "../services/anthropic.js";
+import { resolveModelFor } from "../services/model-config.js";
 import { createLogger } from "../lib/logger.js";
-import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("memory-methods");
-
-// Default model for memory scope classification when nothing's configured.
-// This is a tiny JSON-extraction job over a single feedback string, so Haiku
-// (or its OpenRouter equivalent) is plenty.
-const DEFAULT_CLASSIFY_MODEL = "claude-haiku-4-5-20251001";
-
-/**
- * Resolve which model to use for memory.classify.
- *
- * memory.classify is a short JSON-extraction job — same shape as thread-summary
- * — so we honor `modelConfig.summary` rather than introducing a separate
- * `classify` key in the user-facing settings (it would bloat the AI Models
- * card for a feature most users will never see). Falls back to Haiku.
- *
- * Same provider routing as the rest of the sidecar: claude-* → Anthropic SDK,
- * else → OpenRouter via the createMessage router.
- */
-function resolveClassifyModel(): string {
-  const prefs = getPreferences() as {
-    modelConfig?: { summary?: unknown };
-  };
-  const raw = prefs.modelConfig?.summary;
-  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_CLASSIFY_MODEL;
-  const trimmed = raw.trim();
-  // Legacy tier names — same mapping the rest of the sidecar uses.
-  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
-  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
-  if (trimmed === "opus") return "claude-opus-4-20250514";
-  return trimmed;
-}
 
 // ----- Types (mirror src/shared/types.ts; sidecar can't import that path) -----
 
@@ -447,11 +417,12 @@ export function registerMemoryMethods(): void {
     try {
       const response = await createMessage(
         {
-          // Honors modelConfig.summary (this and thread-summary are the
-          // two short JSON-extraction jobs in the sidecar — sharing one
-          // setting keeps the user-facing AI Models card lean). Routes
-          // through createMessage so claude-* → Anthropic, else OpenRouter.
-          model: resolveClassifyModel(),
+          // Honors modelConfig.classify, falling back to modelConfig.summary
+          // (this and thread-summary are the two short JSON-extraction jobs
+          // in the sidecar — sharing one setting keeps the user-facing AI
+          // Models card lean). Routes through createMessage so claude-* →
+          // Anthropic, else OpenRouter.
+          model: resolveModelFor("classify"),
           max_tokens: 256,
           messages: [
             {
