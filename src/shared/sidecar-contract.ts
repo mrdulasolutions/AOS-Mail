@@ -309,6 +309,26 @@ export interface LearnedRuleRow {
 export interface SidecarMethods {
   // ── ping / diagnostics ────────────────────────────────────────────────
   ping: { params: void; result: SidecarPing };
+  "diagnostics.reportError": {
+    params: {
+      message?: string;
+      stack?: string;
+      componentStack?: string;
+      source?: string;
+    };
+    result: { ok: true };
+  };
+  "diagnostics.recentErrors": {
+    params: { limit?: number } | void;
+    result: Array<{
+      id: number;
+      createdAt: string;
+      source: string;
+      message: string;
+      stack: string;
+      componentStack: string;
+    }>;
+  };
 
   // ── settings ──────────────────────────────────────────────────────────
   "settings.get": { params: void; result: Record<string, unknown> };

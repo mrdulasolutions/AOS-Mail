@@ -3321,6 +3321,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
               <div className="flex items-center">
                 <button
                   onClick={handleArchive}
+                  aria-label="Archive"
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Archive"
                 >
@@ -3335,6 +3336,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                 </button>
                 <button
                   onClick={handleTrash}
+                  aria-label="Delete"
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Delete"
                 >
@@ -3349,6 +3351,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                 </button>
                 <button
                   onClick={handleMarkUnread}
+                  aria-label="Mark as unread"
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Mark as unread"
                 >
@@ -3363,6 +3366,8 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                 </button>
                 <button
                   onClick={handleToggleStar}
+                  aria-label={isStarred ? "Unstar" : "Star"}
+                  aria-pressed={isStarred}
                   className={`p-1.5 rounded transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${
                     isStarred
                       ? "text-yellow-400 hover:text-yellow-500"
@@ -3387,6 +3392,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                 {/* Snooze button */}
                 <button
                   onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
+                  aria-label={snoozedThreads.has(latestEmail.threadId) ? "Snoozed" : "Snooze"}
                   className={`p-1.5 rounded transition-colors ${
                     snoozedThreads.has(latestEmail.threadId)
                       ? "text-amber-500 dark:text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
@@ -3413,6 +3419,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                       focusedThreadEmailId ?? replyTargetEmailId ?? latestEmail.id,
                     )
                   }
+                  aria-label="Reply All"
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Reply All"
                 >
@@ -3438,6 +3445,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                       focusedThreadEmailId ?? replyTargetEmailId ?? latestEmail.id,
                     )
                   }
+                  aria-label="Forward"
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Forward"
                 >

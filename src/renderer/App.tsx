@@ -32,6 +32,7 @@ import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
 import { AnalysisOverrideLearnedToast } from "./components/AnalysisOverrideLearnedToast";
 import { TriageStatusToast } from "./components/TriageStatusToast";
 import { SmartActionToast } from "./components/SmartActionToast";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SnoozeMenu } from "./components/SnoozeMenu";
 import { FindBar } from "./components/FindBar";
 import { registerBundledExtensions } from "./extensions";
@@ -606,6 +607,10 @@ async function prefetchEmailBodies(emailIds: string[]): Promise<void> {
 
 export default function App() {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  // True once the sidecar's first request has taken >5s to come back. Used
+  // by the boot screen to swap in a "Starting up…" message instead of a
+  // perpetual spinner — the ping itself races against this timer.
+  const [sidecarSlow, setSidecarSlow] = useState(false);
   const [wizardInitialStep, setWizardInitialStep] = useState<"imap" | undefined>(undefined);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1444,15 +1449,23 @@ export default function App() {
   // with bundled-but-not-yet-authorized OAuth credentials skips straight
   // to the OAuth step).
   useEffect(() => {
+    // Slow-sidecar timer: if the very first IPC hasn't returned in 5s,
+    // flip a flag so the boot screen swaps "Starting AOS Mail…" for a
+    // sturdier "Starting up… (this is taking longer than usual)". The
+    // timer is cleared once the IPC resolves.
+    const slowTimer = setTimeout(() => setSidecarSlow(true), 5000);
     void (async () => {
       type AccountRow = { id: string; provider?: string };
       const accountsResult = (await window.api.accounts.list()) as IpcResponse<AccountRow[]>;
+      clearTimeout(slowTimer);
+      setSidecarSlow(false);
       const hasAnyAccount =
         accountsResult.success && Array.isArray(accountsResult.data)
           ? accountsResult.data.length > 0
           : false;
       setNeedsSetup(!hasAnyAccount);
     })();
+    return () => clearTimeout(slowTimer);
   }, []);
 
   // Set up navigator.onLine relay and fetch initial network/outbox status
@@ -1768,9 +1781,20 @@ export default function App() {
   // Show loading while checking auth
   if (needsSetup === null) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-aos-bg-soft gap-3">
+      <div
+        className="h-screen flex flex-col items-center justify-center bg-aos-bg-soft gap-3"
+        role="status"
+        aria-live="polite"
+      >
         <div className="aos-spinner aos-spinner-lg" />
-        <p className="text-sm text-aos-text-muted">Starting AOS Mail…</p>
+        <p className="text-sm text-aos-text-muted">
+          {sidecarSlow ? "Starting up…" : "Starting AOS Mail…"}
+        </p>
+        {sidecarSlow && (
+          <p className="text-xs text-aos-text-muted opacity-70">
+            This is taking longer than usual. Hang tight.
+          </p>
+        )}
       </div>
     );
   }
@@ -1927,7 +1951,9 @@ export default function App() {
           so the inbox stays mounted and avoids an IPC refetch on close. */}
       {showSettings && (
         <div className="absolute inset-0 z-50">
-          <SettingsPanel onClose={() => setShowSettings(false)} initialTab={settingsInitialTab} />
+          <ErrorBoundary label="Settings">
+            <SettingsPanel onClose={() => setShowSettings(false)} initialTab={settingsInitialTab} />
+          </ErrorBoundary>
         </div>
       )}
 
@@ -1935,6 +1961,7 @@ export default function App() {
       <OfflineBanner />
 
       {/* Titlebar */}
+      <ErrorBoundary label="Titlebar">
       <div className="titlebar-drag h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4">
         <div className="flex items-center space-x-4">
           <div className="w-20" /> {/* Space for traffic lights */}
@@ -1999,31 +2026,55 @@ export default function App() {
               {accountMenuOpen && (
                 <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg dark:shadow-black/40 z-50">
                   <div className="py-1">
-                    {accounts.map((account) => (
-                      <button
-                        key={account.id}
-                        onClick={() => handleAccountSwitch(account.id)}
-                        className={`w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between ${
-                          account.id === currentAccountId ? "bg-blue-50 dark:bg-blue-900/30" : ""
-                        }`}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              expiredAccountIds.has(account.id)
-                                ? "bg-amber-500"
-                                : account.isConnected
-                                  ? "bg-green-500"
-                                  : "bg-gray-400 dark:bg-gray-500"
-                            }`}
-                          />
-                          <span className="truncate">{account.email}</span>
+                    {accounts.map((account) => {
+                      const isExpired = expiredAccountIds.has(account.id);
+                      return (
+                        <div
+                          key={account.id}
+                          className={`flex items-stretch ${
+                            account.id === currentAccountId ? "bg-blue-50 dark:bg-blue-900/30" : ""
+                          }`}
+                        >
+                          <button
+                            onClick={() => handleAccountSwitch(account.id)}
+                            className="flex-1 min-w-0 px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                          >
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <span
+                                className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                  isExpired
+                                    ? "bg-amber-500"
+                                    : account.isConnected
+                                      ? "bg-green-500"
+                                      : "bg-gray-400 dark:bg-gray-500"
+                                }`}
+                              />
+                              <span className="truncate">{account.email}</span>
+                            </div>
+                            {account.isPrimary && !isExpired && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                                Primary
+                              </span>
+                            )}
+                          </button>
+                          {isExpired && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAccountMenuOpen(false);
+                                void handleReauth(account.id);
+                              }}
+                              disabled={reauthingAccountId !== null}
+                              aria-label={`Reconnect ${account.provider === "imap" ? "IMAP" : "Gmail"} for ${account.email}`}
+                              className="px-2 mr-2 my-1 self-center text-xs font-medium rounded bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors disabled:opacity-50"
+                            >
+                              {account.provider === "imap" ? "Reconnect" : "Reconnect Gmail"}
+                            </button>
+                          )}
                         </div>
-                        {account.isPrimary && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400">Primary</span>
-                        )}
-                      </button>
-                    ))}
+                      );
+                    })}
                     <div className="border-t border-gray-200 dark:border-gray-700 mt-1 pt-1">
                       <button
                         onClick={() => {
@@ -2052,6 +2103,8 @@ export default function App() {
               const store = useAppStore.getState();
               store.setViewMode(store.viewMode === "calendar" ? "split" : "calendar");
             }}
+            aria-label={viewMode === "calendar" ? "Back to inbox" : "Open calendar"}
+            aria-pressed={viewMode === "calendar"}
             className={`p-2 rounded-lg transition-colors flex items-center gap-1 ${
               viewMode === "calendar"
                 ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
@@ -2072,6 +2125,7 @@ export default function App() {
           {/* Search button */}
           <button
             onClick={openSearch}
+            aria-label="Search"
             className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1"
             title="Search (/)"
           >
@@ -2206,14 +2260,18 @@ export default function App() {
               doing in the background. The full audit log lives in
               Settings → Agent Tools → Agent Activity. */}
           <AgentActivityTray />
-          {/* Compose button */}
+          {/* Compose button — disabled while offline so we don't open a
+              compose surface the user can't actually send from. The
+              OfflineBanner above the titlebar already explains why. */}
           <button
             onClick={() => {
               openCompose("new");
               setViewMode("full");
             }}
-            className="px-3 py-1.5 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors flex items-center gap-1"
-            title="Compose (C)"
+            disabled={!isOnline}
+            aria-label="Compose new message"
+            className="px-3 py-1.5 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={isOnline ? "Compose (C)" : "Offline — reconnect to compose"}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -2227,6 +2285,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setShowSettings(true)}
+            aria-label="Settings"
             className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors focus:outline-none"
             title="Settings"
           >
@@ -2248,6 +2307,7 @@ export default function App() {
           <button
             onClick={handleRefresh}
             disabled={isFetching || isSyncing}
+            aria-label="Refresh"
             className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             title="Refresh"
           >
@@ -2267,6 +2327,7 @@ export default function App() {
           </button>
         </div>
       </div>
+      </ErrorBoundary>
 
       {/* Auth banners */}
       {expiredAccounts.map((account) => (
@@ -2429,35 +2490,53 @@ export default function App() {
       ))}
 
       {/* Find bar (page-wide, works in any view mode) */}
-      {isFindBarOpen && <FindBar />}
+      {isFindBarOpen && (
+        <ErrorBoundary label="Find bar">
+          <FindBar />
+        </ErrorBoundary>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Agents sidebar (collapsible left panel) */}
-        {isAgentsSidebarOpen && <AgentsSidebar />}
+        {isAgentsSidebarOpen && (
+          <ErrorBoundary label="Agents sidebar">
+            <AgentsSidebar />
+          </ErrorBoundary>
+        )}
 
         {/* Folder/label picker — kept mounted so the user can flip
             folders without losing scroll position in the email list.
             The Awaiting Reply rail entry sits as a sibling above the
             FolderRail; clicking it pivots into the awaiting-reply view. */}
-        <aside
-          className="w-48 flex-shrink-0 bg-aos-bg-soft border-r border-aos-line overflow-y-auto py-2 flex flex-col"
-          data-testid="left-rail-shell"
-        >
-          <AwaitingReplyRail />
-          <FolderRail />
-        </aside>
+        <ErrorBoundary label="Left rail">
+          <aside
+            className="w-48 flex-shrink-0 bg-aos-bg-soft border-r border-aos-line overflow-y-auto py-2 flex flex-col"
+            data-testid="left-rail-shell"
+          >
+            <AwaitingReplyRail />
+            <FolderRail />
+          </aside>
+        </ErrorBoundary>
 
         {/* Awaiting Reply view: smart inbox of threads waiting on a
             response. Replaces the email surface in the same way calendar
             mode does. */}
-        {viewMode === "awaiting-reply" && <AwaitingReplyView />}
+        {viewMode === "awaiting-reply" && (
+          <ErrorBoundary label="Awaiting reply">
+            <AwaitingReplyView />
+          </ErrorBoundary>
+        )}
 
         {/* Search results view (shown when search is active and not viewing a specific email) */}
         {activeSearchQuery &&
           viewMode !== "full" &&
           viewMode !== "calendar" &&
-          viewMode !== "awaiting-reply" && <SearchResultsView />}
+          viewMode !== "awaiting-reply" && (
+            <ErrorBoundary label="Search results">
+              <SearchResultsView />
+            </ErrorBoundary>
+          )}
 
         {/* Split mode: dense email list — kept mounted (hidden) in full and
            calendar modes AND during search to preserve useMemo caches
@@ -2471,57 +2550,79 @@ export default function App() {
           }
           style={{ display: viewMode === "split" && !activeSearchQuery ? undefined : "none" }}
         >
-          <EmailList />
+          <ErrorBoundary label="Email list">
+            <EmailList />
+          </ErrorBoundary>
         </div>
 
         {/* Full mode: full email detail view */}
-        {viewMode === "full" && <EmailDetail isFullView />}
+        {viewMode === "full" && (
+          <ErrorBoundary label="Email detail">
+            <EmailDetail isFullView />
+          </ErrorBoundary>
+        )}
 
         {/* Calendar mode: V1 list-style upcoming events, replaces the email
             surface but keeps the right-rail preview sidebar unchanged. */}
-        {viewMode === "calendar" && <CalendarView />}
+        {viewMode === "calendar" && (
+          <ErrorBoundary label="Calendar">
+            <CalendarView />
+          </ErrorBoundary>
+        )}
 
         {/* Preview sidebar — kept mounted across view mode transitions to avoid
             expensive unmount/remount of agent trace timelines. Hidden in
             calendar and awaiting-reply modes since there's no email to preview. */}
         {viewMode !== "calendar" &&
           viewMode !== "awaiting-reply" &&
-          (!activeSearchQuery || viewMode === "full") && <EmailPreviewSidebar />}
+          (!activeSearchQuery || viewMode === "full") && (
+            <ErrorBoundary label="Preview sidebar">
+              <EmailPreviewSidebar />
+            </ErrorBoundary>
+          )}
       </div>
 
       {/* Keyboard hints bar */}
       <KeyboardHints />
 
       {/* Search Modal */}
-      <SearchBar isOpen={isSearchOpen} onClose={closeSearch} />
+      <ErrorBoundary label="Search">
+        <SearchBar isOpen={isSearchOpen} onClose={closeSearch} />
+      </ErrorBoundary>
 
       {/* Command Palette */}
-      <CommandPalette
-        isOpen={isCommandPaletteOpen}
-        onClose={() => {
-          closeCommandPalette();
-          // When closing a palette while compose is open, the palette's input is
-          // removed and focus falls to <body>. Restore focus to the compose editor
-          // so the next Escape properly closes compose via its container handler.
-          if (composeState?.isOpen) {
-            setTimeout(() => document.querySelector<HTMLElement>(".ProseMirror")?.focus(), 0);
-          }
-        }}
-      />
+      <ErrorBoundary label="Command palette">
+        <CommandPalette
+          isOpen={isCommandPaletteOpen}
+          onClose={() => {
+            closeCommandPalette();
+            // When closing a palette while compose is open, the palette's input is
+            // removed and focus falls to <body>. Restore focus to the compose editor
+            // so the next Escape properly closes compose via its container handler.
+            if (composeState?.isOpen) {
+              setTimeout(() => document.querySelector<HTMLElement>(".ProseMirror")?.focus(), 0);
+            }
+          }}
+        />
+      </ErrorBoundary>
 
       {/* Agent Command Palette */}
-      <AgentCommandPalette
-        isOpen={isAgentPaletteOpen}
-        onClose={() => {
-          setAgentPaletteOpen(false);
-          if (composeState?.isOpen) {
-            setTimeout(() => document.querySelector<HTMLElement>(".ProseMirror")?.focus(), 0);
-          }
-        }}
-      />
+      <ErrorBoundary label="Agent palette">
+        <AgentCommandPalette
+          isOpen={isAgentPaletteOpen}
+          onClose={() => {
+            setAgentPaletteOpen(false);
+            if (composeState?.isOpen) {
+              setTimeout(() => document.querySelector<HTMLElement>(".ProseMirror")?.focus(), 0);
+            }
+          }}
+        />
+      </ErrorBoundary>
 
       {/* Keyboard Shortcuts Help */}
-      <ShortcutHelp isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <ErrorBoundary label="Shortcuts help">
+        <ShortcutHelp isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      </ErrorBoundary>
 
       {/* Undo Toasts (send + archive/delete) + Draft Edit Learning + Triage status */}
       <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2">
