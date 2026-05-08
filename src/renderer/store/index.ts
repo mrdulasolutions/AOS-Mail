@@ -294,6 +294,12 @@ interface AppState {
   // Native notifications
   notificationsEnabled: boolean;
 
+  // Triage catch-up status. Surfaced as a small toast while a batch
+  // analyze.analyzeBatch call is in flight. `count` is the number of
+  // emails being analyzed; `null` hides the toast. Cleared by the
+  // caller once the batch resolves.
+  triageStatus: { count: number; source: "boot" | "manual" } | null;
+
   // Draft-edit learned notifications
   draftEditLearned: {
     promoted: Array<{ id: string; content: string; scope: string; scopeValue: string | null }>;
@@ -492,6 +498,9 @@ interface AppState {
   // Native notification preference
   setNotificationsEnabled: (enabled: boolean) => void;
 
+  // Triage catch-up status
+  setTriageStatus: (status: { count: number; source: "boot" | "manual" } | null) => void;
+
   // Undo archive/delete actions
   addUndoAction: (item: UndoActionItem) => void;
   removeUndoAction: (id: string) => void;
@@ -669,6 +678,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Native notifications — persists in config; default true
   notificationsEnabled: true,
+
+  // Triage catch-up status — null when idle; toast is rendered when set.
+  triageStatus: null,
 
   // Undo archive/delete state
   undoActionQueue: [],
@@ -1221,6 +1233,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Native notification preference. Persists separately via window.api.settings;
   // this state is the renderer-side mirror used by services/notifications.ts.
   setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
+
+  // Triage catch-up state. Surfaced via TriageStatusToast in App.tsx so the
+  // user gets feedback while a batch analyze.analyzeBatch is in flight.
+  setTriageStatus: (status) => set({ triageStatus: status }),
 
   // Undo archive/delete actions — merges rapid-fire operations of the same
   // type into a single undo action so one toast shows "N threads archived"

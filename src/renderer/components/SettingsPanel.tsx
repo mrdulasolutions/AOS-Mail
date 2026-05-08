@@ -23,6 +23,7 @@ import {
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
 import { reconfigurePostHog, trackEvent } from "../services/posthog";
+import { testNotification } from "../services/notifications";
 import { SplitConfigEditor } from "./SplitConfigEditor";
 import { SnippetsEditor } from "./SnippetsEditor";
 import { MemoriesTab } from "./MemoriesTab";
@@ -145,6 +146,18 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [isDefaultMailApp, setIsDefaultMailApp] = useState(false);
   const [isDefaultMailAppLoading, setIsDefaultMailAppLoading] = useState(false);
   const [defaultMailAppError, setDefaultMailAppError] = useState("");
+
+  // Notification test feedback. Auto-clears after 3s so the panel doesn't
+  // accumulate stale state. ok=true → "Sent"; ok=false → reason-specific
+  // copy ("Permission denied", "Notifications off", etc).
+  const [notificationTestResult, setNotificationTestResult] = useState<
+    { kind: "ok" } | { kind: "err"; message: string } | null
+  >(null);
+  useEffect(() => {
+    if (!notificationTestResult) return;
+    const t = window.setTimeout(() => setNotificationTestResult(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [notificationTestResult]);
 
   // Updates state
   const [appVersion, setAppVersion] = useState("");
@@ -457,6 +470,26 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const handleNotificationsEnabledChange = async (enabled: boolean) => {
     setNotificationsEnabled(enabled);
     await window.api.settings.set({ notificationsEnabled: enabled });
+    // Toggling ON should re-prompt for OS permission if it isn't granted yet —
+    // otherwise the toggle says "on" but nothing fires. tauri-plugin-notification
+    // only re-prompts when the cached state is undecided; in the unsigned dev
+    // build the prompt may also be no-opped by macOS Gatekeeper, which is why
+    // the Test button (which sends an actual notification) is the user's
+    // best fallback for verifying the wiring end-to-end.
+    if (!enabled) return;
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (!isTauri) return;
+    try {
+      const { isPermissionGranted, requestPermission } = await import(
+        "@tauri-apps/plugin-notification"
+      );
+      const granted = await isPermissionGranted();
+      if (!granted) {
+        await requestPermission();
+      }
+    } catch (err) {
+      console.warn("[notifications] permission re-probe failed:", err);
+    }
   };
 
   const handleKeyboardBindingsChange = async (bindings: "superhuman" | "gmail") => {
@@ -1153,10 +1186,22 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       setDefaultMailAppError("");
                       const desired = !isDefaultMailApp;
                       try {
-                        await window.api.defaultMailApp.setDefault(desired);
+                        // The shim returns IpcResponse<boolean>; surface its
+                        // .error if the LSSet call failed under macOS so the
+                        // user gets a real reason instead of a generic
+                        // "didn't accept" message. We still re-probe the OS
+                        // afterward — some unsigned-build failures land as
+                        // success=true but the binding doesn't stick.
+                        const setResult = (await window.api.defaultMailApp.setDefault(desired)) as
+                          | { success: true; data?: boolean }
+                          | { success: false; error?: string };
                         const actual = await window.api.defaultMailApp.isDefault();
                         setIsDefaultMailApp(actual);
-                        if (actual !== desired) {
+                        if (!setResult.success) {
+                          setDefaultMailAppError(
+                            setResult.error || "Failed to update default mail app setting.",
+                          );
+                        } else if (actual !== desired) {
                           // macOS won't always honor LSSetDefaultHandlerForURLScheme
                           // for unsigned dev builds — the binding may flicker back
                           // to the previous handler after a rebuild. The packaged,
@@ -1187,6 +1232,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     />
                   </button>
                 </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Setting AOS Mail as your default mail handler may require system approval. In a
+                  fresh dev build the binding doesn&apos;t survive rebuilds — it persists once you
+                  install a signed release.
+                </p>
                 {defaultMailAppError && (
                   <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
                     {defaultMailAppError}
@@ -1206,25 +1256,69 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       one sync collapse into a single summary.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      void handleNotificationsEnabledChange(!notificationsEnabled);
-                    }}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      notificationsEnabled
-                        ? "bg-blue-600 dark:bg-blue-500"
-                        : "bg-gray-200 dark:bg-gray-700"
-                    }`}
-                    aria-pressed={notificationsEnabled}
-                    aria-label="Enable native notifications"
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        notificationsEnabled ? "translate-x-6" : "translate-x-1"
+                  <div className="flex items-center gap-3">
+                    {/* Test button — fires a sample notification through the
+                        same path as the new-mail listener so the user can
+                        verify permissions are wired without waiting for real
+                        mail. Disabled when the toggle is off. */}
+                    <button
+                      type="button"
+                      disabled={!notificationsEnabled}
+                      onClick={async () => {
+                        const result = await testNotification();
+                        if (result.ok) {
+                          setNotificationTestResult({ kind: "ok" });
+                        } else {
+                          const msg =
+                            result.reason === "denied"
+                              ? "Permission denied — enable AOS Mail in System Settings → Notifications."
+                              : result.reason === "browser"
+                                ? "Not available in this build."
+                                : "Notifications are off — toggle them on first.";
+                          setNotificationTestResult({ kind: "err", message: msg });
+                        }
+                      }}
+                      className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                        notificationsEnabled
+                          ? "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
+                          : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                       }`}
-                    />
-                  </button>
+                    >
+                      Test notification
+                    </button>
+                    <button
+                      onClick={() => {
+                        void handleNotificationsEnabledChange(!notificationsEnabled);
+                      }}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        notificationsEnabled
+                          ? "bg-blue-600 dark:bg-blue-500"
+                          : "bg-gray-200 dark:bg-gray-700"
+                      }`}
+                      aria-pressed={notificationsEnabled}
+                      aria-label="Enable native notifications"
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          notificationsEnabled ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
+                {notificationTestResult && (
+                  <p
+                    className={`text-xs mt-2 ${
+                      notificationTestResult.kind === "ok"
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-amber-600 dark:text-amber-400"
+                    }`}
+                  >
+                    {notificationTestResult.kind === "ok"
+                      ? "Test notification sent."
+                      : notificationTestResult.message}
+                  </p>
+                )}
               </div>
 
               {/* AI Models */}
@@ -1878,7 +1972,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 drafts replies in your voice. This tab configures the tools and credentials it can
                 use.
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 The agent&apos;s <em>behavior</em> (how it triages, what tone it drafts in) lives in{" "}
                 <button
                   type="button"
@@ -1888,6 +1982,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                   Prompts
                 </button>
                 .
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                AOS Mail auto-triages new mail as it arrives. To re-run on existing mail, click{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-300">Triage All</span> on
+                the inbox toolbar.
               </p>
             </div>
 

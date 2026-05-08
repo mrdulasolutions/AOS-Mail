@@ -13,6 +13,7 @@ import {
 } from "../hooks/useBatchActions";
 import { draftBodyToHtml } from "../../shared/draft-utils";
 import { draftMatchesSplit } from "../utils/split-conditions";
+import { runTriageCatchUp } from "../lib/triage-catchup";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 /** Check if bodyHtml already contains rich formatting tags (from TipTap or draftBodyToHtml).
@@ -61,6 +62,8 @@ export function EmailList() {
   const unsnoozedReturnTimes = useAppStore((s) => s.unsnoozedReturnTimes);
   const selectedThreadId = useAppStore((s) => s.selectedThreadId);
   const splits = useAppStore((s) => s.splits);
+  const triageStatus = useAppStore((s) => s.triageStatus);
+  const allEmails = useAppStore((s) => s.emails);
   const { threads } = useSplitFilteredThreads();
 
   const isArchiveReadyView = currentSplitId === "__archive-ready__";
@@ -340,6 +343,26 @@ export function EmailList() {
   const agentDrafts = prefetchProgress.agentDrafts;
   const hasActiveAgentDrafts = agentDrafts && (agentDrafts.running > 0 || agentDrafts.queued > 0);
 
+  // "Triage All" surfaces in the inbox toolbar only when there's something to
+  // do for the current account — counts unanalyzed inbox-side emails. SENT-
+  // labelled mail is excluded (it's the user's own sent copy, no triage
+  // needed). The button hides during sync (matches Archive All behavior).
+  const unanalyzedCount = useMemo(() => {
+    if (isSentView) return 0;
+    let n = 0;
+    for (const e of allEmails) {
+      if (currentAccountId && e.accountId !== currentAccountId) continue;
+      if (e.analysis) continue;
+      if (e.labelIds?.includes("SENT")) continue;
+      n++;
+    }
+    return n;
+  }, [allEmails, currentAccountId, isSentView]);
+  const triageInFlight = triageStatus !== null;
+  const handleTriageAll = useCallback(() => {
+    void runTriageCatchUp("manual");
+  }, []);
+
   // Ref for the list container to enable scrolling
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -581,6 +604,53 @@ export function EmailList() {
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {/* Manual catch-up: re-runs analysis.analyzeBatch on any inbox
+              emails that still don't have an analysis row. AOS Mail also
+              auto-triages new mail as it arrives (see App.tsx onNewEmails);
+              this button is the way to backfill older mail that synced
+              before the API key was set or before this session existed. */}
+          {!isSentView && unanalyzedCount > 0 && (
+            <button
+              onClick={handleTriageAll}
+              disabled={triageInFlight}
+              title={
+                triageInFlight
+                  ? "Triage already running"
+                  : `Triage ${unanalyzedCount} unanalyzed ${unanalyzedCount === 1 ? "email" : "emails"}`
+              }
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1 ${
+                triageInFlight
+                  ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                  : "bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60"
+              }`}
+            >
+              <svg
+                className={`w-3 h-3 ${triageInFlight ? "animate-spin" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                {triageInFlight ? (
+                  <>
+                    <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4" />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </>
+                ) : (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                  />
+                )}
+              </svg>
+              Triage All ({unanalyzedCount})
+            </button>
+          )}
           {isArchiveReadyView && threads.length > 0 && (
             <button
               onClick={handleArchiveAll}

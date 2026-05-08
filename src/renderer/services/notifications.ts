@@ -160,3 +160,50 @@ export async function notifyNewEmails(emails: DashboardEmail[]): Promise<void> {
     });
   }
 }
+
+/**
+ * Fire a sample notification so the user can verify their permission/toggle
+ * wiring without waiting for real mail.
+ *
+ * Returns a structured outcome so the caller can surface a useful error in
+ * the Settings panel — three failure modes are distinct:
+ *   - "browser":    not running under Tauri (e.g. Storybook). Nothing to do.
+ *   - "denied":     macOS denied permission and there's no path to re-prompt
+ *                   from JS. Caller can deep-link to System Settings.
+ *   - "disabled":   user has the toggle turned off; we honor that and don't
+ *                   fire a "test" notification either.
+ *
+ * On the happy path we re-request permission first if the cached state is
+ * stale — handles the case where the user denied at boot, then granted
+ * permission via System Settings without restarting the app.
+ */
+export async function testNotification(): Promise<
+  { ok: true } | { ok: false; reason: "browser" | "denied" | "disabled" }
+> {
+  if (!bridge.isTauri) return { ok: false, reason: "browser" };
+  if (!notificationsEnabled()) return { ok: false, reason: "disabled" };
+
+  // Re-probe permission. The cached permissionGranted may be stale if the
+  // user changed System Settings since the last initNotifications call.
+  try {
+    const live = await isPermissionGranted();
+    if (live) {
+      permissionGranted = true;
+    } else {
+      const requested = await requestPermission();
+      permissionGranted = requested === "granted";
+    }
+  } catch (err) {
+    console.warn("[notifications] permission probe failed:", err);
+    permissionGranted = false;
+  }
+  if (!permissionGranted) return { ok: false, reason: "denied" };
+
+  sendNotification({
+    title: "AOS Mail",
+    body: "This is what new mail will look like.",
+    actionTypeId: NEW_MAIL_ACTION_TYPE,
+    extra: { kind: "test" },
+  });
+  return { ok: true };
+}
