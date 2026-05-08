@@ -78,6 +78,15 @@ export interface SyncResultLite {
   errors: string[];
 }
 
+export interface LoadMoreResultLite {
+  accountId: string;
+  fetched: number;
+  newRows: number;
+  newEmails: DashboardEmailRow[];
+  hasMore: boolean;
+  errors: string[];
+}
+
 export interface SidecarAccountInfo {
   accountId: string;
   email: string;
@@ -329,6 +338,7 @@ export interface SidecarMethods {
   // ── sync ──────────────────────────────────────────────────────────────
   "sync.init": { params: void; result: SidecarAccountInfo[] };
   "sync.now": { params: { accountId: string }; result: SyncResultLite };
+  "sync.loadMore": { params: { accountId: string }; result: LoadMoreResultLite };
   "sync.start": {
     params: { accountId: string };
     result: { ok: true; intervalMs: number };

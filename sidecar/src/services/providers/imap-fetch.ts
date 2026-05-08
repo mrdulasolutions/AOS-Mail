@@ -69,12 +69,13 @@ function makeId(accountId: string, folder: string, uid: number): string {
  * Default: last 50 in INBOX, newest first. The IMAP server's UID sequence
  * is naturally chronological-ish; we fetch a window starting from the
  * highest known UID. `sinceUid` lets the sync layer poll for newer
- * messages (returns only uids > sinceUid).
+ * messages (returns only uids > sinceUid). `beforeUid` walks backwards
+ * for "Load more" — returns up to `limit` messages with uid < beforeUid.
  */
 export async function listImapMessageHeaders(
   accountId: string,
   folder: string = "INBOX",
-  opts: { limit?: number; sinceUid?: number } = {},
+  opts: { limit?: number; sinceUid?: number; beforeUid?: number } = {},
 ): Promise<{ headers: ImapMessageHeader[]; highestUid: number; folder: string }> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const client = await openImapClient(accountId);
@@ -90,11 +91,27 @@ export async function listImapMessageHeaders(
       if (highestUid === 0) {
         return { headers: [], highestUid: 0, folder };
       }
-      // UID range that captures the newest messages first.
-      const lowerBound = opts.sinceUid
-        ? Math.max(opts.sinceUid + 1, Math.max(1, highestUid - limit + 1))
-        : Math.max(1, highestUid - limit + 1);
-      const range = `${lowerBound}:${highestUid}`;
+      // UID range that captures the requested window.
+      // - beforeUid: we want uids strictly less than beforeUid, capped at `limit`.
+      //   Used by "Load more" to walk older messages.
+      // - sinceUid: we want uids strictly greater than sinceUid, capped at `limit`.
+      //   Used by polling to grab newly-arrived messages.
+      // - default: newest-first window (highestUid - limit + 1 .. highestUid).
+      let lowerBound: number;
+      let upperBound: number;
+      if (typeof opts.beforeUid === "number" && opts.beforeUid > 1) {
+        upperBound = opts.beforeUid - 1;
+        lowerBound = Math.max(1, upperBound - limit + 1);
+        if (upperBound < 1) {
+          return { headers: [], highestUid, folder };
+        }
+      } else {
+        upperBound = highestUid;
+        lowerBound = opts.sinceUid
+          ? Math.max(opts.sinceUid + 1, Math.max(1, highestUid - limit + 1))
+          : Math.max(1, highestUid - limit + 1);
+      }
+      const range = `${lowerBound}:${upperBound}`;
 
       const headers: ImapMessageHeader[] = [];
       for await (const msg of client.fetch(
