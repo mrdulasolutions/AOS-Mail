@@ -42,7 +42,7 @@
       "minimumSystemVersion": "12.0",
       "entitlements": "../build/entitlements.mac.plist",
       "infoPlist": "../build/Info.plist",
-      "signingIdentity": null,
+      "signingIdentity": "Developer ID Application: Matthew Dula (PPY9K2BYJH)",
       "hardenedRuntime": true
     },
     "externalBin": ["binaries/aos-mail-sidecar"]
