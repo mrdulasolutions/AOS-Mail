@@ -37,7 +37,6 @@ import { trackEvent } from "../services/posthog";
 import { draftBodyToHtml } from "../../shared/draft-utils";
 import { AnalysisPrioritySection } from "./AnalysisPrioritySection";
 
-
 /**
  * Escape HTML entities for safe display in quoted content.
  */
@@ -2352,9 +2351,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
   // Prefer the freshly fetched copy when the store row has no body — that
   // way clicking a just-arrived email shows its content immediately.
   const selectedEmail =
-    storeEmail && storeEmail.body
-      ? storeEmail
-      : (fetchedEmail ?? storeEmail ?? null);
+    storeEmail && storeEmail.body ? storeEmail : (fetchedEmail ?? storeEmail ?? null);
 
   // Get current user email for "Me" detection
   const currentAccount = accounts.find((a) => a.id === currentAccountId);
@@ -2971,6 +2968,25 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
     }
   }, [isInlineReplyOpen, inlineReplyInfo, handleInlineReplyCancel]);
 
+  // When the inline-reply pane opens (or switches to a different message),
+  // scroll the conversation to the bottom so the user sees the latest
+  // message they're replying to right above the composer. When it closes,
+  // we don't try to restore the prior scroll position — by the time the
+  // user has sent or discarded a reply, the thread may have grown via the
+  // sent reply or background sync, so the bottom is generally where they
+  // want to be next; restoring an old scrollTop would land them in the
+  // middle of stale content.
+  useEffect(() => {
+    if (!isInlineReplyOpen) return;
+    // Defer to next paint so the pane has reduced the scroll area first.
+    const id = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isInlineReplyOpen, inlineReplyToEmailId]);
+
   const handleDiscardDraft = useCallback(() => {
     if (draftEmail) {
       updateEmail(draftEmail.id, { draft: undefined });
@@ -3263,7 +3279,7 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 overflow-hidden min-h-0">
       {/* Back button for full view */}
       {isFullView && (
         <div className="h-10 px-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center flex-shrink-0">
@@ -3284,8 +3300,10 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
         </div>
       )}
 
-      {/* Single scroll container for entire thread */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      {/* Conversation scroll container — flex-1 + min-h-0 so it takes the
+          remaining vertical space while leaving the inline-reply pane below
+          anchored at the bottom. */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
         {/* Thread header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 dark:border-gray-700/50">
           <div className="flex items-start justify-between">
@@ -3535,64 +3553,6 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
                   setPreviewAttachment({ attachment, data })
                 }
               />
-              {/* Loading indicator for inline reply — stays inside map for positioning */}
-              {inlineReplyToEmailId === email.id && isLoadingReplyInfo && (
-                <div className="py-4 text-sm text-gray-500 dark:text-gray-400">Loading...</div>
-              )}
-              {/* Inline reply/forward — rendered inside the map right below the email being replied to.
-                  When undo-send replaces an optimistic email ID, UndoSendToast atomically updates
-                  inlineReplyToEmailId in the store so this condition keeps matching. */}
-              {inlineReplyToEmailId === email.id &&
-                inlineReplyInfo &&
-                currentAccountId &&
-                currentUserEmail &&
-                inlineComposeMode && (
-                  <InlineReply
-                    key={`${inlineComposeMode}-${inlineReplyToEmailId}`}
-                    replyInfo={inlineReplyInfo}
-                    accountId={currentAccountId}
-                    accountEmail={currentUserEmail}
-                    composeMode={inlineComposeMode}
-                    replyToEmailId={inlineReplyToEmailId}
-                    onSend={handleInlineReplySent}
-                    onCancel={handleInlineReplyCancel}
-                    onContentChange={(content) => {
-                      inlineReplyContentRef.current = {
-                        ...inlineReplyContentRef.current,
-                        ...content,
-                      };
-                    }}
-                    onToChange={(to) => {
-                      if (inlineReplyContentRef.current) {
-                        inlineReplyContentRef.current.to = to;
-                      } else {
-                        inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", to };
-                      }
-                    }}
-                    onCcChange={(cc) => {
-                      if (inlineReplyContentRef.current) {
-                        inlineReplyContentRef.current.cc = cc;
-                      } else {
-                        inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", cc };
-                      }
-                    }}
-                    onBccChange={(bcc) => {
-                      if (inlineReplyContentRef.current) {
-                        inlineReplyContentRef.current.bcc = bcc;
-                      } else {
-                        inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", bcc };
-                      }
-                    }}
-                    restoredDraft={restoredDraft}
-                    draftEmailId={
-                      draftEmail?.draft && draftEmail.draft.status !== "edited"
-                        ? draftEmail.id
-                        : undefined
-                    }
-                    onDiscardDraft={handleDiscardDraft}
-                    nameMap={nameMap}
-                  />
-                )}
             </div>
           ))}
         </div>
@@ -3614,6 +3574,68 @@ function EmailDetailInner({ isFullView = false }: EmailDetailProps) {
           />
         )}
       </div>
+
+      {/* Inline reply/forward — anchored to the bottom of the email pane so the
+          composer stays visible no matter how long the conversation is. The
+          conversation list above scrolls independently. */}
+      {inlineReplyToEmailId && isLoadingReplyInfo && (
+        <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+          Loading...
+        </div>
+      )}
+      {inlineReplyToEmailId &&
+        inlineReplyInfo &&
+        currentAccountId &&
+        currentUserEmail &&
+        inlineComposeMode && (
+          <div className="flex-shrink-0">
+            <InlineReply
+              key={`${inlineComposeMode}-${inlineReplyToEmailId}`}
+              replyInfo={inlineReplyInfo}
+              accountId={currentAccountId}
+              accountEmail={currentUserEmail}
+              composeMode={inlineComposeMode}
+              replyToEmailId={inlineReplyToEmailId}
+              onSend={handleInlineReplySent}
+              onCancel={handleInlineReplyCancel}
+              onContentChange={(content) => {
+                inlineReplyContentRef.current = {
+                  ...inlineReplyContentRef.current,
+                  ...content,
+                };
+              }}
+              onToChange={(to) => {
+                if (inlineReplyContentRef.current) {
+                  inlineReplyContentRef.current.to = to;
+                } else {
+                  inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", to };
+                }
+              }}
+              onCcChange={(cc) => {
+                if (inlineReplyContentRef.current) {
+                  inlineReplyContentRef.current.cc = cc;
+                } else {
+                  inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", cc };
+                }
+              }}
+              onBccChange={(bcc) => {
+                if (inlineReplyContentRef.current) {
+                  inlineReplyContentRef.current.bcc = bcc;
+                } else {
+                  inlineReplyContentRef.current = { bodyHtml: "", bodyText: "", bcc };
+                }
+              }}
+              restoredDraft={restoredDraft}
+              draftEmailId={
+                draftEmail?.draft && draftEmail.draft.status !== "edited"
+                  ? draftEmail.id
+                  : undefined
+              }
+              onDiscardDraft={handleDiscardDraft}
+              nameMap={nameMap}
+            />
+          </div>
+        )}
 
       {/* Attachment preview modal */}
       {previewAttachment && (
