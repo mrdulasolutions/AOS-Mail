@@ -10,7 +10,7 @@
 // register handlers via `registerMethod` and push events via `emit`.
 
 import { createInterface } from "node:readline";
-import { dispatch, registerMethod } from "./rpc.js";
+import { dispatch, isStdoutBroken, registerMethod } from "./rpc.js";
 import { awaitAll as drainBackgroundTasks } from "./lib/background-tasks.js";
 import { createLogger } from "./lib/logger.js";
 
@@ -18,14 +18,47 @@ import { createLogger } from "./lib/logger.js";
 // kills the process (Node 15+ default), producing the renderer-side
 // "sidecar channel closed before response" with no diagnostic. Logging
 // here lands the cause in the daily log file so we can recover the chain.
+//
+// CRITICAL: when the cause is EPIPE on stdout (the parent disconnected),
+// the sidecar should EXIT GRACEFULLY rather than try to keep working —
+// without an exit, fire-and-forget emit() calls keep throwing, recursing
+// into this handler and writing GBs of noise to the log. The
+// post-mortem 2026-05-08 bug exactly this. We trip the rpc module's
+// `stdoutBroken` flag and gracefulExit instead.
 const bootLog = createLogger("sidecar-boot");
+let exitingDueToBrokenPipe = false;
+function isEpipeError(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as { code?: unknown; message?: unknown };
+  if (obj.code === "EPIPE" || obj.code === "ERR_STREAM_DESTROYED") return true;
+  if (typeof obj.message === "string" && /\bEPIPE\b|broken pipe/i.test(obj.message)) {
+    return true;
+  }
+  return false;
+}
+function handleHostDisconnected(reason: unknown): void {
+  if (exitingDueToBrokenPipe) return;
+  exitingDueToBrokenPipe = true;
+  bootLog.warn("sidecar: stdout disconnected (EPIPE), exiting gracefully", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+  });
+  void gracefulExit();
+}
 process.on("unhandledRejection", (reason) => {
+  if (isEpipeError(reason) || isStdoutBroken()) {
+    handleHostDisconnected(reason);
+    return;
+  }
   bootLog.error("unhandledRejection", {
     reason: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
 });
 process.on("uncaughtException", (err) => {
+  if (isEpipeError(err) || isStdoutBroken()) {
+    handleHostDisconnected(err);
+    return;
+  }
   bootLog.error("uncaughtException", { err: err.message, stack: err.stack });
 });
 import { registerNetworkMethods } from "./methods/network.js";
@@ -108,7 +141,15 @@ rl.on("line", async (line) => {
   if (!trimmed) return;
   const response = await dispatch(trimmed);
   if (response !== null) {
-    process.stdout.write(response + "\n");
+    // Safe write: if the parent has disconnected we drop the response
+    // rather than throw EPIPE and recurse into the unhandled handler.
+    // The handleHostDisconnected path below kicks the sidecar into
+    // gracefulExit so we don't keep doing fruitless work.
+    try {
+      process.stdout.write(response + "\n");
+    } catch (err) {
+      handleHostDisconnected(err);
+    }
   }
 });
 

@@ -90,11 +90,46 @@ export function registerMethod(name: string, handler: Handler): void {
   methods.set(name, handler);
 }
 
+// Tracks whether stdout has thrown EPIPE — once it has, the sidecar's
+// connection to Tauri is broken and any further writes are pointless. We
+// remember this so subsequent emit/response writes don't keep throwing
+// (they'd land in process.on("uncaughtException", ...) and recurse).
+let stdoutBroken = false;
+
+/**
+ * Idempotent safe write to stdout. Returns true on success, false if the
+ * pipe is broken. Does NOT throw, even on EPIPE — the caller would
+ * otherwise need a try/catch at every emit/response site, and any uncaught
+ * EPIPE would re-enter our unhandledException handler in a tight loop.
+ */
+function safeStdoutWrite(line: string): boolean {
+  if (stdoutBroken) return false;
+  try {
+    process.stdout.write(line);
+    return true;
+  } catch (err) {
+    stdoutBroken = true;
+    // Best-effort log to file via stderr-handler (which writes to disk).
+    // We can't log via the contract logger here (would import-cycle), so
+    // we just trip the flag and let index.ts's bootLog catch the
+    // accompanying uncaughtException for the disk record.
+    void err;
+    return false;
+  }
+}
+
+export function isStdoutBroken(): boolean {
+  return stdoutBroken;
+}
+
 /**
  * Push a server-sent event up to the Tauri shell, which forwards it to the
  * renderer as a Tauri event. `channel` is the event name (e.g.
  * "network:online"). Notifications have no id so the Rust side knows it's
  * not a response to any pending request.
+ *
+ * Safe against EPIPE: if the parent has disconnected, the event is
+ * silently dropped rather than crashing the sidecar.
  */
 export function emit(channel: string, payload: Json = null): void {
   const notification: RpcNotification = {
@@ -102,7 +137,7 @@ export function emit(channel: string, payload: Json = null): void {
     method: channel,
     params: payload,
   };
-  process.stdout.write(JSON.stringify(notification) + "\n");
+  safeStdoutWrite(JSON.stringify(notification) + "\n");
 }
 
 export async function dispatch(rawLine: string): Promise<string | null> {
