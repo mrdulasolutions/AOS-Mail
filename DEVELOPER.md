@@ -299,30 +299,41 @@ xcrun notarytool submit \
 xcrun stapler staple \
   "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg"
 
-# 4. Compress the .app for the updater
+# 4. Compress the .app for the updater (rename to release convention here)
 cd src-tauri/target/release/bundle/macos
-tar -czf AOS_Mail.app.tar.gz "AOS Mail.app"
+tar -czf AOS-Mac_<version>.app.tar.gz "AOS Mail.app"
 
-# 5. Sign the .app.tar.gz with the updater key
+# 5. Sign the tarball with the updater key
 TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/aos-mail-v1.key)" \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your-key-password> \
-npx @tauri-apps/cli signer sign AOS_Mail.app.tar.gz
+npx @tauri-apps/cli signer sign AOS-Mac_<version>.app.tar.gz
 
-# 6. Generate latest.json (see scripts/release-latest-json.sh or do it manually
-#    with the .sig contents)
+# 6. Generate latest.json (see "latest.json format" below)
 
-# 7. Tag and push
-git tag v0.1.1
-git push origin main v0.1.1
+# 7. Stage the DMG with the release-convention name
+cp "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg" \
+   "AOS-Mac_<version>.dmg"
 
-# 8. Publish the release
-gh release create v0.1.1 \
-  --title "v0.1.1 — <one-line summary>" \
+# 8. Tag and push
+git tag v<version>
+git push origin main v<version>
+
+# 9. Publish the release. RELEASE-ASSET NAMING CONVENTION:
+#    AOS-Mac_<version>.dmg
+#    AOS-Mac_<version>.app.tar.gz
+#    AOS-Mac_<version>.app.tar.gz.sig
+#    latest.json
+#    The "(Mac)" form is sanitized to "AOS.Mac." by GitHub's release API
+#    (parens stripped to dots), so we use a hyphen instead. Future
+#    multi-platform releases will follow `AOS-<platform>_<version>.<ext>`
+#    (e.g. `AOS-Linux_0.2.0.AppImage`).
+gh release create v<version> \
+  --title "v<version> — <one-line summary>" \
   --notes-file release-notes.md \
-  /path/to/AOS_Mail_<version>_aarch64.dmg \
-  /path/to/AOS_Mail.app.tar.gz \
-  /path/to/AOS_Mail.app.tar.gz.sig \
-  /path/to/latest.json
+  AOS-Mac_<version>.dmg \
+  AOS-Mac_<version>.app.tar.gz \
+  AOS-Mac_<version>.app.tar.gz.sig \
+  latest.json
 ```
 
 ### Verifying a signed build
@@ -334,7 +345,7 @@ spctl -a -vv "src-tauri/target/release/bundle/macos/AOS Mail.app"
 
 # Stapler ticket validation
 xcrun stapler validate "src-tauri/target/release/bundle/macos/AOS Mail.app"
-xcrun stapler validate "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg"
+xcrun stapler validate "AOS-Mac_<version>.dmg"
 # Both should print: The validate action worked!
 
 # Inspect signing details
@@ -350,13 +361,13 @@ codesign -dvv "src-tauri/target/release/bundle/macos/AOS Mail.app"
 
 ```json
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "notes": "Brief release summary",
   "pub_date": "2026-05-08T20:27:58Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "<contents of AOS_Mail.app.tar.gz.sig>",
-      "url": "https://github.com/mrdulasolutions/AOS-Mail/releases/download/v0.1.1/AOS_Mail.app.tar.gz"
+      "signature": "<contents of AOS-Mac_<version>.app.tar.gz.sig>",
+      "url": "https://github.com/mrdulasolutions/AOS-Mail/releases/download/v<version>/AOS-Mac_<version>.app.tar.gz"
     }
   }
 }
