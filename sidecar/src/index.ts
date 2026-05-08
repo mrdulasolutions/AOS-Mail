@@ -12,6 +12,22 @@
 import { createInterface } from "node:readline";
 import { dispatch, registerMethod } from "./rpc.js";
 import { awaitAll as drainBackgroundTasks } from "./lib/background-tasks.js";
+import { createLogger } from "./lib/logger.js";
+
+// Global error trap. Without this, an unhandled promise rejection silently
+// kills the process (Node 15+ default), producing the renderer-side
+// "sidecar channel closed before response" with no diagnostic. Logging
+// here lands the cause in the daily log file so we can recover the chain.
+const bootLog = createLogger("sidecar-boot");
+process.on("unhandledRejection", (reason) => {
+  bootLog.error("unhandledRejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+process.on("uncaughtException", (err) => {
+  bootLog.error("uncaughtException", { err: err.message, stack: err.stack });
+});
 import { registerNetworkMethods } from "./methods/network.js";
 import { registerDbMethods } from "./methods/db.js";
 import { registerThemeMethods } from "./methods/theme.js";

@@ -24,6 +24,9 @@ import {
 } from "../services/providers/imap.js";
 import { listImapFolders } from "../services/providers/imap-folders.js";
 import { getDb } from "../db/index.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("imap-method");
 
 interface AddAccountInput {
   email: string;
@@ -116,6 +119,7 @@ export function registerImapMethods(): void {
   });
 
   registerMethod("imap.addAccount", async (params) => {
+    log.info("addAccount: enter");
     const input = params as AddAccountInput;
     if (!input?.email || !input.password) {
       throw new Error("imap.addAccount: requires { email, password, imapHost, ... }");
@@ -123,6 +127,7 @@ export function registerImapMethods(): void {
     const tls = input.tls ?? true;
 
     // Verify before persisting so we don't write a half-broken account.
+    log.info("addAccount: testing connection", { email: input.email });
     const test = await testImapConnection({
       email: input.email,
       imapHost: input.imapHost,
@@ -134,10 +139,13 @@ export function registerImapMethods(): void {
       tls,
     });
     if (!test.ok) {
+      log.warn("addAccount: testConnection failed", { error: test.error });
       throw new Error(test.error ?? "IMAP connection failed");
     }
+    log.info("addAccount: testConnection succeeded");
 
     const accountId = input.email;
+    log.info("addAccount: persisting credentials");
     persistImapCredentials(accountId, {
       email: input.email,
       imap: {
@@ -154,13 +162,16 @@ export function registerImapMethods(): void {
       },
       password: input.password,
     });
+    log.info("addAccount: credentials persisted, writing account row");
     upsertImapAccountRow(input);
+    log.info("addAccount: row written, emitting event");
 
     emit("auth:imap-connected", {
       accountId,
       email: input.email,
       displayName: input.displayName ?? null,
     });
+    log.info("addAccount: complete");
 
     return {
       accountId,
