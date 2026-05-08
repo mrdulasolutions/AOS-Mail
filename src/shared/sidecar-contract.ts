@@ -164,6 +164,56 @@ export interface LlmCallRowWithSubject extends LlmCallRow {
   email_subject: string | null;
 }
 
+// ── calendar ────────────────────────────────────────────────────────────
+//
+// Calendar V1 surfaces Google Calendar metadata + events to the renderer.
+// Visibility is a renderer-wide preference (per accountId+calendarId);
+// events come from a 60s in-memory cache keyed by (accountId, calendarId,
+// timeMin, timeMax).
+//
+// The list shape mirrors what SettingsPanel.tsx already consumes (so the
+// existing Settings → Calendar code keeps working without changes).
+
+export interface CalendarRow {
+  accountId: string;
+  calendarId: string;
+  calendarName: string;
+  calendarColor: string;
+  primary: boolean;
+  visible: boolean;
+}
+
+export interface CalendarEventAttendee {
+  email: string;
+  displayName: string | null;
+  responseStatus: string;
+  self: boolean;
+  organizer: boolean;
+}
+
+export interface CalendarEventRow {
+  id: string;
+  accountId: string;
+  calendarId: string;
+  calendarName: string;
+  calendarColor: string;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  /** ISO timestamp for timed events; YYYY-MM-DD for all-day. */
+  start: string;
+  end: string;
+  isAllDay: boolean;
+  status: "confirmed" | "tentative" | "cancelled";
+  htmlLink: string | null;
+  hangoutLink: string | null;
+  attendees: CalendarEventAttendee[] | null;
+  selfResponseStatus: "needsAction" | "declined" | "tentative" | "accepted" | null;
+  isOrganizer: boolean;
+}
+
+export type CalendarRsvpResponse = "accepted" | "declined" | "tentative";
+
 // ── The contract ────────────────────────────────────────────────────────
 
 /**
@@ -172,7 +222,7 @@ export interface LlmCallRowWithSubject extends LlmCallRow {
  */
 export interface SidecarMethods {
   // ── ping / diagnostics ────────────────────────────────────────────────
-  "ping": { params: void; result: SidecarPing };
+  ping: { params: void; result: SidecarPing };
 
   // ── settings ──────────────────────────────────────────────────────────
   "settings.get": { params: void; result: Record<string, unknown> };
@@ -188,15 +238,17 @@ export interface SidecarMethods {
   };
   "settings.getPrompts": {
     params: void;
-    result: Partial<Record<
-      | "analysisPrompt"
-      | "draftPrompt"
-      | "archiveReadyPrompt"
-      | "stylePrompt"
-      | "agentDrafterPrompt"
-      | "calendaringPrompt",
-      string
-    >>;
+    result: Partial<
+      Record<
+        | "analysisPrompt"
+        | "draftPrompt"
+        | "archiveReadyPrompt"
+        | "stylePrompt"
+        | "agentDrafterPrompt"
+        | "calendaringPrompt",
+        string
+      >
+    >;
   };
   "settings.setPrompts": { params: Record<string, string>; result: { ok: true } };
 
@@ -375,13 +427,45 @@ export interface SidecarMethods {
   // (today + month). Avoids loading full history just to count.
   "usage.getStatsToday": { params: void; result: UsageWindowStats };
   "usage.getStatsThisMonth": { params: void; result: UsageWindowStats };
+
+  // ── calendar ──────────────────────────────────────────────────────────
+  // Returns a flat array — one row per calendar — with `accountId`
+  // attached so the renderer can group by account. The wrapping
+  // `{success, calendars, accountEmails}` shape matches what the existing
+  // SettingsPanel calendar tab already reads.
+  "calendar.list": {
+    params: { accountId?: string } | void;
+    result: {
+      success: true;
+      calendars: CalendarRow[];
+      accountEmails: Record<string, string>;
+    };
+  };
+  "calendar.setVisibility": {
+    params: { accountId: string; calendarId: string; visible: boolean };
+    result: { success: true; data: null };
+  };
+  // When `calendarId` is omitted, returns merged events from every
+  // visible calendar for the given account (or every account if
+  // `accountId` is also omitted). Sorted by start time.
+  "calendar.getEvents": {
+    params: { accountId?: string; calendarId?: string } | void;
+    result: CalendarEventRow[];
+  };
+  "calendar.respondToEvent": {
+    params: {
+      accountId: string;
+      calendarId: string;
+      eventId: string;
+      response: CalendarRsvpResponse;
+    };
+    result: { ok: true };
+  };
 }
 
 // Helpers — the renderer's bridge.call uses these to project the keyed
 // type; the sidecar's registerMethod uses them to constrain handlers.
 
 export type SidecarMethodName = keyof SidecarMethods;
-export type SidecarMethodParams<K extends SidecarMethodName> =
-  SidecarMethods[K]["params"];
-export type SidecarMethodResult<K extends SidecarMethodName> =
-  SidecarMethods[K]["result"];
+export type SidecarMethodParams<K extends SidecarMethodName> = SidecarMethods[K]["params"];
+export type SidecarMethodResult<K extends SidecarMethodName> = SidecarMethods[K]["result"];
