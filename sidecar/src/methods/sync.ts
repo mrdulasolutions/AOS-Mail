@@ -19,9 +19,7 @@
 import { registerMethod, emit } from "../rpc.js";
 import { getDb } from "../db/index.js";
 import { syncAccountNow, getEmailsForAccount, fetchBodyForEmail } from "../services/sync.js";
-import {
-  listImapAccountIds,
-} from "../services/providers/imap-creds.js";
+import { listImapAccountIds } from "../services/providers/imap-creds.js";
 import { listAccountIdsWithTokens } from "../services/oauth-gmail.js";
 import { createLogger } from "../lib/logger.js";
 
@@ -35,7 +33,9 @@ interface AccountInfoRow {
 
 function listAccountsWithProvider(): AccountInfoRow[] {
   return getDb()
-    .prepare("SELECT id, email, COALESCE(provider, 'gmail') as provider FROM accounts ORDER BY added_at ASC")
+    .prepare(
+      "SELECT id, email, COALESCE(provider, 'gmail') as provider FROM accounts ORDER BY added_at ASC",
+    )
     .all() as AccountInfoRow[];
 }
 
@@ -151,9 +151,15 @@ export function registerSyncMethods(): void {
   });
 
   registerMethod("sync.getEmails", (params) => {
-    const { accountId } = (params as { accountId?: string }) ?? {};
+    const { accountId, folder, label, limit } =
+      (params as {
+        accountId?: string;
+        folder?: string;
+        label?: string;
+        limit?: number;
+      }) ?? {};
     if (!accountId) throw new Error("sync.getEmails: requires { accountId }");
-    return getEmailsForAccount(accountId, { sent: false });
+    return getEmailsForAccount(accountId, { sent: false, folder, label, limit });
   });
 
   registerMethod("sync.getSentEmails", (params) => {

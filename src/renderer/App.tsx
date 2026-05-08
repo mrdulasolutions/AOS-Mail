@@ -17,6 +17,7 @@ import { SearchBar } from "./components/SearchBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { AgentCommandPalette } from "./components/AgentCommandPalette";
 import { AgentsSidebar } from "./components/AgentsSidebar";
+import { FolderRail } from "./components/FolderRail";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { KeyboardHints } from "./components/KeyboardHints";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -672,6 +673,7 @@ export default function App() {
   const addSentEmails = useAppStore((s) => s.addSentEmails);
   const setSplits = useAppStore((s) => s.setSplits);
   const setSnippets = useAppStore((s) => s.setSnippets);
+  const currentFolder = useAppStore((s) => s.currentFolder);
 
   // Initialize keyboard shortcuts
   useKeyboardShortcuts({
@@ -1503,9 +1505,29 @@ export default function App() {
     (p) => p !== null && p.fetched < p.total,
   );
   const { refetch: fetchEmails, isFetching } = useQuery({
-    queryKey: ["emails", currentAccountId],
+    // currentFolder is part of the key so a click in the rail forces a
+    // refetch through the standard React-Query path. Folder = null means
+    // the default INBOX listing — same as before this feature landed.
+    queryKey: ["emails", currentAccountId, currentFolder],
     queryFn: async () => {
-      const result = await window.api.gmail.fetchUnread(100, currentAccountId ?? undefined);
+      // Pick which kind of filter to send: Gmail accounts use `label`
+      // (label id like "Label_42" / "SENT"), IMAP uses `folder` (path
+      // like "Sent Items"). When a Gmail label id like "INBOX" is
+      // chosen, the contract treats it as a label filter — we don't
+      // need to special-case INBOX because the default branch already
+      // returns the inbox.
+      const acc = useAppStore.getState().accounts.find((a) => a.id === currentAccountId);
+      const provider = acc?.provider ?? "gmail";
+      const folderOpts = currentFolder
+        ? provider === "gmail"
+          ? { label: currentFolder }
+          : { folder: currentFolder }
+        : undefined;
+      const result = await window.api.gmail.fetchUnread(
+        100,
+        currentAccountId ?? undefined,
+        folderOpts,
+      );
       if (result.success) {
         setEmails(result.data);
         prefetchEmailBodies(result.data.map((e: DashboardEmail) => e.id)).catch(console.error);
@@ -2320,6 +2342,10 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         {/* Agents sidebar (collapsible left panel) */}
         {isAgentsSidebarOpen && <AgentsSidebar />}
+
+        {/* Folder/label picker — kept mounted so the user can flip
+            folders without losing scroll position in the email list. */}
+        <FolderRail />
 
         {/* Search results view (shown when search is active and not viewing a specific email) */}
         {activeSearchQuery && viewMode !== "full" && <SearchResultsView />}

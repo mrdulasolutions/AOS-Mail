@@ -172,7 +172,7 @@ export interface LlmCallRowWithSubject extends LlmCallRow {
  */
 export interface SidecarMethods {
   // ── ping / diagnostics ────────────────────────────────────────────────
-  "ping": { params: void; result: SidecarPing };
+  ping: { params: void; result: SidecarPing };
 
   // ── settings ──────────────────────────────────────────────────────────
   "settings.get": { params: void; result: Record<string, unknown> };
@@ -188,15 +188,17 @@ export interface SidecarMethods {
   };
   "settings.getPrompts": {
     params: void;
-    result: Partial<Record<
-      | "analysisPrompt"
-      | "draftPrompt"
-      | "archiveReadyPrompt"
-      | "stylePrompt"
-      | "agentDrafterPrompt"
-      | "calendaringPrompt",
-      string
-    >>;
+    result: Partial<
+      Record<
+        | "analysisPrompt"
+        | "draftPrompt"
+        | "archiveReadyPrompt"
+        | "stylePrompt"
+        | "agentDrafterPrompt"
+        | "calendaringPrompt",
+        string
+      >
+    >;
   };
   "settings.setPrompts": { params: Record<string, string>; result: { ok: true } };
 
@@ -252,7 +254,10 @@ export interface SidecarMethods {
     params: { accountId: string };
     result: { accountId: string; status: "idle" | "syncing" | "error" };
   };
-  "sync.getEmails": { params: { accountId: string }; result: DashboardEmailRow[] };
+  "sync.getEmails": {
+    params: { accountId: string; folder?: string; label?: string; limit?: number };
+    result: DashboardEmailRow[];
+  };
   "sync.getSentEmails": {
     params: { accountId: string };
     result: DashboardEmailRow[];
@@ -339,6 +344,32 @@ export interface SidecarMethods {
     params: ComposeSendInput & { gmailDraftId?: string };
     result: { draftId: string; messageId: string; threadId: string };
   };
+  "gmail.listLabels": {
+    params: { accountId: string };
+    result: {
+      labels: Array<{
+        id: string;
+        name: string;
+        type: "system" | "user";
+        color: string | null;
+      }>;
+    };
+  };
+
+  // ── imap (provider) ───────────────────────────────────────────────────
+  // Folder list for the rail. Gmail-via-IMAP returns the same shape; the
+  // rail component branches on account.provider, not on the result.
+  "imap.listFolders": {
+    params: { accountId: string };
+    result: {
+      folders: Array<{
+        name: string;
+        path: string;
+        specialUse: string | null;
+        isSystem: boolean;
+      }>;
+    };
+  };
 
   // ── thread summary ────────────────────────────────────────────────────
   "summary.thread": {
@@ -381,7 +412,5 @@ export interface SidecarMethods {
 // type; the sidecar's registerMethod uses them to constrain handlers.
 
 export type SidecarMethodName = keyof SidecarMethods;
-export type SidecarMethodParams<K extends SidecarMethodName> =
-  SidecarMethods[K]["params"];
-export type SidecarMethodResult<K extends SidecarMethodName> =
-  SidecarMethods[K]["result"];
+export type SidecarMethodParams<K extends SidecarMethodName> = SidecarMethods[K]["params"];
+export type SidecarMethodResult<K extends SidecarMethodName> = SidecarMethods[K]["result"];

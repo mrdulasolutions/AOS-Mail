@@ -28,10 +28,8 @@ import {
 import { getDb } from "../db/index.js";
 import { google } from "googleapis";
 import { upsertAccountAfterAuth } from "./gmail-helpers.js";
-import {
-  createDraftGmail,
-  updateDraftGmail,
-} from "../services/providers/gmail-send.js";
+import { createDraftGmail, updateDraftGmail } from "../services/providers/gmail-send.js";
+import { listGmailLabels } from "../services/providers/gmail-labels.js";
 import type { SendInput } from "../services/providers/smtp-send.js";
 
 export function registerGmailMethods(): void {
@@ -122,9 +120,9 @@ export function registerGmailMethods(): void {
 
     // Resolve from-address from the account row when the renderer doesn't
     // pass it (most calls don't).
-    const account = getDb()
-      .prepare("SELECT email FROM accounts WHERE id = ?")
-      .get(p.accountId) as { email?: string } | undefined;
+    const account = getDb().prepare("SELECT email FROM accounts WHERE id = ?").get(p.accountId) as
+      | { email?: string }
+      | undefined;
     if (!account?.email) {
       throw new Error(`gmail.createDraft: account ${p.accountId} not found`);
     }
@@ -136,5 +134,14 @@ export function registerGmailMethods(): void {
     }
     const result = await createDraftGmail(enriched);
     return result;
+  });
+
+  // List the user-visible Gmail labels for the left-rail folder picker.
+  // Mirrors imap.listFolders. Filtering — hidden + CATEGORY_* — happens
+  // inside listGmailLabels so callers always get the trimmed set.
+  registerMethod("gmail.listLabels", async (params) => {
+    const { accountId } = (params as { accountId?: string }) ?? {};
+    if (!accountId) throw new Error("gmail.listLabels: requires { accountId }");
+    return { labels: await listGmailLabels(accountId) };
   });
 }
