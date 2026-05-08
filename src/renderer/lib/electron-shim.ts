@@ -2318,6 +2318,62 @@ function installRealNamespaces(): Record<string, unknown> {
     },
   };
 
+  // learnedRules — the auto-archive rules the analyzer engine builds out
+  // of repeated user overrides. Settings → Agent Tools → Learned Rules
+  // reads / toggles / resets them through these methods.
+  type LearnedRuleRow = {
+    id: string;
+    accountId: string;
+    scope: "person" | "domain" | "category" | "global";
+    scopeValue: string | null;
+    action: "archived" | "trashed" | "replied" | "snoozed";
+    count: number;
+    enabled: boolean;
+    description: string;
+    createdAt: number;
+    updatedAt: number;
+  };
+  real.learnedRules = {
+    list: async (
+      accountId?: string,
+    ): Promise<IpcResponse<{ rules: LearnedRuleRow[] }>> => {
+      try {
+        const data = (await bridge.call("learnedRules.list", {
+          accountId,
+        })) as { rules: LearnedRuleRow[] };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    toggle: async (
+      ruleId: string,
+      enabled: boolean,
+    ): Promise<IpcResponse<{ rule: LearnedRuleRow }>> => {
+      try {
+        const data = (await bridge.call("learnedRules.toggle", {
+          ruleId,
+          enabled,
+        })) as { rule: LearnedRuleRow };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    reset: async (
+      accountId?: string,
+    ): Promise<IpcResponse<{ deletedRules: number; deletedObservations: number }>> => {
+      try {
+        const data = (await bridge.call("learnedRules.reset", {
+          accountId,
+        })) as { deletedRules: number; deletedObservations: number };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   return real;
 }
 

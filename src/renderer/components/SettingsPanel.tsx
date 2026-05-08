@@ -2322,6 +2322,14 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </div>
             </div>
 
+            {/* Learned Rules — the analyzer engine watches archive /
+                trash actions and, after enough consistent overrides on
+                the same sender or domain, promotes a rule that
+                short-circuits Claude for matching emails. Lives below
+                AI Models and above Browser Automation per the
+                section ordering. */}
+            <LearnedRulesSection />
+
             {/* Agent Activity — full audit log for the inbox agent. Lives
                 inside Agent Tools as a sub-section (between AI Models
                 and Browser Automation). The tray in the titlebar shows
@@ -4603,6 +4611,197 @@ function AgentActivitySection() {
         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
           Showing the last 200 calls.
         </p>
+      )}
+    </div>
+  );
+}
+
+// ---- Learned Rules (Settings → Agent Tools sub-section) ----
+//
+// The analyzer watches archive / trash actions. When the user disagrees
+// with a "needs reply" verdict often enough on the same sender or domain
+// (≥3 times, no contradictions in 30d), a rule is promoted and the
+// analyzer starts skipping Claude for matching mail.
+//
+// This card lists the top 10 active rules + lets users toggle / reset.
+
+interface LearnedRuleUiRow {
+  id: string;
+  accountId: string;
+  scope: "person" | "domain" | "category" | "global";
+  scopeValue: string | null;
+  action: "archived" | "trashed" | "replied" | "snoozed";
+  count: number;
+  enabled: boolean;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function describeRuleCondition(rule: LearnedRuleUiRow): string {
+  if (rule.scope === "global") return "Every email";
+  if (rule.scope === "domain") return `From: ${rule.scopeValue ?? "(unknown domain)"}`;
+  if (rule.scope === "person") return `Sender: ${rule.scopeValue ?? "(unknown person)"}`;
+  if (rule.scope === "category") return `Category: ${rule.scopeValue ?? "(unknown)"}`;
+  return rule.description;
+}
+
+function describeRuleAction(rule: LearnedRuleUiRow): string {
+  switch (rule.action) {
+    case "archived":
+      return "Auto-archive";
+    case "trashed":
+      return "Auto-trash";
+    case "replied":
+      return "Mark replies needed";
+    case "snoozed":
+      return "Auto-snooze";
+    default:
+      return rule.action;
+  }
+}
+
+function LearnedRulesSection() {
+  const queryClient = useQueryClient();
+  const { data: result, refetch } = useQuery({
+    queryKey: ["learned-rules", "list"],
+    queryFn: () =>
+      window.api.learnedRules.list() as Promise<IpcResponse<{ rules: LearnedRuleUiRow[] }>>,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+
+  const rules: LearnedRuleUiRow[] = result && result.success ? result.data.rules : [];
+  // Top 10 by recency (the sidecar already returns updated_at DESC, but
+  // we slice defensively in case that changes).
+  const visible = rules.slice(0, 10);
+
+  const [resetting, setResetting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const handleToggle = async (rule: LearnedRuleUiRow, next: boolean): Promise<void> => {
+    const res = (await window.api.learnedRules.toggle(rule.id, next)) as IpcResponse<{
+      rule: LearnedRuleUiRow;
+    }>;
+    if (res.success) {
+      // Optimistic refetch so the toggle reflects state. The sidecar
+      // returns the updated row but we re-pull the list so all visible
+      // rows stay consistent (e.g. updated_at moves the row's ordering).
+      void queryClient.invalidateQueries({ queryKey: ["learned-rules", "list"] });
+    }
+  };
+
+  const handleReset = async (): Promise<void> => {
+    setResetting(true);
+    try {
+      await window.api.learnedRules.reset();
+      await refetch();
+    } finally {
+      setResetting(false);
+      setConfirmReset(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">Learned Rules</h4>
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
+            Active
+          </span>
+        </div>
+      </div>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        When you keep archiving (or trashing) emails the analyzer marks as needing a reply, we
+        learn the pattern and start handling similar mail automatically — skipping the LLM
+        entirely. Rules promote after 3 consistent overrides with no recent disagreements.
+      </p>
+
+      {visible.length === 0 ? (
+        <div className="text-sm text-gray-500 dark:text-gray-400 italic py-4">
+          No rules yet. Archive a few of the same kind of email and we&rsquo;ll learn from your
+          choices.
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+          {visible.map((rule) => (
+            <li
+              key={rule.id}
+              className="py-3 flex items-center justify-between gap-4"
+              data-testid="learned-rule-row"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {describeRuleCondition(rule)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {describeRuleAction(rule)} &middot; based on {rule.count} override
+                  {rule.count === 1 ? "" : "s"}
+                  {rule.description && rule.description !== describeRuleCondition(rule) ? (
+                    <>
+                      {" "}
+                      &middot; <span className="italic">{rule.description}</span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <label className="inline-flex items-center cursor-pointer flex-shrink-0">
+                <input
+                  type="checkbox"
+                  checked={rule.enabled}
+                  onChange={(e) => {
+                    void handleToggle(rule, e.target.checked);
+                  }}
+                  className="sr-only peer"
+                  data-testid="learned-rule-toggle"
+                />
+                <div className="relative w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500"></div>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {rules.length > visible.length && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
+          Showing the 10 most recent of {rules.length} rules.
+        </p>
+      )}
+
+      {rules.length > 0 && (
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          {!confirmReset ? (
+            <button
+              onClick={() => setConfirmReset(true)}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-red-300 dark:border-red-700 bg-white dark:bg-gray-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            >
+              Reset all learned rules
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 dark:text-gray-300">
+                Reset all rules and observations? This can&rsquo;t be undone.
+              </span>
+              <button
+                onClick={() => {
+                  void handleReset();
+                }}
+                disabled={resetting}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 dark:bg-red-500 text-white hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                {resetting ? "Resetting..." : "Yes, reset"}
+              </button>
+              <button
+                onClick={() => setConfirmReset(false)}
+                disabled={resetting}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

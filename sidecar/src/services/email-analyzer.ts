@@ -21,6 +21,7 @@ import {
 } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
 import { getPreferences } from "../lib/preferences.js";
+import { findApplicableRules, type LearnedAction } from "./learned-rules.js";
 
 const log = createLogger("analyzer");
 
@@ -65,6 +66,17 @@ export interface AnalysisResult {
   needsReply: boolean;
   reason: string;
   priority: "high" | "medium" | "low" | null;
+  /**
+   * Provenance — `"learned-rule"` means the result came from the rules
+   * engine (no Claude call); undefined / `"claude"` means analyzed by
+   * the LLM. The renderer can show "auto-archived because you've
+   * archived 5 of these" when this is set.
+   */
+  source?: "learned-rule" | "claude";
+  /** The rule that produced the result, when source = "learned-rule". */
+  ruleId?: string;
+  /** The action the rule prescribes ("archived" / "trashed" / …). */
+  ruleAction?: LearnedAction;
 }
 
 const ANALYSIS_SYSTEM_PROMPT = `You are an email triage assistant. Decide if an email needs a reply from the user.
@@ -156,6 +168,44 @@ function formatEmailForAnalysis(body: string): string {
 }
 
 export async function analyzeEmail(input: AnalyzeInput): Promise<AnalysisResult> {
+  // Learned-rule fast path: if the user has repeatedly handled mail
+  // from this sender / domain a particular way, skip the Claude call
+  // and synthesize the result. This is gated by accountId — we can't
+  // scope a rule lookup without one.
+  if (input.accountId) {
+    try {
+      const matches = findApplicableRules({
+        email: { from: input.email.from, accountId: input.accountId },
+      });
+      const top = matches[0];
+      if (top) {
+        log.info("learned-rule hit — skipping Claude", {
+          emailId: input.emailId,
+          accountId: input.accountId,
+          ruleId: top.rule.id,
+          scope: top.rule.scope,
+          action: top.rule.action,
+          count: top.rule.count,
+        });
+        return {
+          needsReply: top.analysis.needsReply,
+          reason: top.analysis.reason,
+          priority: top.analysis.priority,
+          source: "learned-rule",
+          ruleId: top.analysis.ruleId,
+          ruleAction: top.analysis.action,
+        };
+      }
+    } catch (err) {
+      // Don't let a rules-lookup error block analysis. Fall through to
+      // the LLM path so the user still gets a triage decision.
+      log.warn("learned-rule lookup failed; falling through to Claude", {
+        err: err instanceof Error ? err.message : String(err),
+        emailId: input.emailId,
+      });
+    }
+  }
+
   const body = formatEmailForAnalysis(input.email.body);
   const userIdentityLine = input.userEmail
     ? `Your email address: ${input.userEmail}\n\n`
@@ -218,5 +268,6 @@ export async function analyzeEmail(input: AnalyzeInput): Promise<AnalysisResult>
       parsed.needs_reply && parsed.priority && validPriorities.has(parsed.priority)
         ? (parsed.priority as "high" | "medium" | "low")
         : null,
+    source: "claude",
   };
 }

@@ -21,11 +21,70 @@ import {
 } from "../services/providers/gmail-actions.js";
 import { getEmailsForThread } from "../services/sync.js";
 import { getDb } from "../db/index.js";
+import { recordOverride, type LearnedAction } from "../services/learned-rules.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("emails-methods");
 
 interface EmailRow {
   id: string;
   thread_id: string;
   account_id: string;
+}
+
+interface AnalysisRow {
+  needs_reply: number;
+  priority: string | null;
+}
+
+/**
+ * If the email had an analyses row that said `needs_reply = 1`, the user
+ * is disagreeing — feed that into the learned-rules engine so we can
+ * auto-handle similar mail in the future.
+ *
+ * Best-effort: never throws. If classification fails or the email has
+ * no analysis row, we just no-op. The user-facing operation (archive /
+ * trash) is unaffected.
+ */
+function maybeRecordOverride(
+  emailId: string,
+  accountId: string | undefined,
+  action: LearnedAction,
+): void {
+  // No accountId → can't scope a rule. Caller usually passes one; bail
+  // quietly when they don't (older callers, batch scenarios with mixed
+  // account ids — those route through the per-id loops).
+  if (!accountId) return;
+
+  const row = getDb()
+    .prepare(`SELECT needs_reply, priority FROM analyses WHERE email_id = ?`)
+    .get(emailId) as AnalysisRow | undefined;
+  // Only treat as override when the analyzer wanted a reply but the user
+  // archived / trashed. Other combos (already needs_reply=false) carry
+  // no signal.
+  if (!row) return;
+  if (row.needs_reply !== 1) return;
+
+  // Fire-and-forget: recordOverride classifies via Claude (haiku) and
+  // upserts memories. We don't want to block the IPC verb on it; the
+  // sidecar process keeps running so the promise resolves whenever it
+  // resolves. Errors get logged but don't bubble to the caller.
+  recordOverride({
+    emailId,
+    accountId,
+    override: {
+      from: { needsReply: true, priority: row.priority },
+      to: { needsReply: false, priority: null },
+      action,
+    },
+  }).catch((err) => {
+    log.warn("recordOverride failed", {
+      emailId,
+      accountId,
+      action,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 // Dispatch on the email id scheme — `imap:<accountId>:<folder>:<uid>` lands
@@ -59,6 +118,8 @@ export function registerEmailsMethods(): void {
     const { emailId, accountId } = (params as { emailId?: string; accountId?: string }) ?? {};
     if (!emailId) throw new Error("emails.archive: requires { emailId }");
     await dispatch(emailId, "archive");
+    // Learn from this if the user is overriding the analyzer.
+    maybeRecordOverride(emailId, accountId, "archived");
     if (accountId) {
       emit("sync:emails-removed", { accountId, emailIds: [emailId] });
     }
@@ -77,6 +138,7 @@ export function registerEmailsMethods(): void {
       try {
         await dispatch(id, "archive");
         removed.push(id);
+        maybeRecordOverride(id, accountId, "archived");
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
@@ -102,6 +164,7 @@ export function registerEmailsMethods(): void {
       try {
         await dispatch(r.id, "archive");
         removed.push(r.id);
+        maybeRecordOverride(r.id, accountId, "archived");
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
@@ -116,6 +179,7 @@ export function registerEmailsMethods(): void {
     const { emailId, accountId } = (params as { emailId?: string; accountId?: string }) ?? {};
     if (!emailId) throw new Error("emails.trash: requires { emailId }");
     await dispatch(emailId, "trash");
+    maybeRecordOverride(emailId, accountId, "trashed");
     if (accountId) {
       emit("sync:emails-removed", { accountId, emailIds: [emailId] });
     }
@@ -134,6 +198,7 @@ export function registerEmailsMethods(): void {
       try {
         await dispatch(id, "trash");
         removed.push(id);
+        maybeRecordOverride(id, accountId, "trashed");
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
