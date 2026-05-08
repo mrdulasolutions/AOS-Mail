@@ -13,6 +13,7 @@
 //      is reused across multiple analyze() calls in a session.
 
 import { createMessage } from "./anthropic.js";
+import { resolveModelFor } from "./model-config.js";
 import { stripJsonFences } from "../lib/prompts/strip-json-fences.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
 import {
@@ -20,33 +21,9 @@ import {
   wrapUntrustedEmail,
 } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
-import { getPreferences } from "../lib/preferences.js";
 import { findApplicableRules, type LearnedAction } from "./learned-rules.js";
 
 const log = createLogger("analyzer");
-
-// Default model for analysis when modelConfig.analysis is not set. Sonnet
-// keeps current behavior — analysis is a higher-stakes call than summary.
-const DEFAULT_ANALYSIS_MODEL = "claude-sonnet-4-5-20250929";
-
-/**
- * Read modelConfig.analysis from preferences.json. Mirrors
- * resolveSummaryModel() in thread-summary.ts. Resolves legacy tier names
- * ("haiku"/"sonnet"/"opus") to concrete model ids; everything else
- * (concrete Claude id or OpenRouter id) passes through unchanged.
- */
-function resolveAnalysisModel(): string {
-  const prefs = getPreferences() as {
-    modelConfig?: { analysis?: unknown };
-  };
-  const raw = prefs.modelConfig?.analysis;
-  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_ANALYSIS_MODEL;
-  const trimmed = raw.trim();
-  if (trimmed === "haiku") return "claude-haiku-4-5-20251001";
-  if (trimmed === "sonnet") return "claude-sonnet-4-5-20250929";
-  if (trimmed === "opus") return "claude-opus-4-20250514";
-  return trimmed;
-}
 
 export interface AnalyzeInput {
   emailId: string;
@@ -220,7 +197,7 @@ export async function analyzeEmail(input: AnalyzeInput): Promise<AnalysisResult>
       // Honor modelConfig.analysis if set (Settings → Agent Tools →
       // AI Models). The router in services/anthropic.ts dispatches based on
       // the model id prefix (claude-* → Anthropic, else OpenRouter).
-      model: resolveAnalysisModel(),
+      model: resolveModelFor("analysis"),
       max_tokens: 256,
       system: [
         {

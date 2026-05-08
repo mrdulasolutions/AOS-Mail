@@ -57,26 +57,13 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db/index.js";
 import { createMessage } from "./anthropic.js";
+import { resolveModelFor } from "./model-config.js";
 import { createLogger } from "../lib/logger.js";
-import { getPreferences } from "../lib/preferences.js";
 
 const log = createLogger("learned-rules");
 
 const PROMOTION_THRESHOLD = 3;
 const CONTRADICTION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
-const DEFAULT_CLASSIFY_MODEL = "claude-haiku-4-5-20251001";
-
-function resolveClassifyModel(): string {
-  const prefs = getPreferences() as { modelConfig?: { summary?: unknown } };
-  const raw = prefs.modelConfig?.summary;
-  if (typeof raw !== "string" || !raw.trim()) return DEFAULT_CLASSIFY_MODEL;
-  const t = raw.trim();
-  if (t === "haiku") return "claude-haiku-4-5-20251001";
-  if (t === "sonnet") return "claude-sonnet-4-5-20250929";
-  if (t === "opus") return "claude-opus-4-20250514";
-  return t;
-}
 
 // ----- Types -----
 
@@ -318,7 +305,7 @@ async function classifyOverrideScope(args: {
   try {
     const response = await createMessage(
       {
-        model: resolveClassifyModel(),
+        model: resolveModelFor("classify"),
         max_tokens: 256,
         messages: [
           {
