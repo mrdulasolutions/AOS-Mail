@@ -2,19 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- V8 JIT compilation -->
+    <!-- Sidecar (Node) JIT compilation. Tauri itself does not need JIT, but the
+         spawned aos-mail-sidecar binary embeds Node/V8. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
-    <!-- Electron + native modules (better-sqlite3) require unsigned memory -->
+    <!-- V8 / Node native modules require unsigned executable memory. -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
-    <!-- Loading native modules (.node files) not signed by the app's team.
-         Required: better-sqlite3 and other npm native addons are compiled locally
-         and cannot be signed with our team ID during npm install. -->
+    <!-- Loading native modules (e.g. better-sqlite3 .node) not signed by our
+         team ID. better-sqlite3 prebuilds and other npm native addons are not
+         signed against Developer ID, so library validation must be relaxed. -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
-    <!-- Gmail API, Claude API, electron-updater -->
+    <!-- Gmail API, Claude API, IMAP/SMTP, updater. -->
     <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- User-selected attachments via the dialog plugin (Save As / Open). -->
+    <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
 </dict>
 </plist>

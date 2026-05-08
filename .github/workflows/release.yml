@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -19,11 +19,11 @@ jobs:
             runner: macos-latest
             arch: arm64
           - target: x86_64-apple-darwin
-            runner: macos-latest
+            runner: macos-13
             arch: x64
 
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -64,34 +64,98 @@ jobs:
           npm --prefix sidecar run build
           npm --prefix sidecar run package
 
-      - name: Set version from git tag
+      - name: Resolve release version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting workflow version to $VERSION"
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Probe Apple signing secrets
+        id: apple
+        run: |
+          # Surfaces a clear log line so it's obvious in the run UI whether
+          # this build is going to be signed/notarized or not. Fingers and
+          # eyeballs only — does not echo any secret values.
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ] \
+             && [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ] \
+             && [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ]; then
+            echo "Apple signing secrets present — codesign will run."
+            echo "signing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Apple signing secrets missing — producing UNSIGNED artifact."
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${{ secrets.APPLE_ID }}" ] \
+             && [ -n "${{ secrets.APPLE_PASSWORD }}" ] \
+             && [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "Apple notarization secrets present — notarytool will run."
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Apple notarization secrets missing — skipping notarization."
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "Tauri updater signing key present — latest.json will be signed."
+            echo "updater=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tauri updater signing key missing — auto-update artifact will not be signed."
+            echo "updater=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build & bundle Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
-          # GitHub-provided token for the release upload step
+          # GitHub-provided token for the release upload step.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple signing & notarization secrets (added later by user).
-          # If these are empty, tauri-action gracefully skips signing /
-          # notarization and produces an unsigned artifact.
+          # Tauri updater signing key — signs the auto-update package +
+          # latest.json. Generated locally via `npx @tauri-apps/cli signer
+          # generate`; the matching public key lives in tauri.conf.json.
+          # The PASSWORD secret is optional (key may have no password).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple Developer ID Application certificate (.p12 base64-encoded)
+          # plus its password and the resolved signing identity string. When
+          # all three are present, tauri-action will codesign the .app and
+          # .dmg with hardened runtime + the entitlements declared in
+          # tauri.conf.json. Empty values cause tauri-action to skip signing.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Notarization. tauri-action invokes `xcrun notarytool` under the
+          # hood when these are populated. APPLE_PASSWORD must be an
+          # app-specific password generated at appleid.apple.com.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'AOS Mail v__VERSION__'
+          tagName: ${{ github.ref_name }}
+          releaseName: "AOS Mail ${{ github.ref_name }}"
           releaseBody: |
-            See the assets below to download and install AOS Mail.
+            ## AOS Mail ${{ github.ref_name }}
+
+            See attached `.dmg` for installation. Auto-update users will pick
+            up this release through the in-app updater (`latest.json`) once
+            this draft is published.
 
             Generated by GitHub Actions on tag push.
           releaseDraft: true
           prerelease: false
-          args: --target ${{ matrix.target }}
+          # When TAURI_SIGNING_PRIVATE_KEY is present, tauri-action also
+          # produces the auto-update bundle (.app.tar.gz + .sig pair) and
+          # latest.json alongside the .dmg, then uploads them to the draft
+          # release. softprops/action-gh-release is invoked by tauri-action
+          # internally for the upload.
+          args: --target ${{ matrix.target }} --verbose
+
+      - name: Summarize artifacts
+        if: always()
+        run: |
+          echo "::group::Bundle output"
+          ls -la src-tauri/target/${{ matrix.target }}/release/bundle/dmg/ 2>/dev/null || echo "(no dmg dir)"
+          ls -la src-tauri/target/${{ matrix.target }}/release/bundle/macos/ 2>/dev/null || echo "(no macos dir)"
+          ls -la src-tauri/target/${{ matrix.target }}/release/bundle/updater/ 2>/dev/null || echo "(no updater dir)"
+          echo "::endgroup::"
+          echo "Signing: ${{ steps.apple.outputs.signing }}"
+          echo "Notarization: ${{ steps.apple.outputs.notarize }}"
+          echo "Updater signing: ${{ steps.apple.outputs.updater }}"
