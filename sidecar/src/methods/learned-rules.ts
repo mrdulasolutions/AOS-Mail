@@ -56,8 +56,16 @@ export function registerLearnedRulesMethods(): void {
   });
 
   // ----- Test-only hooks -----
-
-  if (process.env.LEARNED_RULES_TEST_HOOKS === "1") {
+  //
+  // Defense-in-depth: gate on BOTH the explicit env var AND a non-production
+  // NODE_ENV. A malicious launchctl plist or a bad parent process could set
+  // LEARNED_RULES_TEST_HOOKS=1 on a packaged binary; without the second
+  // check, that would expose dev RPCs that let arbitrary callers manipulate
+  // the rules engine. See post-mortem P3 #19.
+  if (
+    process.env.LEARNED_RULES_TEST_HOOKS === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
     registerMethod("learnedRules.devRecordOverride", async (params) => {
       const { emailId, accountId, action } =
         (params as { emailId?: string; accountId?: string; action?: LearnedAction }) ?? {};

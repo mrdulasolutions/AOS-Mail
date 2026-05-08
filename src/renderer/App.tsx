@@ -575,33 +575,53 @@ function SearchResultsView() {
  * (~50 IDs → ~10-20ms) that it doesn't block the main thread.
  *
  * If called while a previous prefetch is still running, the previous one is
- * cancelled to avoid redundant IPC calls.
+ * cancelled to avoid redundant IPC calls. The `cancelToken` is forwarded to
+ * the sidecar so it stops dequeuing new ids — without this the sidecar
+ * burns IMAP/Gmail quota on the previous account when the user switches
+ * mid-prefetch (P3 #10).
  */
 let activePrefetchController: AbortController | null = null;
+let activePrefetchToken: string | null = null;
 
 async function prefetchEmailBodies(emailIds: string[]): Promise<void> {
-  // Cancel any in-flight prefetch run
+  // Cancel any in-flight prefetch run — both renderer-side (stop awaiting
+  // new batches) and sidecar-side (stop dequeuing new ids).
   activePrefetchController?.abort();
+  if (activePrefetchToken !== null) {
+    void window.api.sync.prefetchBodiesCancel(activePrefetchToken).catch(() => {
+      /* sidecar may have already finished; ignore */
+    });
+  }
   const controller = new AbortController();
   activePrefetchController = controller;
+  // Cancel tokens just need to be unique per concurrent prefetch run; a
+  // counter would be enough but this matches what the bridge wants.
+  const cancelToken = `prefetch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  activePrefetchToken = cancelToken;
 
   const BATCH_SIZE = 50;
   const BATCH_DELAY_MS = 50;
 
-  for (let i = 0; i < emailIds.length; i += BATCH_SIZE) {
-    if (controller.signal.aborted) return;
-    const batch = emailIds.slice(i, i + BATCH_SIZE);
-    const result = (await window.api.sync.prefetchBodies(batch)) as {
-      success: boolean;
-      data?: Array<{ id: string; body: string }>;
-    };
-    if (controller.signal.aborted) return;
-    if (result.success && result.data) {
-      bufferUpdateEmails(result.data.map(({ id, body }) => ({ emailId: id, changes: { body } })));
+  try {
+    for (let i = 0; i < emailIds.length; i += BATCH_SIZE) {
+      if (controller.signal.aborted) return;
+      const batch = emailIds.slice(i, i + BATCH_SIZE);
+      const result = (await window.api.sync.prefetchBodies(batch, cancelToken)) as {
+        success: boolean;
+        data?: Array<{ id: string; body: string }>;
+      };
+      if (controller.signal.aborted) return;
+      if (result.success && result.data) {
+        bufferUpdateEmails(result.data.map(({ id, body }) => ({ emailId: id, changes: { body } })));
+      }
+      // Yield to the event loop between batches to keep the UI responsive
+      if (i + BATCH_SIZE < emailIds.length) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+      }
     }
-    // Yield to the event loop between batches to keep the UI responsive
-    if (i + BATCH_SIZE < emailIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+  } finally {
+    if (activePrefetchToken === cancelToken) {
+      activePrefetchToken = null;
     }
   }
 }
@@ -2445,19 +2465,15 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                try {
-                  await window.api.extensions.authenticate(extId);
-                  removeExtensionAuthRequired(extId);
-                } catch (err) {
-                  console.error(`[Auth] Extension auth failed for ${extId}:`, err);
-                }
-              }}
-              className="px-3 py-1 text-sm font-medium text-amber-800 dark:text-amber-200 bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 rounded transition-colors"
-            >
-              Authenticate
-            </button>
+            {/*
+              No Authenticate button in V1: extensions.authenticate is a
+              hardcoded "not supported" stub in the shim, so clicking it
+              showed an error toast with no remediation path. V1 ships
+              only the bundled mail-ext-web-search which is sidecar-
+              internal and never fires the auth-required event, so this
+              banner is unreachable today; the Dismiss-only surface keeps
+              it sane if a future code path does fire it. See P3 #22.
+            */}
             <button
               onClick={() => removeExtensionAuthRequired(extId)}
               className="p-1 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 transition-colors"

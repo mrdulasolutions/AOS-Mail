@@ -31,6 +31,7 @@ import { getEmailsForThread, type DashboardEmailRow } from "../services/sync.js"
 import { getDb } from "../db/index.js";
 import { recordOverride, type LearnedAction } from "../services/learned-rules.js";
 import { createLogger } from "../lib/logger.js";
+import { track } from "../lib/background-tasks.js";
 
 const log = createLogger("emails-methods");
 
@@ -77,22 +78,30 @@ function maybeRecordOverride(
   // upserts memories. We don't want to block the IPC verb on it; the
   // sidecar process keeps running so the promise resolves whenever it
   // resolves. Errors get logged but don't bubble to the caller.
-  recordOverride({
-    emailId,
-    accountId,
-    override: {
-      from: { needsReply: true, priority: row.priority },
-      to: { needsReply: false, priority: null },
-      action,
-    },
-  }).catch((err) => {
-    log.warn("recordOverride failed", {
+  //
+  // We register the promise with the background-tasks tracker so a SIGTERM
+  // (or stdin-close from the host process) can drain in-flight Claude
+  // calls before we exit. Without this, a user mass-archiving and quitting
+  // within ~1 s loses every learned-rules observation. See P3 #18.
+  void track(
+    "recordOverride.emails",
+    recordOverride({
       emailId,
       accountId,
-      action,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  });
+      override: {
+        from: { needsReply: true, priority: row.priority },
+        to: { needsReply: false, priority: null },
+        action,
+      },
+    }).catch((err) => {
+      log.warn("recordOverride failed", {
+        emailId,
+        accountId,
+        action,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }),
+  );
 }
 
 // Dispatch on the email id scheme — `imap:<accountId>:<folder>:<uid>` lands

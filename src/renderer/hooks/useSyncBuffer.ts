@@ -153,6 +153,13 @@ function flush(): void {
   // Single atomic setState — one re-render for everything.
   useAppStore.setState((state) => {
     let emails = state.emails;
+    // Has the emails array actually changed in this flush? When all
+    // pending operations are no-ops (e.g. updates targeting ids that
+    // aren't in the store, or buffered flushes after the user left the
+    // account), we want to return the same reference so useMemo selectors
+    // like useThreadedEmails don't re-run groupByThread over thousands
+    // of emails for nothing. See P3 #20.
+    let arrayChanged = false;
 
     // Track whether the currently viewed email was removed by sync
     let selectedEmailRemoved = false;
@@ -163,15 +170,26 @@ function flush(): void {
       if (state.selectedEmailId && idsToRemove.has(state.selectedEmailId)) {
         selectedEmailRemoved = true;
       }
-      emails = emails.filter((e) => !idsToRemove.has(e.id));
+      const filtered = emails.filter((e) => !idsToRemove.has(e.id));
+      if (filtered.length !== emails.length) {
+        emails = filtered;
+        arrayChanged = true;
+      }
     }
 
     // 2. In-place updates (label changes, analysis, etc.)
     if (updates.size > 0) {
-      emails = emails.map((email) => {
+      let touched = false;
+      const next = emails.map((email) => {
         const changes = updates.get(email.id);
-        return changes ? { ...email, ...changes } : email;
+        if (!changes) return email;
+        touched = true;
+        return { ...email, ...changes };
       });
+      if (touched) {
+        emails = next;
+        arrayChanged = true;
+      }
     }
 
     // 3. Additions — deduplicate against current store AND pending removals
@@ -232,14 +250,22 @@ function flush(): void {
 
       // Apply in-place merges for re-emitted emails
       if (reEmitUpdates.size > 0) {
-        emails = emails.map((email) => {
+        let touched = false;
+        const next = emails.map((email) => {
           const changes = reEmitUpdates.get(email.id);
-          return changes ? { ...email, ...changes } : email;
+          if (!changes) return email;
+          touched = true;
+          return { ...email, ...changes };
         });
+        if (touched) {
+          emails = next;
+          arrayChanged = true;
+        }
       }
 
       if (brandNew.length > 0) {
         emails = [...emails, ...brandNew];
+        arrayChanged = true;
       }
     }
 
@@ -249,18 +275,30 @@ function flush(): void {
     // list becomes visible again.
     // Apply optimistic mark-as-read guard — ensures no stale UNREAD labels
     // from sync events can revert emails the user just opened.
-    emails = applyOptimisticReads(emails);
+    const guarded = applyOptimisticReads(emails);
+    if (guarded !== emails) {
+      emails = guarded;
+      arrayChanged = true;
+    }
 
     if (selectedEmailRemoved && state.viewMode === "full") {
       const stillExists = emails.some((e) => e.id === state.selectedEmailId);
       if (!stillExists) {
         return {
-          emails,
+          emails: arrayChanged ? emails : state.emails,
           viewMode: "split" as const,
           selectedEmailId: null,
           selectedThreadId: null,
         };
       }
+    }
+
+    // No-op flush: every pending op was a no-op (e.g. updates whose target
+    // ids aren't in the store, or adds that were all duplicates of pending
+    // removals). Return an empty patch so Zustand bails out without re-
+    // rendering downstream selectors. See P3 #20.
+    if (!arrayChanged) {
+      return {} as Partial<typeof state>;
     }
 
     return { emails };

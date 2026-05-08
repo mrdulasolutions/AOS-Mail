@@ -942,9 +942,19 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
-    prefetchBodies: async (_ids: string[]): Promise<IpcResponse<unknown>> => {
+    prefetchBodies: async (_ids: string[], cancelToken?: string): Promise<IpcResponse<unknown>> => {
       try {
-        const data = await bridge.call("sync.prefetchBodies", { ids: _ids });
+        const params: { ids: string[]; cancelToken?: string } = { ids: _ids };
+        if (typeof cancelToken === "string") params.cancelToken = cancelToken;
+        const data = await bridge.call("sync.prefetchBodies", params);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    prefetchBodiesCancel: async (cancelToken: string): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("sync.prefetchBodiesCancel", { cancelToken });
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -1286,6 +1296,28 @@ function installRealNamespaces(): Record<string, unknown> {
     title: string | null;
     lookupAt: number;
   };
+
+  // Pull the display name out of a `From` header. Accepts either of:
+  //   "Display Name" <email@x.com>
+  //   Display Name <email@x.com>
+  //   email@x.com   (returns "")
+  // Returns the trimmed display name, or "" when the header is bare-email
+  // or empty. We strip surrounding quotes, then drop the `<addr>` tail.
+  // Also returns "" when the resulting name is just the email itself —
+  // sender-lookup uses an empty name as the signal to fall back to the
+  // address. (Closes the gap from P3 #15 where the renderer passed the
+  // raw `from` header but the sidecar read `name`.)
+  function parseSenderName(from: string | undefined, email: string): string {
+    if (!from) return "";
+    const trimmed = from.trim();
+    if (!trimmed) return "";
+    const angleStart = trimmed.indexOf("<");
+    const namePart = angleStart >= 0 ? trimmed.slice(0, angleStart).trim() : trimmed;
+    const unquoted = namePart.replace(/^"(.*)"$/, "$1").trim();
+    if (!unquoted) return "";
+    if (unquoted.toLowerCase() === email.toLowerCase()) return "";
+    return unquoted;
+  }
   real.sender = {
     getProfile: async (email: string): Promise<IpcResponse<SenderProfile | null>> => {
       try {
@@ -1297,7 +1329,14 @@ function installRealNamespaces(): Record<string, unknown> {
     },
     lookup: async (from: string, email: string): Promise<IpcResponse<SenderProfile | null>> => {
       try {
-        const data = (await bridge.call("sender.lookup", { from, email })) as SenderProfile | null;
+        // Parse `from` ("Display Name" <email@x.com> | email@x.com) into a
+        // bare display name. The sidecar's lookupSender wants a clean `name`,
+        // not the full header — until P3 #15 we silently dropped it because
+        // the wire shape was { from, email } but the sidecar read { name }.
+        const name = parseSenderName(from, email);
+        const params: { email: string; name?: string } = { email };
+        if (name) params.name = name;
+        const data = (await bridge.call("sender.lookup", params)) as SenderProfile | null;
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };

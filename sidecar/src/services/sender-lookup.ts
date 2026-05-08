@@ -19,7 +19,7 @@
 // The companion bundled-extension wrapper (renderer-side) treats this as a
 // black-box enrichment for the "sender-profile" panel: enqueue → render.
 
-import { createMessage } from "./anthropic.js";
+import { createMessage, isWebSearchCapableModel } from "./anthropic.js";
 import { getDb } from "../db/index.js";
 import { createLogger } from "../lib/logger.js";
 import { getPreferences } from "../lib/preferences.js";
@@ -276,9 +276,14 @@ export async function lookupSender(input: LookupInput): Promise<SenderProfile> {
   }
 
   const model = resolveSenderLookupModel();
-  if (!model.startsWith("claude-")) {
+  // Use the PRICING-keyed whitelist instead of a `claude-` prefix check.
+  // The prefix check would reject any future Anthropic rename (or a
+  // versioned id like `aos-claude-…`) — and the PRICING table is the
+  // canonical list of models we actually support across the app. See
+  // post-mortem P3 #23.
+  if (!isWebSearchCapableModel(model)) {
     throw new Error(
-      `Sender lookup requires a Claude model (web_search is Anthropic-only). Configured model: ${model}. Open Settings → AI Models and set sender lookup to a Claude model.`,
+      `Sender lookup requires a model with Anthropic web_search support. Configured model: ${model}. Open Settings → AI Models and set sender lookup to a supported Claude model.`,
     );
   }
 

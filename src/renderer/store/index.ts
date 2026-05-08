@@ -132,11 +132,17 @@ export type AgentDraftItem = {
 };
 
 // Prefetch progress
+//
+// `currentTask.emailId` is intentionally optional. Per CLAUDE.md the
+// logging policy allows ids in payloads, but the prefetch progress event
+// is consumed only by the Settings → Queue tab indicator and we no longer
+// surface the specific id to that UI — see P3 #17. Sidecar emits omit it;
+// kept optional so any old tab that still receives it doesn't crash.
 export type PrefetchProgress = {
   status: "idle" | "running" | "error";
   queueLength: number;
   currentTask?: {
-    emailId: string;
+    emailId?: string;
     type: "analysis" | "sender-profile" | "agent-draft" | "archive-ready";
   };
   processed: {

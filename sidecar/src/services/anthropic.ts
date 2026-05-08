@@ -50,6 +50,22 @@ const PRICING: Record<
   "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-3-5-haiku-20241022": { input: 0.8, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
 };
+
+/**
+ * Models we know support Anthropic's native web_search tool. Used by
+ * sender-lookup to gate the lookup call before we waste a token quota on
+ * a non-Claude model. Single source of truth — extending PRICING above
+ * automatically extends this set, so adding a new Claude model id doesn't
+ * silently break sender lookup. See P3 #23.
+ */
+export function isWebSearchCapableModel(model: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PRICING, model);
+}
+
+/** Sorted list of supported Claude model ids — for UX surfaces. */
+export function listKnownClaudeModels(): string[] {
+  return Object.keys(PRICING).sort();
+}
 const DEFAULT_PRICING = { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 };
 
 interface RetryConfig {
