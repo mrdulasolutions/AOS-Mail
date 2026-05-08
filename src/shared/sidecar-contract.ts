@@ -465,6 +465,26 @@ export interface SidecarMethods {
     params: { threadId: string; accountId: string };
     result: DashboardEmailRow[];
   };
+  // Server-side mailbox search. For Gmail, this hits
+  // users.messages.list with `q:` (Gmail's search query syntax —
+  // `from:foo subject:bar`). For IMAP, this issues a `client.search()`
+  // with subject/from/body substring matches because IMAP doesn't
+  // understand Gmail's query syntax. Returned `messages` are
+  // full DashboardEmailRow objects (envelope-only — body is null) so
+  // the renderer can render result rows without a follow-up fetch.
+  "emails.searchRemote": {
+    params: {
+      accountId: string;
+      query: string;
+      maxResults?: number;
+      pageToken?: string;
+    };
+    result: {
+      messages: DashboardEmailRow[];
+      nextPageToken?: string;
+      totalEstimate?: number;
+    };
+  };
 
   // ── compose ───────────────────────────────────────────────────────────
   "compose.send": { params: ComposeSendInput; result: ComposeSendResult };

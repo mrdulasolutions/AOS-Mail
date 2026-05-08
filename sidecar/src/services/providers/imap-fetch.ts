@@ -167,6 +167,121 @@ export async function listImapMessageHeaders(
 }
 
 /**
+ * Server-side mailbox search for IMAP accounts.
+ *
+ * Gmail-style query syntax (`from:foo subject:bar`) doesn't translate to
+ * IMAP — the protocol's native SEARCH command takes structured criteria
+ * (FROM/SUBJECT/BODY/TEXT), not a free-form `q:` blob. This helper does
+ * a substring search across SUBJECT, FROM, and BODY using imapflow's
+ * `client.search`, then fetches envelope-only headers for the matching
+ * UIDs (newest first, capped at `limit`).
+ *
+ * Limitations vs. Gmail's `q:`:
+ *   - No `from:foo` operator — the entire query is treated as a substring
+ *     and matched against subject/from/body via SUBJECT/FROM/BODY.
+ *   - No date operators (`after:` / `before:`).
+ *   - No label / folder operators (`in:inbox`, `label:work`).
+ *
+ * Pagination: the IMAP SEARCH command returns the full set of matching
+ * UIDs in a single round-trip. We cap the returned headers at
+ * `limit + offset` and slice — true cursor pagination would require
+ * tracking a UID watermark; for V1 the simple offset is enough since
+ * search results are small.
+ *
+ * Folder defaults to INBOX. IMAP doesn't have an "all-mail" view; the
+ * caller can pass another folder if they want to scope differently.
+ */
+export async function searchImapMessages(
+  accountId: string,
+  opts: { query: string; folder?: string; limit?: number; offset?: number },
+): Promise<{ headers: ImapMessageHeader[]; total: number; folder: string }> {
+  const folder = opts.folder ?? "INBOX";
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const client = await openImapClient(accountId);
+  try {
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const q = opts.query.trim();
+      if (!q) return { headers: [], total: 0, folder };
+
+      // imapflow.search accepts a SearchObject. To get OR semantics
+      // across SUBJECT/FROM/BODY we use the `or` operator: any one of
+      // the three substring matches is enough.
+      const searchResult = await client.search(
+        {
+          or: [{ subject: q }, { from: q }, { body: q }],
+        },
+        { uid: true },
+      );
+      const uids: number[] = Array.isArray(searchResult) ? searchResult : [];
+      if (uids.length === 0) return { headers: [], total: 0, folder };
+
+      // Newest first — IMAP SEARCH usually returns ascending UID order,
+      // we want descending so latest results show first.
+      uids.sort((a, b) => b - a);
+      const total = uids.length;
+      const slice = uids.slice(offset, offset + limit);
+      if (slice.length === 0) return { headers: [], total, folder };
+
+      // Build a comma-separated UID list for the FETCH (imapflow accepts
+      // a sequence string with multiple UIDs). Order from the slice is
+      // preserved by sorting headers afterwards.
+      const range = slice.join(",");
+      const headers: ImapMessageHeader[] = [];
+      for await (const msg of client.fetch(
+        range,
+        { envelope: true, flags: true, uid: true, internalDate: true, threadId: true },
+        { uid: true },
+      ) as AsyncIterable<FetchMessageObject>) {
+        const env = msg.envelope;
+        if (!env) continue;
+        const uid = msg.uid;
+        const flags = msg.flags as Set<string> | undefined;
+        const isUnread = !flags?.has("\\Seen");
+        const isStarred = !!flags?.has("\\Flagged");
+        const dateIso =
+          env.date instanceof Date
+            ? env.date.toISOString()
+            : msg.internalDate instanceof Date
+              ? msg.internalDate.toISOString()
+              : new Date().toISOString();
+        const threadId =
+          (msg as unknown as { threadId?: string }).threadId ??
+          env.inReplyTo ??
+          env.messageId ??
+          String(uid);
+        headers.push({
+          id: makeId(accountId, folder, uid),
+          uid,
+          threadId,
+          subject: env.subject ?? "(no subject)",
+          from: formatAddressList(env.from),
+          to: formatAddressList(env.to),
+          cc: formatAddressList(env.cc) || null,
+          bcc: formatAddressList(env.bcc) || null,
+          date: dateIso,
+          snippet: shortSnippet(env.subject ?? "", 100),
+          isUnread,
+          isStarred,
+          messageId: env.messageId ?? null,
+          inReplyTo: env.inReplyTo ?? null,
+        });
+      }
+      // Newest first — keep parity with the slice ordering.
+      headers.sort((a, b) => b.uid - a.uid);
+      return { headers, total, folder };
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => {
+      /* best-effort */
+    });
+  }
+}
+
+/**
  * Discover the SENT folder for an IMAP account.
  *
  * IMAP servers don't agree on what to call the sent folder: Gmail's

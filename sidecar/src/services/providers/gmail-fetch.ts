@@ -66,6 +66,32 @@ export function parseGmailEmailId(emailId: string): {
   return { accountId: m[1]!, gmailId: m[2]! };
 }
 
+/**
+ * Compare two Gmail historyIds numerically.
+ *
+ * Gmail historyIds are integer-valued but transmitted as decimal strings
+ * (the API explicitly says they may exceed 2^53, so we can't `Number()`
+ * them safely). The watermark logic in getGmailHistoryChanges used to
+ * compare them with the `>` operator on strings, which gives lexicographic
+ * order — `"99" > "100"` is `true`, which means `latest = max(...)` would
+ * sometimes regress past a power-of-ten boundary and we'd persist a
+ * SMALLER watermark. The next incremental sync would re-fetch the same
+ * history range or, worse, fail to advance past the boundary at all.
+ *
+ * Using BigInt covers Gmail's full historyId range without precision
+ * loss. Returns -1, 0, or 1 in the standard comparator shape so callers
+ * can reuse it for sorting if needed. An empty/undefined operand sorts
+ * before any defined id — used by the watermark code where the initial
+ * `latest` may be falsy.
+ */
+export function compareHistoryIds(a: string | null | undefined, b: string | null | undefined): number {
+  const av = a ? BigInt(a) : 0n;
+  const bv = b ? BigInt(b) : 0n;
+  if (av < bv) return -1;
+  if (av > bv) return 1;
+  return 0;
+}
+
 function getHeader(
   headers: gmail_v1.Schema$MessagePartHeader[] | undefined,
   name: string,
@@ -203,6 +229,48 @@ export async function listGmailMessages(
     messageIds: messages.filter((m) => m.id),
     historyId,
     nextPageToken: response.data.nextPageToken || null,
+  };
+}
+
+/**
+ * Server-side mailbox search via Gmail's `users.messages.list` with a
+ * `q:` parameter. Gmail's query syntax (`from:foo subject:bar` etc.) is
+ * passed through verbatim so users can search exactly the same way they
+ * do on web Gmail.
+ *
+ * Skips the historyId profile roundtrip that listGmailMessages does —
+ * search doesn't need a watermark — and surfaces Gmail's
+ * resultSizeEstimate so the UI can show a "X results" count without
+ * paginating the entire result set.
+ */
+export async function searchGmailMessages(
+  accountId: string,
+  opts: { query: string; maxResults?: number; pageToken?: string },
+): Promise<{
+  messageIds: Array<{ id: string; threadId: string }>;
+  nextPageToken: string | null;
+  resultSizeEstimate: number;
+}> {
+  const { gmail } = gmailFor(accountId);
+  const max = Math.min(Math.max(opts.maxResults ?? 50, 1), 500);
+
+  const response = await gmail.users.messages.list({
+    userId: "me",
+    maxResults: max,
+    q: opts.query,
+    pageToken: opts.pageToken,
+    // No labelIds filter — search across all mail (the user can scope
+    // via Gmail's query syntax, e.g. `in:inbox` if they want).
+  });
+
+  const messages = (response.data.messages || []).map((m) => ({
+    id: m.id || "",
+    threadId: m.threadId || "",
+  }));
+  return {
+    messageIds: messages.filter((m) => m.id),
+    nextPageToken: response.data.nextPageToken || null,
+    resultSizeEstimate: response.data.resultSizeEstimate ?? 0,
   };
 }
 
@@ -346,7 +414,9 @@ export async function getGmailHistoryChanges(
         }
       }
       const respHist = response.data.historyId || latest;
-      if (respHist > latest) latest = respHist;
+      // BigInt-aware comparison: see compareHistoryIds. String `>`
+      // would do lexicographic compare and regress past 10^N boundaries.
+      if (compareHistoryIds(respHist, latest) > 0) latest = respHist;
       pageToken = response.data.nextPageToken || undefined;
     } while (pageToken);
   }
