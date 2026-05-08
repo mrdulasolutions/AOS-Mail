@@ -21,6 +21,7 @@ import { ShortcutHelp } from "./components/ShortcutHelp";
 import { KeyboardHints } from "./components/KeyboardHints";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { AgentActivityTray } from "./components/AgentActivityTray";
 import { UndoSendToast } from "./components/UndoSendToast";
 import { UndoActionToast } from "./components/UndoActionToast";
 import { DraftEditLearnedToast } from "./components/DraftEditLearnedToast";
@@ -2041,6 +2042,11 @@ export default function App() {
               )}
             </div>
           )}
+          {/* Agent activity — surfaces the last few agent calls + today's
+              cost so users have a quick view into what the inbox agent is
+              doing in the background. The full audit log lives in
+              Settings → Agent Tools → Agent Activity. */}
+          <AgentActivityTray />
           {/* Compose button */}
           <button
             onClick={() => {

@@ -1617,6 +1617,34 @@ function installRealNamespaces(): Record<string, unknown> {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    // Enriched history rows — same as getCallHistory but joined with
+    // emails so the renderer can show subjects without a second fetch.
+    // Powers the Agent Activity tray + Settings sub-tab.
+    getCallHistoryWithSubjects: async (limit?: number): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("usage.getHistoryWithSubjects", { limit });
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    // Single-window aggregates for the tray badge + stats card.
+    getStatsToday: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("usage.getStatsToday", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getStatsThisMonth: async (): Promise<IpcResponse<unknown>> => {
+      try {
+        const data = await bridge.call("usage.getStatsThisMonth", {});
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // find — page text search. The Electron version drove

@@ -114,6 +114,56 @@ export interface ComposeSendResult {
   rejected: string[];
 }
 
+// ── usage / agent activity ──────────────────────────────────────────────
+//
+// llm_calls row as returned by the sidecar. Mirrors the SQLite row shape
+// (snake_case columns, integer success flag) so the renderer can render
+// without a mapping pass. New columns added to the table should be added
+// here too.
+
+export interface UsageStatsAggregate {
+  totalCostCents: number;
+  totalCalls: number;
+}
+
+export interface UsageStatsBreakdown {
+  today: UsageStatsAggregate;
+  thisWeek: UsageStatsAggregate;
+  thisMonth: UsageStatsAggregate;
+  byModel: Array<{ model: string; costCents: number; calls: number }>;
+  byCaller: Array<{ caller: string; costCents: number; calls: number }>;
+}
+
+export interface UsageWindowStats {
+  totalCostCents: number;
+  totalCalls: number;
+  successCalls: number;
+  failedCalls: number;
+  topCaller: string | null;
+  topCallerCalls: number;
+}
+
+export interface LlmCallRow {
+  id: string;
+  created_at: string;
+  model: string;
+  caller: string;
+  email_id: string | null;
+  account_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  cost_cents: number;
+  duration_ms: number;
+  success: number;
+  error_message: string | null;
+}
+
+export interface LlmCallRowWithSubject extends LlmCallRow {
+  email_subject: string | null;
+}
+
 // ── The contract ────────────────────────────────────────────────────────
 
 /**
@@ -301,6 +351,30 @@ export interface SidecarMethods {
       createdAt?: number;
     };
   };
+
+  // ── usage / agent activity ────────────────────────────────────────────
+  // 30-day breakdown by caller + model (existing). Today / week / month
+  // aggregates are nested. The renderer's UsageCostSection already binds
+  // to this shape; the Agent Activity UI reuses it.
+  "usage.getStats": { params: void; result: UsageStatsBreakdown };
+  // Bare history — kept for the existing UsageCostSection. New code
+  // should prefer getHistoryWithSubjects so the email subject is included.
+  "usage.getHistory": {
+    params: { limit?: number } | void;
+    result: LlmCallRow[];
+  };
+  // History enriched with the joined email subject. Powers the tray and
+  // the Agent Activity sub-tab. The renderer applies search / filter
+  // client-side over this single fetch.
+  "usage.getHistoryWithSubjects": {
+    params: { limit?: number } | void;
+    result: LlmCallRowWithSubject[];
+  };
+  // Single-window aggregates with success/failure split + top caller.
+  // Used by the tray badge (today) and the Agent Activity stats card
+  // (today + month). Avoids loading full history just to count.
+  "usage.getStatsToday": { params: void; result: UsageWindowStats };
+  "usage.getStatsThisMonth": { params: void; result: UsageWindowStats };
 }
 
 // Helpers — the renderer's bridge.call uses these to project the keyed

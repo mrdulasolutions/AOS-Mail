@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import {
@@ -2159,6 +2159,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
               </div>
             </div>
 
+            {/* Agent Activity — full audit log for the inbox agent. Lives
+                inside Agent Tools as a sub-section (between AI Models
+                and Browser Automation). The tray in the titlebar shows
+                a glance view; this is the deep-dive. */}
+            <AgentActivitySection />
+
             {/* Browser Automation */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -4022,6 +4028,434 @@ function UsageCostSection() {
           <p className="text-sm text-gray-400 dark:text-gray-500">No calls recorded yet.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---- Agent Activity (Settings → Agent Tools sub-section) ----
+//
+// The full audit log for the inbox agent. Mirrors the columns the tray
+// shows but with sortable headers, search across email subject, filter
+// by caller / model, success-only toggle, and inline row expansion for
+// the email subject + error message.
+//
+// Filtering is intentionally client-side: even at heavy use the dataset
+// is at most 1000 rows (we cap the query at that), and one fetch is
+// dramatically cheaper than re-querying SQLite on every keystroke.
+// We document this choice in the commit message; the alternative would
+// be to push filters server-side via a `usage.getHistoryFiltered`
+// method, but the round-trip cost outweighs the SQL cost here.
+
+interface LlmCallAuditRow {
+  id: string;
+  created_at: string;
+  model: string;
+  caller: string;
+  email_id: string | null;
+  account_id: string | null;
+  email_subject: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  cost_cents: number;
+  duration_ms: number;
+  success: number;
+  error_message: string | null;
+}
+
+interface UsageWindowStatsResult {
+  totalCostCents: number;
+  totalCalls: number;
+  successCalls: number;
+  failedCalls: number;
+  topCaller: string | null;
+  topCallerCalls: number;
+}
+
+type SortKey = "created_at" | "caller" | "model" | "cost_cents" | "duration_ms";
+type SortDir = "asc" | "desc";
+
+const formatTokens = (n: number): string => n.toLocaleString();
+const formatCostUsd = (cents: number): string => {
+  if (cents < 0.1) return `$${(cents / 100).toFixed(4)}`;
+  if (cents < 1) return `$${(cents / 100).toFixed(3)}`;
+  return `$${(cents / 100).toFixed(2)}`;
+};
+
+function AgentActivitySection() {
+  const [search, setSearch] = useState("");
+  const [callerFilter, setCallerFilter] = useState<string>("");
+  const [modelFilter, setModelFilter] = useState<string>("");
+  const [successOnly, setSuccessOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data: historyResult } = useQuery({
+    queryKey: ["agent-activity", "audit-history"],
+    queryFn: () =>
+      window.api.usage.getCallHistoryWithSubjects(200) as Promise<
+        IpcResponse<LlmCallAuditRow[]>
+      >,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+  const { data: todayResult } = useQuery({
+    queryKey: ["agent-activity", "stats-today"],
+    queryFn: () =>
+      window.api.usage.getStatsToday() as Promise<IpcResponse<UsageWindowStatsResult>>,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+  const { data: monthResult } = useQuery({
+    queryKey: ["agent-activity", "stats-month"],
+    queryFn: () =>
+      window.api.usage.getStatsThisMonth() as Promise<IpcResponse<UsageWindowStatsResult>>,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
+  });
+
+  const history: LlmCallAuditRow[] =
+    historyResult && historyResult.success ? historyResult.data : [];
+  const todayStats =
+    todayResult && todayResult.success ? todayResult.data : null;
+  const monthStats =
+    monthResult && monthResult.success ? monthResult.data : null;
+
+  // Distinct values for the filter dropdowns. Derived from the dataset
+  // we already loaded so the menu only shows callers/models that exist.
+  const distinctCallers = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of history) s.add(row.caller);
+    return Array.from(s).sort();
+  }, [history]);
+  const distinctModels = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of history) s.add(row.model);
+    return Array.from(s).sort();
+  }, [history]);
+
+  const filteredSorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = history;
+    if (callerFilter) rows = rows.filter((r) => r.caller === callerFilter);
+    if (modelFilter) rows = rows.filter((r) => r.model === modelFilter);
+    if (successOnly) rows = rows.filter((r) => r.success === 1);
+    if (q) {
+      rows = rows.filter((r) => {
+        const subj = r.email_subject?.toLowerCase() ?? "";
+        return subj.includes(q);
+      });
+    }
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      const av = a[sortKey] as string | number;
+      const bv = b[sortKey] as string | number;
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [history, search, callerFilter, modelFilter, successOnly, sortKey, sortDir]);
+
+  const onSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "created_at" ? "desc" : "asc");
+    }
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return null;
+    return <span className="ml-1">{sortDir === "asc" ? "▲" : "▼"}</span>;
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">
+            Agent Activity
+          </h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Every Claude / OpenRouter call the inbox agent makes is recorded here. Use
+            this view to audit what the agent did, what it cost, and where it failed.
+          </p>
+        </div>
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
+          Live
+        </span>
+      </div>
+
+      {/* Stats card row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3">
+          <p className="text-[11px] uppercase font-medium text-gray-500 dark:text-gray-400 tracking-wide">
+            Calls today
+          </p>
+          <p className="text-xl font-semibold text-gray-900 dark:text-gray-100 mt-0.5 tabular-nums">
+            {todayStats?.totalCalls ?? 0}
+          </p>
+          {todayStats && todayStats.failedCalls > 0 && (
+            <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">
+              {todayStats.failedCalls} failed
+            </p>
+          )}
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3">
+          <p className="text-[11px] uppercase font-medium text-gray-500 dark:text-gray-400 tracking-wide">
+            Cost today
+          </p>
+          <p className="text-xl font-semibold text-gray-900 dark:text-gray-100 mt-0.5 tabular-nums">
+            {formatCostUsd(todayStats?.totalCostCents ?? 0)}
+          </p>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3">
+          <p className="text-[11px] uppercase font-medium text-gray-500 dark:text-gray-400 tracking-wide">
+            Cost this month
+          </p>
+          <p className="text-xl font-semibold text-gray-900 dark:text-gray-100 mt-0.5 tabular-nums">
+            {formatCostUsd(monthStats?.totalCostCents ?? 0)}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+            {monthStats?.totalCalls ?? 0} calls (30d)
+          </p>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-3">
+          <p className="text-[11px] uppercase font-medium text-gray-500 dark:text-gray-400 tracking-wide">
+            Top caller (30d)
+          </p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-0.5 truncate">
+            {monthStats?.topCaller ?? "—"}
+          </p>
+          {monthStats?.topCaller && (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">
+              {monthStats.topCallerCalls} calls
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by email subject…"
+          className="flex-1 min-w-[180px] px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+        />
+        <select
+          value={callerFilter}
+          onChange={(e) => setCallerFilter(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+        >
+          <option value="">All callers</option>
+          {distinctCallers.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select
+          value={modelFilter}
+          onChange={(e) => setModelFilter(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 max-w-[260px]"
+        >
+          <option value="">All models</option>
+          {distinctModels.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 px-2 py-1.5">
+          <input
+            type="checkbox"
+            checked={successOnly}
+            onChange={(e) => setSuccessOnly(e.target.checked)}
+            className="rounded"
+          />
+          Successful only
+        </label>
+      </div>
+
+      {/* Audit table */}
+      {filteredSorted.length === 0 ? (
+        <p className="text-sm text-gray-400 dark:text-gray-500 py-6 text-center">
+          {history.length === 0
+            ? "No agent calls recorded yet."
+            : "No calls match the current filters."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                <th className="pb-2 pr-2 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => onSort("created_at")}
+                    className="hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Time{sortIndicator("created_at")}
+                  </button>
+                </th>
+                <th className="pb-2 px-2 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => onSort("caller")}
+                    className="hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Caller{sortIndicator("caller")}
+                  </button>
+                </th>
+                <th className="pb-2 px-2 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => onSort("model")}
+                    className="hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Model{sortIndicator("model")}
+                  </button>
+                </th>
+                <th className="pb-2 px-2 font-medium text-right">Tokens (in/out)</th>
+                <th className="pb-2 px-2 font-medium text-right">
+                  <button
+                    type="button"
+                    onClick={() => onSort("cost_cents")}
+                    className="hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Cost{sortIndicator("cost_cents")}
+                  </button>
+                </th>
+                <th className="pb-2 px-2 font-medium text-right">
+                  <button
+                    type="button"
+                    onClick={() => onSort("duration_ms")}
+                    className="hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Duration{sortIndicator("duration_ms")}
+                  </button>
+                </th>
+                <th className="pb-2 pl-2 font-medium text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSorted.flatMap((row) => {
+                const expanded = expandedId === row.id;
+                const rows = [
+                  <tr
+                    key={`${row.id}-main`}
+                    className={`border-b border-gray-100 dark:border-gray-700/50 cursor-pointer ${
+                      expanded
+                        ? "bg-blue-50/50 dark:bg-blue-900/20"
+                        : "hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                    }`}
+                    onClick={() => setExpandedId(expanded ? null : row.id)}
+                  >
+                    <td className="py-1.5 pr-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {new Date(
+                        row.created_at.replace(" ", "T") + "Z",
+                      ).toLocaleString()}
+                    </td>
+                    <td className="py-1.5 px-2 text-gray-900 dark:text-gray-100">
+                      {row.caller}
+                    </td>
+                    <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 font-mono">
+                      {row.model}
+                    </td>
+                    <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
+                      {formatTokens(row.input_tokens)} /{" "}
+                      {formatTokens(row.output_tokens)}
+                    </td>
+                    <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
+                      {formatCostUsd(row.cost_cents)}
+                    </td>
+                    <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
+                      {(row.duration_ms / 1000).toFixed(1)}s
+                    </td>
+                    <td className="py-1.5 pl-2 text-center">
+                      <span
+                        className={`inline-block w-2 h-2 rounded-full ${
+                          row.success ? "bg-green-500" : "bg-red-500"
+                        }`}
+                        title={row.success ? "Success" : "Failed"}
+                      />
+                    </td>
+                  </tr>,
+                ];
+                if (expanded) {
+                  rows.push(
+                    <tr
+                      key={`${row.id}-detail`}
+                      className="bg-blue-50/30 dark:bg-blue-900/10"
+                    >
+                      <td colSpan={7} className="py-3 px-3">
+                        <div className="space-y-1.5 text-xs">
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Email subject:
+                            </span>{" "}
+                            <span className="text-gray-900 dark:text-gray-100">
+                              {row.email_subject ?? (
+                                <em className="text-gray-400 dark:text-gray-500">
+                                  {row.email_id
+                                    ? "(email no longer in local DB)"
+                                    : "(no email attached)"}
+                                </em>
+                              )}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Cache (read / create):
+                            </span>{" "}
+                            <span className="text-gray-700 dark:text-gray-300 tabular-nums">
+                              {formatTokens(row.cache_read_tokens)} /{" "}
+                              {formatTokens(row.cache_create_tokens)}
+                            </span>
+                          </div>
+                          {row.account_id && (
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">
+                                Account:
+                              </span>{" "}
+                              <span className="text-gray-700 dark:text-gray-300 font-mono">
+                                {row.account_id}
+                              </span>
+                            </div>
+                          )}
+                          {row.error_message && (
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">
+                                Error:
+                              </span>{" "}
+                              <span className="text-red-700 dark:text-red-400">
+                                {row.error_message}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>,
+                  );
+                }
+                return rows;
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {history.length >= 200 && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
+          Showing the last 200 calls.
+        </p>
+      )}
     </div>
   );
 }
