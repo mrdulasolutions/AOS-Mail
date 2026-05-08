@@ -12,6 +12,9 @@ import { registerMethod } from "../rpc.js";
 import { getDb } from "../db/index.js";
 import { startOAuth, cancelOAuth, deleteTokens } from "../services/oauth-gmail.js";
 import { upsertAccountAfterAuth } from "./gmail-helpers.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("accounts-method");
 
 export interface AccountRecord {
   id: string;
@@ -106,14 +109,50 @@ export function registerAccountsMethods(): void {
   registerMethod("accounts.list", () => listAccounts());
 
   registerMethod("accounts.add", async () => {
+    log.info("accounts.add: enter (Gmail OAuth flow)");
     // The OAuth flow does the credential pickup + token persistence + accounts
     // row upsert. We forward the URL the renderer should open and resolve once
     // the auth completes (caller awaits the same promise).
-    const { url, promise } = startOAuth();
-    const account = await promise;
-    upsertAccountAfterAuth(account.accountId, account.email, account.displayName);
+    let urlForRenderer: string;
+    let promiseForRenderer: ReturnType<typeof startOAuth>["promise"];
+    try {
+      const oauthHandle = startOAuth();
+      urlForRenderer = oauthHandle.url;
+      promiseForRenderer = oauthHandle.promise;
+      log.info("accounts.add: OAuth server started, awaiting browser callback");
+    } catch (err) {
+      log.error("accounts.add: startOAuth threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
+
+    let account: Awaited<typeof promiseForRenderer>;
+    try {
+      account = await promiseForRenderer;
+      log.info("accounts.add: OAuth completed", { email: account.email });
+    } catch (err) {
+      log.error("accounts.add: OAuth promise rejected", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    try {
+      upsertAccountAfterAuth(account.accountId, account.email, account.displayName);
+      log.info("accounts.add: account row written");
+    } catch (err) {
+      log.error("accounts.add: upsertAccountAfterAuth threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
+
+    log.info("accounts.add: complete");
     return {
-      url,
+      url: urlForRenderer,
       accountId: account.accountId,
       email: account.email,
       displayName: account.displayName,

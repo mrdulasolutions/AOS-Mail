@@ -128,16 +128,25 @@ export function registerImapMethods(): void {
 
     // Verify before persisting so we don't write a half-broken account.
     log.info("addAccount: testing connection", { email: input.email });
-    const test = await testImapConnection({
-      email: input.email,
-      imapHost: input.imapHost,
-      imapPort: input.imapPort ?? 993,
-      imapUsername: input.imapUsername,
-      smtpHost: input.smtpHost ?? input.imapHost,
-      smtpPort: input.smtpPort ?? 587,
-      password: input.password,
-      tls,
-    });
+    let test: Awaited<ReturnType<typeof testImapConnection>>;
+    try {
+      test = await testImapConnection({
+        email: input.email,
+        imapHost: input.imapHost,
+        imapPort: input.imapPort ?? 993,
+        imapUsername: input.imapUsername,
+        smtpHost: input.smtpHost ?? input.imapHost,
+        smtpPort: input.smtpPort ?? 587,
+        password: input.password,
+        tls,
+      });
+    } catch (err) {
+      log.error("addAccount: testImapConnection threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
     if (!test.ok) {
       log.warn("addAccount: testConnection failed", { error: test.error });
       throw new Error(test.error ?? "IMAP connection failed");
@@ -146,31 +155,55 @@ export function registerImapMethods(): void {
 
     const accountId = input.email;
     log.info("addAccount: persisting credentials");
-    persistImapCredentials(accountId, {
-      email: input.email,
-      imap: {
-        host: input.imapHost,
-        port: input.imapPort ?? 993,
-        tls,
-        username: input.imapUsername || input.email,
-      },
-      smtp: {
-        host: input.smtpHost ?? input.imapHost,
-        port: input.smtpPort ?? 587,
-        tls,
-        username: input.imapUsername || input.email,
-      },
-      password: input.password,
-    });
+    try {
+      persistImapCredentials(accountId, {
+        email: input.email,
+        imap: {
+          host: input.imapHost,
+          port: input.imapPort ?? 993,
+          tls,
+          username: input.imapUsername || input.email,
+        },
+        smtp: {
+          host: input.smtpHost ?? input.imapHost,
+          port: input.smtpPort ?? 587,
+          tls,
+          username: input.imapUsername || input.email,
+        },
+        password: input.password,
+      });
+    } catch (err) {
+      log.error("addAccount: persistImapCredentials threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
     log.info("addAccount: credentials persisted, writing account row");
-    upsertImapAccountRow(input);
+    try {
+      upsertImapAccountRow(input);
+    } catch (err) {
+      log.error("addAccount: upsertImapAccountRow threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
     log.info("addAccount: row written, emitting event");
 
-    emit("auth:imap-connected", {
-      accountId,
-      email: input.email,
-      displayName: input.displayName ?? null,
-    });
+    try {
+      emit("auth:imap-connected", {
+        accountId,
+        email: input.email,
+        displayName: input.displayName ?? null,
+      });
+    } catch (err) {
+      log.error("addAccount: emit threw", {
+        err: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
     log.info("addAccount: complete");
 
     return {

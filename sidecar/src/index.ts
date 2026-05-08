@@ -125,13 +125,22 @@ async function gracefulExit(): Promise<void> {
 }
 
 process.on("SIGINT", () => {
+  bootLog.info("sidecar: SIGINT, draining background tasks then exiting");
   void gracefulExit();
 });
 process.on("SIGTERM", () => {
+  bootLog.info("sidecar: SIGTERM, draining background tasks then exiting");
   void gracefulExit();
 });
 // stdin closing means the host process (Tauri / test harness) is gone. Same
 // shutdown semantics as SIGTERM — flush, then exit.
 process.stdin.on("end", () => {
+  bootLog.info("sidecar: stdin end, draining background tasks then exiting");
   void gracefulExit();
 });
+
+// Confirms the sidecar reached the bottom of bootstrap. If the sidecar dies
+// before this line lands in the log, the crash is a module-load issue (or
+// happens during one of the registerMethod calls above). This is the
+// canary log entry to look for after a "sidecar channel closed" complaint.
+bootLog.info("sidecar: ready, listening on stdin");

@@ -22,6 +22,28 @@ import type {
   SidecarMethodParams,
   SidecarMethodResult,
 } from "../../src/shared/sidecar-contract.js";
+import { createLogger } from "./lib/logger.js";
+
+const dispatchLog = createLogger("rpc-dispatch");
+
+// Methods we want a per-call audit trail for — these are the ones where the
+// bug-of-the-week tends to cluster. Logging EVERY call would balloon the
+// sidecar.log; instead we whitelist write-side and account-mutating methods
+// so every "sidecar channel closed" complaint can be debugged from logs
+// alone. Methods not in this set are logged at debug level (off by default).
+const VERBOSE_METHODS = new Set<string>([
+  "imap.addAccount",
+  "imap.testConnection",
+  "imap.disconnect",
+  "accounts.add",
+  "accounts.remove",
+  "accounts.setPrimary",
+  "gmail.saveCredentials",
+  "gmail.startOAuth",
+  "gmail.disconnect",
+  "secrets.set",
+  "secrets.delete",
+]);
 
 type Json = unknown;
 
@@ -96,8 +118,13 @@ export async function dispatch(rawLine: string): Promise<string | null> {
   }
 
   const id = req.id ?? null;
+  const verbose = VERBOSE_METHODS.has(req.method);
+  if (verbose) {
+    dispatchLog.info(`-> ${req.method}`, { id });
+  }
   const handler = methods.get(req.method);
   if (!handler) {
+    if (verbose) dispatchLog.warn(`!! ${req.method}: method not found`, { id });
     if (id === null) return null;
     return JSON.stringify({
       jsonrpc: "2.0",
@@ -108,10 +135,18 @@ export async function dispatch(rawLine: string): Promise<string | null> {
 
   try {
     const result = await handler(req.params);
+    if (verbose) dispatchLog.info(`<- ${req.method}: ok`, { id });
     if (id === null) return null;
     return JSON.stringify({ jsonrpc: "2.0", id, result } satisfies RpcResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (verbose) {
+      dispatchLog.error(`<- ${req.method}: throw`, {
+        id,
+        err: message,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
     if (id === null) return null;
     return JSON.stringify({
       jsonrpc: "2.0",
