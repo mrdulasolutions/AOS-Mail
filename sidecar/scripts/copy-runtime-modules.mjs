@@ -23,6 +23,7 @@
 // better-sqlite3 from ~30MB down to ~2MB.
 
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, rmSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { dirname, resolve, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -125,12 +126,67 @@ function summarize() {
   console.log(`runtime-modules/ contains ${files.length} files, ${mb} MB total`);
 }
 
+// Re-sign every .node file with our Developer ID + hardened runtime + secure
+// timestamp. Apple's notarization rejects any Mach-O binary inside the .app
+// that isn't signed with the same Developer ID — and Tauri's auto-signing
+// only walks Contents/MacOS/, NOT Contents/Resources/, so we have to do it
+// ourselves before Tauri bundles the resources.
+//
+// Skipped silently if SIGNING_IDENTITY isn't set (dev build / CI without
+// notarization). Production builds invoke this with the identity from
+// tauri.conf.json.
+function findNodeFiles(dir) {
+  const out = [];
+  function walk(d) {
+    for (const entry of readdirSync(d)) {
+      const p = join(d, entry);
+      const st = statSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (entry.endsWith(".node")) out.push(p);
+    }
+  }
+  walk(dir);
+  return out;
+}
+
+function readSigningIdentityFromTauriConf() {
+  try {
+    const conf = JSON.parse(
+      readFileSync(resolve(ROOT, "..", "src-tauri", "tauri.conf.json"), "utf8"),
+    );
+    return conf?.bundle?.macOS?.signingIdentity ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function signNodeBinaries() {
+  const identity = process.env.SIGNING_IDENTITY ?? readSigningIdentityFromTauriConf();
+  if (!identity) {
+    console.log("(no signing identity available — skipping .node signing)");
+    return;
+  }
+  const nodeFiles = findNodeFiles(DEST);
+  if (nodeFiles.length === 0) return;
+  for (const f of nodeFiles) {
+    // --force replaces whatever signature node-gyp / prebuild-install added
+    // (typically ad-hoc). --options runtime opts into hardened runtime.
+    // --timestamp adds Apple's secure timestamp, required for notarization.
+    execSync(
+      `codesign --sign ${JSON.stringify(identity)} --options runtime --timestamp --force ${JSON.stringify(f)}`,
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    console.log(`signed: ${relative(DEST, f)}`);
+  }
+}
+
 function main() {
   clean();
   copyBetterSqlite3();
   copyWholePackage("bindings");
   copyWholePackage("file-uri-to-path");
   summarize();
+  signNodeBinaries();
   console.log(`copied -> ${DEST}`);
 }
 
