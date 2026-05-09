@@ -103,37 +103,79 @@ function getExistingFreshAnalysis(emailId: string): AnalysisResult | null {
   };
 }
 
+// Process-local cooldown for emails whose analysis JUST failed (rate-limit
+// exhausted, network error, etc.). Without this, every boot/refresh
+// re-tries the same 50 failed emails, which (a) burns more rate-limit
+// budget and (b) keeps the user waiting on "Triaging…" for the same set
+// of emails forever. We back off ~30 minutes; after that, a real boot or
+// the manual "Catch up" button can retry.
+//
+// In-memory only: a sidecar restart wipes it, which is the right
+// behavior — rate-limit pressure is short-lived and the user re-trying
+// after a restart is signal that they want to try again.
+const FAILURE_COOLDOWN_MS = 30 * 60 * 1000;
+const recentFailures = new Map<string, number>();
+
+function isInFailureCooldown(emailId: string): boolean {
+  const ts = recentFailures.get(emailId);
+  if (!ts) return false;
+  if (Date.now() - ts > FAILURE_COOLDOWN_MS) {
+    recentFailures.delete(emailId);
+    return false;
+  }
+  return true;
+}
+
+function markFailure(emailId: string): void {
+  recentFailures.set(emailId, Date.now());
+}
+
 async function analyzeOne(emailId: string): Promise<AnalysisResult> {
-  // Dedupe boot fan-out (P3 #16). If a fresh analysis already exists,
-  // hand it back instead of burning another Claude call. Freshness window
-  // is generous (6 hours) so the same boot's two triage paths don't both
-  // analyze, but a user re-launching the app the next morning still gets
-  // re-analysis if for some reason they want it (and the triage code paths
-  // are themselves idempotent: they only sweep `!email.analysis` and the
-  // sync onNewEmails listener fires only on truly new ids).
+  // Dedupe boot fan-out. If a fresh analysis already exists, hand it back
+  // instead of burning another LLM call. Freshness window is generous
+  // (6 hours) so the same boot's two triage paths don't both analyze,
+  // but a user re-launching the app the next morning still gets
+  // re-analysis if for some reason they want it.
   const existing = getExistingFreshAnalysis(emailId);
   if (existing) {
     return existing;
+  }
+  // Failure cooldown: skip emails that just failed analysis so we don't
+  // hammer the LLM provider after a rate-limit storm. We synthesize a
+  // safe, non-persistent placeholder so callers don't spin in a loop —
+  // it's NOT written to the analyses table, so the next legitimate
+  // refresh after the cooldown will re-try cleanly.
+  if (isInFailureCooldown(emailId)) {
+    return {
+      needsReply: false,
+      reason: "(triage queued — provider rate-limited, will retry)",
+      priority: null,
+    };
   }
   const row = getEmailRow(emailId);
   if (!row) throw new Error(`email ${emailId} not found`);
   // Body might be empty (header-only sync). Best-effort proceed; the
   // analyzer falls back to the subject.
-  const result = await analyzeEmail({
-    emailId,
-    accountId: row.account_id,
-    userEmail: getAccountEmail(row.account_id) ?? undefined,
-    email: {
-      id: row.id,
-      from: row.from_address,
-      to: row.to_address,
-      subject: row.subject,
-      date: row.date,
-      body: row.body || row.subject,
-    },
-  });
-  persistAnalysis(emailId, result);
-  return result;
+  try {
+    const result = await analyzeEmail({
+      emailId,
+      accountId: row.account_id,
+      userEmail: getAccountEmail(row.account_id) ?? undefined,
+      email: {
+        id: row.id,
+        from: row.from_address,
+        to: row.to_address,
+        subject: row.subject,
+        date: row.date,
+        body: row.body || row.subject,
+      },
+    });
+    persistAnalysis(emailId, result);
+    return result;
+  } catch (err) {
+    markFailure(emailId);
+    throw err;
+  }
 }
 
 export function registerAnalysisMethods(): void {
@@ -149,10 +191,14 @@ export function registerAnalysisMethods(): void {
       throw new Error("analysis.analyzeBatch: requires { emailIds: string[] }");
     }
     const results: Array<{ emailId: string; result?: AnalysisResult; error?: string }> = [];
-    // Cap concurrency to 4 — we don't want to blast Claude rate limits on
-    // a 100-message batch.
+    // Cap concurrency to 2 — combined with the per-call rateLimit() in
+    // services/email-analyzer.ts (30 req/min global), this keeps us
+    // comfortably under Anthropic's 50 RPM org cap even when the
+    // renderer fan-outs a fresh 100-email triage batch. Prior value of 4
+    // raced ahead of the rate limiter and wasted budget on internal
+    // back-pressure waits.
     const ids = emailIds;
-    const limit = 4;
+    const limit = 2;
     let cursor = 0;
     async function worker() {
       while (cursor < ids.length) {

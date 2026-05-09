@@ -13,6 +13,7 @@
 //      is reused across multiple analyze() calls in a session.
 
 import { createMessage } from "./anthropic.js";
+import { rateLimit } from "../lib/rate-limit.js";
 import { resolveModelFor } from "./model-config.js";
 import { stripJsonFences } from "../lib/prompts/strip-json-fences.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
@@ -191,6 +192,14 @@ export async function analyzeEmail(input: AnalyzeInput): Promise<AnalysisResult>
   const wrapped = wrapUntrustedEmail(
     `From: ${input.email.from}\nTo: ${input.email.to}\nSubject: ${input.email.subject}\nDate: ${input.email.date}\n\n${body}`,
   );
+
+  // Throttle outgoing analyzer calls to a global ~30 req/min so a
+  // boot-time triage of 100+ emails doesn't blow through Anthropic's
+  // 50 RPM org cap. Without this, the cap manifests as a 429 storm with
+  // 5-attempt exponential backoff per call, which (a) wastes wall-clock
+  // time on retries, and (b) eventually leaves emails unanalyzed →
+  // re-tried on next boot → token-burning loop the user reported.
+  await rateLimit("anthropic", { limit: 30, windowMs: 60_000 });
 
   const response = await createMessage(
     {

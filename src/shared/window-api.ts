@@ -543,6 +543,16 @@ export interface SenderProfile {
 export interface SenderApi {
   getProfile: (email: string) => Promise<IpcResponse<SenderProfile | null>>;
   lookup: (from: string, email: string) => Promise<IpcResponse<SenderProfile | null>>;
+  recordFeedback: (
+    email: string,
+    rating: "useful" | "wrong" | "partial",
+    extra?: { notes?: string; accountId?: string; emailId?: string },
+  ) => Promise<IpcResponse<{ ok: true }>>;
+  getFeedback: (
+    email: string,
+  ) => Promise<
+    IpcResponse<{ rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number } | null>
+  >;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

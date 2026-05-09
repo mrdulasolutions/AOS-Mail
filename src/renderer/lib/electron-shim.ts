@@ -1328,6 +1328,34 @@ function installRealNamespaces(): WindowApi {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    recordFeedback: async (
+      email: string,
+      rating: "useful" | "wrong" | "partial",
+      extra?: { notes?: string; accountId?: string; emailId?: string },
+    ) => {
+      try {
+        const data = (await bridge.call("sender.recordFeedback", {
+          email,
+          rating,
+          notes: extra?.notes,
+          accountId: extra?.accountId,
+          emailId: extra?.emailId,
+        })) as { ok: true };
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    getFeedback: async (email: string) => {
+      try {
+        const data = (await bridge.call("sender.getFeedback", { email })) as
+          | { rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number }
+          | null;
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   };
 
   // snooze — local thread snoozing. The sidecar's auto-unsnooze timer

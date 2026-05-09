@@ -39,6 +39,24 @@ CREATE TABLE IF NOT EXISTS sender_profiles (
   lookup_at INTEGER NOT NULL
 );
 
+-- Per-user feedback on sender-profile accuracy. Used both as a signal
+-- to suppress bad cached profiles (and re-lookup) and as a corpus for
+-- iterating the lookup prompt: bad examples become a few-shot training
+-- set on the next prompt revision.
+CREATE TABLE IF NOT EXISTS sender_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_email TEXT NOT NULL,
+  -- 'useful' = the profile was right; 'wrong' = the entire bio is off;
+  -- 'partial' = some fields right, some wrong (notes typically populated).
+  rating TEXT NOT NULL CHECK (rating IN ('useful', 'wrong', 'partial')),
+  notes TEXT,
+  account_id TEXT,
+  email_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sender_feedback_email ON sender_feedback(sender_email);
+CREATE INDEX IF NOT EXISTS idx_sender_feedback_created ON sender_feedback(created_at DESC);
+
 -- Emails from Gmail
 CREATE TABLE IF NOT EXISTS emails (
   id TEXT PRIMARY KEY,
@@ -263,6 +281,27 @@ CREATE TABLE IF NOT EXISTS calendar_sync_state (
   visible INTEGER DEFAULT 1,
   PRIMARY KEY (account_id, calendar_id)
 );
+
+-- ICS subscription URLs (Apple iCloud public share, Outlook publish, any
+-- public .ics). Lets IMAP-only users see calendar events without granting
+-- Google Calendar access. Events from these subscriptions land in
+-- the calendar_events table with account_id = 'ics:<id>' so the existing
+-- listing path picks them up alongside Gmail calendars.
+CREATE TABLE IF NOT EXISTS ics_subscriptions (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#7c3aed',
+  -- Refresh cadence in minutes. ICS publishers vary widely (Apple
+  -- recommends 60+, Google's secret URLs are cached aggressively); 60
+  -- is a safe default.
+  refresh_interval_min INTEGER NOT NULL DEFAULT 60,
+  last_synced_at INTEGER,
+  last_error TEXT,
+  visible INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ics_subs_url ON ics_subscriptions(url);
 
 -- Archive-ready analysis results (per thread)
 CREATE TABLE IF NOT EXISTS archive_ready (

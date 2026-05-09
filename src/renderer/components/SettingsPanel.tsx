@@ -33,6 +33,7 @@ import { SnippetsEditor } from "./SnippetsEditor";
 import { MemoriesTab } from "./MemoriesTab";
 import { ExtensionsTab } from "./ExtensionsTab";
 import { AddImapAccount } from "./AddImapAccount";
+import { IcsSubscriptionsSection } from "./IcsSubscriptionsSection";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -3134,6 +3135,13 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 })()
               )}
             </div>
+
+            {/* ICS subscription URLs — works for Apple iCloud public share,
+                Outlook 'publish-this-calendar' URL, Google Calendar's
+                secret iCal URL, and any RFC 5545 stream. Lets IMAP-only
+                users see their existing calendars without granting
+                Google Calendar API access. */}
+            <IcsSubscriptionsSection />
           </div>
         )}
 

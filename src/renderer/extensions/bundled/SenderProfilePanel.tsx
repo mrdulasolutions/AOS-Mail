@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { DashboardEmail } from "../../../shared/types";
 import type { ExtensionEnrichmentResult } from "../../../shared/extension-types";
 
@@ -208,6 +208,15 @@ export function SenderProfilePanel({
               Last updated: {new Date(profile.cachedAt).toLocaleDateString()}
             </p>
           )}
+
+          {/* "Was this useful?" feedback. Two effects:
+                1. 'Wrong' invalidates the cached profile so the next open
+                   re-fetches with a fresh web search instead of re-serving
+                   the same bad bio.
+                2. Every entry lands in `sender_feedback` so we can iterate
+                   on the lookup prompt with the bad examples as a few-shot
+                   set on the next prompt revision. */}
+          <SenderFeedback senderEmail={profile.email ?? senderEmail} email={email} />
         </div>
       )}
 
@@ -217,6 +226,125 @@ export function SenderProfilePanel({
           <p className="text-sm text-gray-500 dark:text-gray-400">
             No profile information available
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SenderFeedback({
+  senderEmail,
+  email,
+}: {
+  senderEmail: string;
+  email: DashboardEmail;
+}): React.ReactElement {
+  const [submitted, setSubmitted] = useState<"useful" | "wrong" | "partial" | null>(null);
+  const [showWrongForm, setShowWrongForm] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // On mount, look up any prior feedback so the panel doesn't keep prompting
+  // a user who already gave it.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await window.api.sender.getFeedback(senderEmail);
+        if (cancelled) return;
+        if (result.success && result.data) {
+          setSubmitted(result.data.rating);
+        }
+      } catch {
+        // ignore — feedback prompt is best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [senderEmail]);
+
+  const submit = async (rating: "useful" | "wrong" | "partial", noteText?: string) => {
+    setSubmitting(true);
+    try {
+      await window.api.sender.recordFeedback(senderEmail, rating, {
+        notes: noteText,
+        accountId: email.accountId ?? undefined,
+        emailId: email.id,
+      });
+      setSubmitted(rating);
+      setShowWrongForm(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800 pt-3 mt-3">
+        Thanks — feedback recorded.{" "}
+        {submitted !== "useful" && (
+          <span className="text-gray-400 dark:text-gray-500">
+            We'll re-look-up next time you open this thread.
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-800 pt-3 mt-3">
+      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <span>Was this useful?</span>
+        <button
+          type="button"
+          onClick={() => void submit("useful")}
+          disabled={submitting}
+          className="px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+          title="Mark this profile as accurate"
+        >
+          👍 Yes
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowWrongForm(true)}
+          disabled={submitting}
+          className="px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+          title="Mark this profile as wrong"
+        >
+          👎 No
+        </button>
+      </div>
+      {showWrongForm && (
+        <div className="mt-2 space-y-2">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What's wrong? (e.g. 'company is X not Y', or 'this person doesn't exist')"
+            className="w-full text-xs px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:border-blue-400"
+            rows={2}
+            autoFocus
+          />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowWrongForm(false);
+                setNotes("");
+              }}
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void submit("wrong", notes.trim() || undefined)}
+              disabled={submitting}
+              className="text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+            >
+              {submitting ? "Saving…" : "Submit"}
+            </button>
+          </div>
         </div>
       )}
     </div>

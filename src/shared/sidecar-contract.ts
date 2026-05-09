@@ -189,6 +189,20 @@ export interface CalendarRow {
   visible: boolean;
 }
 
+export interface IcsSubscription {
+  id: string;
+  url: string;
+  name: string;
+  color: string;
+  refreshIntervalMin: number;
+  /** Epoch ms of last successful or failed sync, null if never synced. */
+  lastSyncedAt: number | null;
+  /** Last error message from a fetch/parse attempt; null when healthy. */
+  lastError: string | null;
+  visible: boolean;
+  createdAt: number;
+}
+
 export interface CalendarEventAttendee {
   email: string;
   displayName: string | null;
@@ -661,6 +675,22 @@ export interface SidecarMethods {
     params: { email: string; name?: string; accountId?: string };
     result: SenderProfile;
   };
+  // User feedback on a sender-profile result. 'wrong' / 'partial' ratings
+  // also invalidate the cached profile so the next open re-fetches.
+  "sender.recordFeedback": {
+    params: {
+      email: string;
+      rating: "useful" | "wrong" | "partial";
+      notes?: string;
+      accountId?: string;
+      emailId?: string;
+    };
+    result: { ok: true };
+  };
+  "sender.getFeedback": {
+    params: { email: string };
+    result: { rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number } | null;
+  };
 
   // ── extensions (V1 bundled framework) ─────────────────────────────────
   "extensions.list": {
@@ -732,6 +762,34 @@ export interface SidecarMethods {
       eventId: string;
       response: CalendarRsvpResponse;
     };
+    result: { ok: true };
+  };
+
+  // ── ICS subscriptions (provider-agnostic calendar import) ─────────────
+  // Lets users paste a public iCal URL — Apple iCloud's "Public Calendar"
+  // share, Outlook's "Publish this calendar" link, Google Calendar's
+  // "Secret address in iCal format", or any RFC 5545 stream — and see
+  // those events alongside any Gmail-Calendar events. Underpins the
+  // calendar story for IMAP-only users who don't have Google Calendar
+  // tied to their account.
+  "calendar.listIcsSubscriptions": {
+    params: void;
+    result: IcsSubscription[];
+  };
+  "calendar.addIcsSubscription": {
+    params: { url: string; name: string; color?: string };
+    result: IcsSubscription;
+  };
+  "calendar.removeIcsSubscription": {
+    params: { id: string };
+    result: { ok: true };
+  };
+  "calendar.refreshIcsSubscription": {
+    params: { id: string };
+    result: { fetched: number; parsed: number; upserted: number };
+  };
+  "calendar.setIcsVisibility": {
+    params: { id: string; visible: boolean };
     result: { ok: true };
   };
 

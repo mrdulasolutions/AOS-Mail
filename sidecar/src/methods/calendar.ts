@@ -32,6 +32,13 @@ import {
 import { listAccountIdsWithTokens } from "../services/oauth-gmail.js";
 import { getPreferences, setPreference } from "../lib/preferences.js";
 import { createLogger } from "../lib/logger.js";
+import {
+  addIcsSubscription,
+  listIcsSubscriptions,
+  removeIcsSubscription,
+  setIcsSubscriptionVisible,
+  syncIcsSubscription,
+} from "../services/ics-sync.js";
 
 const log = createLogger("calendar-method");
 
@@ -239,6 +246,62 @@ export function registerCalendarMethods(): void {
       }),
     );
 
+    // Pull in any ICS-subscription events from calendar_events (account_id
+    // 'ics:<sub-id>'). They live in the same table, so just SELECT and
+    // shape into the wire format the renderer expects.
+    if (!accountId || accountId.startsWith("ics:")) {
+      const icsRows = getDb()
+        .prepare(
+          `SELECT ce.id, ce.account_id, ce.calendar_id, ce.summary,
+                  ce.start_time, ce.end_time, ce.is_all_day,
+                  ce.calendar_name, ce.calendar_color, ce.status,
+                  ce.location, ce.html_link, sub.visible AS visible
+           FROM calendar_events ce
+           JOIN ics_subscriptions sub ON sub.id = SUBSTR(ce.account_id, 5)
+           WHERE ce.account_id LIKE 'ics:%'
+             AND sub.visible = 1
+             AND ce.start_time >= ?
+             AND ce.start_time <= ?
+           ORDER BY ce.start_time ASC`,
+        )
+        .all(timeMin, timeMax) as Array<{
+        id: string;
+        account_id: string;
+        calendar_id: string;
+        summary: string;
+        start_time: string;
+        end_time: string;
+        is_all_day: number;
+        calendar_name: string;
+        calendar_color: string;
+        status: string;
+        location: string | null;
+        html_link: string | null;
+      }>;
+      const icsEventRows: CalendarEventRow[] = icsRows.map((r) => ({
+        id: r.id,
+        accountId: r.account_id,
+        calendarId: r.calendar_id,
+        calendarName: r.calendar_name,
+        calendarColor: r.calendar_color,
+        summary: r.summary,
+        description: null,
+        location: r.location,
+        start: r.start_time,
+        end: r.end_time,
+        isAllDay: r.is_all_day === 1,
+        status: (r.status as "confirmed" | "tentative" | "cancelled") ?? "confirmed",
+        htmlLink: r.html_link,
+        hangoutLink: null,
+        attendees: null,
+        selfResponseStatus: null,
+        // ICS subscriptions are read-only — there's no concept of
+        // "organizer" or RSVP, so we mark the user as not the organizer.
+        isOrganizer: false,
+      }));
+      allRows.push(icsEventRows);
+    }
+
     // Merge + sort across calendars. All rows have the same iso shape so a
     // string comparison is a valid chronological sort for both timed and
     // all-day events. Within the same timestamp Google's order is stable
@@ -275,5 +338,54 @@ export function registerCalendarMethods(): void {
       log.warn("respondToEvent failed", { accountId, calendarId, eventId, err: msg });
       throw new Error(`Failed to RSVP: ${msg}`);
     }
+  });
+
+  // ── ICS subscription URLs (provider-agnostic calendar import) ─────────
+  // Lets users paste an Apple iCloud public-share URL, an Outlook
+  // "publish-this-calendar" URL, or any RFC 5545 stream — events land
+  // in the same calendar_events table as Gmail-Calendar so the rest of
+  // the UI doesn't need to know the difference.
+
+  registerMethod("calendar.listIcsSubscriptions", () => listIcsSubscriptions());
+
+  registerMethod("calendar.addIcsSubscription", async (params) => {
+    const p = (params as { url?: string; name?: string; color?: string } | null) ?? {};
+    if (!p.url || !p.name) {
+      throw new Error("calendar.addIcsSubscription: requires { url, name }");
+    }
+    const sub = addIcsSubscription({ url: p.url, name: p.name, color: p.color });
+    // Best-effort first sync so the user sees events immediately. Errors
+    // are recorded on the subscription row; the renderer surfaces them.
+    try {
+      await syncIcsSubscription(sub.id);
+    } catch (err) {
+      log.warn("initial ics sync failed", {
+        id: sub.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return sub;
+  });
+
+  registerMethod("calendar.removeIcsSubscription", (params) => {
+    const { id } = (params as { id?: string } | null) ?? {};
+    if (!id) throw new Error("calendar.removeIcsSubscription: requires { id }");
+    removeIcsSubscription(id);
+    return { ok: true };
+  });
+
+  registerMethod("calendar.refreshIcsSubscription", async (params) => {
+    const { id } = (params as { id?: string } | null) ?? {};
+    if (!id) throw new Error("calendar.refreshIcsSubscription: requires { id }");
+    return await syncIcsSubscription(id);
+  });
+
+  registerMethod("calendar.setIcsVisibility", (params) => {
+    const { id, visible } = (params as { id?: string; visible?: boolean } | null) ?? {};
+    if (!id || typeof visible !== "boolean") {
+      throw new Error("calendar.setIcsVisibility: requires { id, visible }");
+    }
+    setIcsSubscriptionVisible(id, visible);
+    return { ok: true };
   });
 }
