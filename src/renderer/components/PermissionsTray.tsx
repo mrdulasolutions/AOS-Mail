@@ -118,6 +118,22 @@ export function PermissionsTray() {
     }
   };
 
+  // Open the email/thread the suggestion is about — the user wants to
+  // see context before approving, especially for archive proposals where
+  // the row only shows subject + reason. Closes the tray and pivots the
+  // app to the full thread view.
+  const setSelectedEmailId = useAppStore.getState().setSelectedEmailId;
+  const setSelectedThreadId = useAppStore.getState().setSelectedThreadId;
+  const setViewMode = useAppStore.getState().setViewMode;
+  const setCurrentAccountId = useAppStore.getState().setCurrentAccountId;
+  const onOpenItem = (item: PermissionItem) => {
+    if (item.accountId) setCurrentAccountId(item.accountId);
+    if (item.threadId) setSelectedThreadId(item.threadId);
+    if (item.emailId) setSelectedEmailId(item.emailId);
+    setViewMode("full");
+    setOpen(false);
+  };
+
   const total = items.length;
 
   return (
@@ -166,6 +182,7 @@ export function PermissionsTray() {
                   item={item}
                   onApprove={() => onApprove(item)}
                   onSkip={() => onSkip(item)}
+                  onOpen={() => onOpenItem(item)}
                 />
               ))}
             </div>
@@ -180,10 +197,12 @@ function PermissionRow({
   item,
   onApprove,
   onSkip,
+  onOpen,
 }: {
   item: PermissionItem;
   onApprove: () => void;
   onSkip: () => void;
+  onOpen: () => void;
 }) {
   const kindBadge =
     item.kind === "draft"
@@ -196,15 +215,24 @@ function PermissionRow({
           className: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
         };
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-start gap-2 mb-2">
+    <div className="px-4 py-3 group hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+      {/* Subject + preview — clickable to open the email so the user can
+          see context before approving / skipping. The Approve / Skip
+          buttons below are NOT inside this button so they stay
+          discoverable. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full flex items-start gap-2 mb-2 text-left cursor-pointer"
+        title="Open email"
+      >
         <span
           className={`px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider rounded ${kindBadge.className}`}
         >
           {kindBadge.label}
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate group-hover:text-blue-700 dark:group-hover:text-blue-300">
             {item.subject || "(no subject)"}
           </div>
           <div
@@ -214,8 +242,15 @@ function PermissionRow({
             {item.preview}
           </div>
         </div>
-      </div>
+      </button>
       <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={onOpen}
+          className="px-3 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          title="Open the email"
+        >
+          Open
+        </button>
         <button
           onClick={onSkip}
           className="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"

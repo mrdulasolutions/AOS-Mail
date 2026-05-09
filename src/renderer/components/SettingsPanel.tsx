@@ -283,8 +283,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
   useEffect(() => {
     if (prompts) {
-      setAnalysisPrompt(prompts.analysisPrompt ?? "");
-      setDraftPrompt(prompts.draftPrompt ?? "");
+      // Fall back to the bundled defaults whenever the persisted value is
+      // missing or empty. Previously analysis + draft prompts came back
+      // blank on a fresh install — the user reported having to click
+      // "Reset to default" on each one before triage worked.
+      setAnalysisPrompt(prompts.analysisPrompt || DEFAULT_ANALYSIS_PROMPT);
+      setDraftPrompt(prompts.draftPrompt || DEFAULT_DRAFT_PROMPT);
       setArchiveReadyPrompt(prompts.archiveReadyPrompt || DEFAULT_ARCHIVE_READY_PROMPT);
       setStylePrompt(prompts.stylePrompt || DEFAULT_STYLE_PROMPT);
       setAgentDrafterPrompt(prompts.agentDrafterPrompt || DEFAULT_AGENT_DRAFTER_PROMPT);

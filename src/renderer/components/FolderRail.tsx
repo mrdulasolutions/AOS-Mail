@@ -117,6 +117,9 @@ function AccountFolderBlock({ account, isCurrent }: AccountFolderBlockProps) {
   const currentFolder = useAppStore((s) => s.currentFolder);
   const setCurrentAccountId = useAppStore((s) => s.setCurrentAccountId);
   const setCurrentFolder = useAppStore((s) => s.setCurrentFolder);
+  const setViewMode = useAppStore((s) => s.setViewMode);
+  const clearActiveSearch = useAppStore((s) => s.clearActiveSearch);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
 
   const ensureFolders = useCallback(async () => {
     if (folders !== null || loading) return;
@@ -141,11 +144,21 @@ function AccountFolderBlock({ account, isCurrent }: AccountFolderBlockProps) {
   const switchToInbox = () => {
     if (!isCurrent) setCurrentAccountId(account.id);
     setCurrentFolder(null);
+    // Pivot user back to the main inbox even if they were in calendar /
+    // awaiting-reply / full thread / search / settings — clicking Inbox
+    // is "go home", not "switch folder while staying in the current view".
+    setViewMode("split");
+    clearActiveSearch();
+    setShowSettings(false);
   };
 
   const pickFolder = (key: string) => {
     if (!isCurrent) setCurrentAccountId(account.id);
     setCurrentFolder(key);
+    // Folder pick has the same "land in the email-list pane" expectation.
+    setViewMode("split");
+    clearActiveSearch();
+    setShowSettings(false);
   };
 
   const inboxSelected = isCurrent && currentFolder === null;

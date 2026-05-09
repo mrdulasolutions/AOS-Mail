@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToastStore, type Toast } from "../lib/toast-store";
 
 // Single bottom-left toast container — the only place toasts render in the
@@ -167,24 +167,83 @@ function ToastRow({ toast }: { toast: Toast }) {
     );
   }
 
-  // toast.kind === "undo"
+  // toast.kind === "undo" — render with an Apple-Mail-style countdown
+  // progress bar across the bottom of the row that drains as the undo
+  // window expires. The bar makes the time-pressure visible instead of
+  // forcing the user to guess how long they have to hit Undo.
+  return <UndoToastRow toast={toast} onUndo={handleUndo} />;
+}
+
+function UndoToastRow({
+  toast,
+  onUndo,
+}: {
+  toast: Toast & { kind: "undo" };
+  onUndo: () => void;
+}) {
+  // Total duration is captured the first time we see this toast. If the
+  // toast was merged (expiresAt extended), totalMs grows to match —
+  // the bar always fills the new full window and drains again. Without
+  // this re-base, a merged toast would render at 0% even though it has
+  // a fresh window.
+  const baselineRef = useRef<{ start: number; total: number; expires: number }>({
+    start: Date.now(),
+    expires: toast.expiresAt,
+    total: Math.max(1, toast.expiresAt - Date.now()),
+  });
+  if (toast.expiresAt !== baselineRef.current.expires) {
+    const now = Date.now();
+    baselineRef.current = {
+      start: now,
+      expires: toast.expiresAt,
+      total: Math.max(1, toast.expiresAt - now),
+    };
+  }
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    // 16ms tick = 60fps. Cheap; the only work in render is a div width.
+    // Auto-stops when expired.
+    let raf = 0;
+    const loop = () => {
+      const remaining = baselineRef.current.expires - Date.now();
+      if (remaining <= 0) return;
+      setTick((t) => (t + 1) % 1_000_000);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [toast.id, toast.expiresAt]);
+
+  const remaining = Math.max(0, baselineRef.current.expires - Date.now());
+  const pctRemaining = Math.max(0, Math.min(100, (remaining / baselineRef.current.total) * 100));
+
   return (
     <div
-      className="bg-gray-900 dark:bg-gray-700 text-white rounded-lg shadow-lg flex items-center justify-between px-4 py-3 min-w-[280px]"
+      className="relative bg-gray-900 dark:bg-gray-700 text-white rounded-lg shadow-lg overflow-hidden min-w-[280px]"
       role="status"
       aria-live="polite"
     >
-      <span className="text-sm">{toast.text}</span>
-      {!undoneRef.current && !expiredRef.current && (
+      <div className="flex items-center justify-between px-4 py-3">
+        <span className="text-sm">{toast.text}</span>
         <button
-          onClick={handleUndo}
+          onClick={onUndo}
           aria-label={`Undo (${UNDO_LABEL})`}
           title={UNDO_LABEL}
           className="ml-4 text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors flex-shrink-0"
         >
           Undo
         </button>
-      )}
+      </div>
+      {/* Drain-style countdown bar. Pinned to the bottom edge of the row,
+          drains right-to-left in real time. When it hits zero the timer
+          in ToastRow's effect commits the action and dismisses the row. */}
+      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-white/10">
+        <div
+          className="h-full bg-blue-400/80 transition-[width] ease-linear"
+          style={{ width: `${pctRemaining}%`, transitionDuration: "16ms" }}
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }

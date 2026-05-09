@@ -170,31 +170,40 @@ export function AwaitingReplyView() {
       // replyToEmailId. Pull the latest sent message in this thread from
       // the store — the detector already proved one exists, and the
       // store is populated from the same sync.getEmails the inbox uses.
-      const emailsInThread = useAppStore
-        .getState()
-        .emails.filter((e) => e.threadId === row.threadId);
-      const sentInThread = emailsInThread.filter((e) => e.labelIds?.includes("SENT"));
-      const latestSent = sentInThread.sort((a, b) =>
-        b.date.localeCompare(a.date),
-      )[0];
+      const state = useAppStore.getState();
+      // Look in BOTH inbox and sent caches. Previously this only filtered
+      // `state.emails` (inbox) for SENT-labeled rows — which works for
+      // Gmail but misses IMAP accounts where sent messages live in a
+      // separate store list (`sentEmails`). Without the sent message in
+      // the search the function threw "Couldn't find the original
+      // message…" even though the thread was visible — the user reported
+      // exactly this with a draft created but no navigation.
+      const inboxInThread = state.emails.filter((e) => e.threadId === row.threadId);
+      const sentInThread = state.sentEmails.filter((e) => e.threadId === row.threadId);
+      const sentByLabel = inboxInThread.filter((e) => e.labelIds?.includes("SENT"));
+      // Combined candidate list — sent-folder messages first, then any
+      // inbox row that the provider tagged with the SENT label, then the
+      // newest message in the thread overall as a last-resort fallback so
+      // the composer always has SOMETHING to attach to.
+      const candidates = [...sentInThread, ...sentByLabel];
+      const latestSent = candidates.sort((a, b) => b.date.localeCompare(a.date))[0];
+      const lastResort = inboxInThread.sort((a, b) => b.date.localeCompare(a.date))[0];
+      const replyAnchor = latestSent ?? lastResort;
 
       setSelectedThreadId(row.threadId);
-      setSelectedEmailId(latestSent?.id ?? null);
+      setSelectedEmailId(replyAnchor?.id ?? null);
       setViewMode("full");
 
-      if (!latestSent) {
-        // Fallback: thread isn't in the store (user opened nudge view
-        // before inbox finished syncing). The compose pane needs a real
-        // emailId to work; without one, the body would silently flash and
-        // disappear (see EmailDetail.tsx ~line 2823 fallback path that
-        // resets composeMode on a sidecar error). Surface a clear error.
-        // Caller renders this as a toast.
+      if (!replyAnchor) {
+        // Genuine fallback: thread isn't in either store (user opened
+        // nudge view before any sync finished). Surface a clear error so
+        // the row's caller can render it inline.
         throw new Error(
           "Couldn't find the original message in your inbox. Refresh and try again.",
         );
       }
 
-      openCompose("reply", latestSent.id, {
+      openCompose("reply", replyAnchor.id, {
         bodyHtml: draftBodyToHtml(body),
         bodyText: body,
         skipAutoFocus: false,
