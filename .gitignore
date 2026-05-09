@@ -77,3 +77,5 @@ sidecar/node_modules/
 
 # Cargo lock kept in repo for app reproducibility — Cargo.lock IS committed for binaries
 
+src-tauri/binaries/aos-mail-node-aarch64-apple-darwin
+sidecar/runtime-modules/

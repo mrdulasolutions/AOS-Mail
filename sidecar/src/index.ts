@@ -61,6 +61,23 @@ process.on("uncaughtException", (err) => {
   }
   bootLog.error("uncaughtException", { err: err.message, stack: err.stack });
 });
+
+// Attach error listeners directly to the stdio streams. Node's default
+// behavior for an unhandled 'error' event on a stream is to escalate to
+// uncaughtException — we want to absorb the EPIPE locally instead, so we
+// don't pay the cost of trip-the-handler / log / risk-recursion every
+// time. If stdout / stderr breaks, the parent has disconnected; treat it
+// the same as a SIGTERM.
+process.stdout.on("error", (err) => {
+  if (isEpipeError(err)) {
+    handleHostDisconnected(err);
+  }
+});
+process.stderr.on("error", (err) => {
+  if (isEpipeError(err)) {
+    handleHostDisconnected(err);
+  }
+});
 import { registerNetworkMethods } from "./methods/network.js";
 import { registerDbMethods } from "./methods/db.js";
 import { registerThemeMethods } from "./methods/theme.js";
