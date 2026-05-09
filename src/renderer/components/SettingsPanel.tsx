@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
+import { openExternalUrl } from "../lib/external-url";
 import {
   DEFAULT_ANALYSIS_PROMPT,
   DEFAULT_DRAFT_PROMPT,
@@ -1843,14 +1844,13 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <ol className="list-decimal list-inside space-y-0.5">
                   <li>
                     Open the{" "}
-                    <a
-                      href="https://console.cloud.google.com/apis/credentials"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:no-underline"
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl("https://console.cloud.google.com/apis/credentials")}
+                      className="underline hover:no-underline text-blue-700 dark:text-blue-300 cursor-pointer"
                     >
                       Google Cloud Console
-                    </a>
+                    </button>
                   </li>
                   <li>
                     Create OAuth 2.0 Client ID → Application type: <strong>Desktop app</strong>
@@ -2989,6 +2989,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         apiKey,
                         host,
                       });
+                      // CRITICAL: invalidate the cached general-config query so
+                      // the next time the user opens Settings, the toggle's
+                      // initial state reads the just-persisted value rather
+                      // than the stale 5-minute cache. Without this the
+                      // toggle appears to "reset to OFF" on every reopen.
+                      await queryClient.invalidateQueries({ queryKey: ["general-config"] });
                       console.log("[Settings] Analytics config saved and reconfigured");
                       setAnalyticsSaveResult("saved");
                       setTimeout(() => setAnalyticsSaveResult(null), 3000);

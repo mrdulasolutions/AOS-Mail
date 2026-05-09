@@ -745,8 +745,13 @@ export default function App() {
     staleTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+  const briefingForceShow = useAppStore((s) => s.briefingForceShow);
+  const setBriefingForceShow = useAppStore((s) => s.setBriefingForceShow);
   const showMorningBriefing = (() => {
     if (!briefingEnabled) return false;
+    // Forced re-open from the top-nav button always wins, even if the
+    // user dismissed earlier today.
+    if (briefingForceShow) return true;
     if (!briefingResult) return false;
     // briefingResult is an IpcResponse-shaped union. We accept
     // success=true with non-null dismissedAt → false; success=false
@@ -987,12 +992,22 @@ export default function App() {
       let fullAccounts: Account[] = [];
       if (accountsResult.success && Array.isArray(accountsResult.data)) {
         fullAccounts = accountsResult.data.map(
-          (acc: { id: string; email: string; isPrimary: boolean; displayName?: string }) => ({
+          (acc: {
+            id: string;
+            email: string;
+            isPrimary: boolean;
+            displayName?: string;
+            provider?: string;
+          }) => ({
             id: acc.id,
             email: acc.email,
             displayName: acc.displayName,
             isPrimary: acc.isPrimary,
             isConnected: false, // optimistic — sync.init may overwrite below
+            // CRITICAL: pass through provider. FolderRail dispatches imap.listFolders
+            // vs gmail.listLabels off this field. Without it every IMAP account
+            // hits the gmail RPC and errors with "No tokens for account ...".
+            provider: acc.provider,
           }),
         );
         setAccounts(fullAccounts);
@@ -2108,6 +2123,21 @@ export default function App() {
             <UpdateBanner />
           </div>
           <div className="titlebar-no-drag flex items-center space-x-2">
+            {/* Briefing re-open — sets the store's force flag so the
+              briefing panel renders again even if the user already dismissed
+              it today. The dismiss button on the briefing clears the flag.
+              Disabled when no account is selected. */}
+            <button
+              onClick={() => setBriefingForceShow(true)}
+              disabled={!currentAccountId || showMorningBriefing}
+              aria-label="Open today's briefing"
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-default"
+              title="Open today's briefing"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M12 1.5a.75.75 0 01.75.75V4.5a.75.75 0 01-1.5 0V2.25A.75.75 0 0112 1.5zM5.636 4.575a.75.75 0 011.06 0l1.591 1.59a.75.75 0 11-1.06 1.061L5.636 5.636a.75.75 0 010-1.061zm12.728 0a.75.75 0 010 1.061l-1.591 1.59a.75.75 0 01-1.06-1.06l1.59-1.591a.75.75 0 011.061 0zM12 6a6 6 0 100 12 6 6 0 000-12zm-9.75 6a.75.75 0 01.75-.75H4.5a.75.75 0 010 1.5H3a.75.75 0 01-.75-.75zM18.75 12a.75.75 0 01.75-.75H21a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zM5.636 18.364a.75.75 0 010-1.061l1.59-1.59a.75.75 0 011.061 1.06l-1.59 1.591a.75.75 0 01-1.061 0zm12.728 0a.75.75 0 01-1.061 0l-1.59-1.59a.75.75 0 011.06-1.061l1.591 1.59a.75.75 0 010 1.061zM12 19.5a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V20.25a.75.75 0 01.75-.75z" />
+              </svg>
+            </button>
             {/* Calendar / Inbox toggle — Calendar V1 lives alongside the inbox
               as a sidebar accessory. Toggling sets viewMode and renders
               <CalendarView/> below in place of the email surface. */}
@@ -2562,7 +2592,7 @@ export default function App() {
            of 2500+ threads. */}
         {showMorningBriefing && (
           <ErrorBoundary label="Morning briefing">
-            <MorningBriefing />
+            <MorningBriefing onDismissed={() => setBriefingForceShow(false)} />
           </ErrorBoundary>
         )}
 

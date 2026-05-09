@@ -253,6 +253,12 @@ interface AppState {
   // sync.getEmails to a label-specific query.
   currentFolder: string | null;
 
+  // When true, the morning briefing panel is force-rendered even if
+  // already dismissed. Set by the briefing button in the top nav so the
+  // user can re-open today's briefing on demand. Cleared on
+  // briefing dismiss / account switch / sidebar navigation.
+  briefingForceShow: boolean;
+
   // Snippets state
   snippets: Snippet[];
 
@@ -434,6 +440,7 @@ interface AppState {
   setSplits: (splits: InboxSplit[]) => void;
   setCurrentSplitId: (id: string | null) => void;
   setCurrentFolder: (folder: string | null) => void;
+  setBriefingForceShow: (force: boolean) => void;
 
   // Snippets actions
   setSnippets: (snippets: Snippet[]) => void;
@@ -622,6 +629,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Default: no folder pinned — show INBOX (the existing behaviour).
   currentFolder: null,
+
+  // Briefing is opt-in; only forced from the top-nav re-open button.
+  briefingForceShow: false,
 
   // Snippets state
   snippets: [],
@@ -881,6 +891,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentSplitId: nextSplitId,
       // Folders are per-account — reset to default (INBOX) on switch.
       currentFolder: null,
+      // Account switch implicitly drops a forced re-open of the briefing
+      // since the briefing is per-account-per-day.
+      briefingForceShow: false,
     });
   },
   setSyncStatus: (accountId, status) =>
@@ -1068,6 +1081,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSplits: (splits) => set({ splits }),
   setCurrentSplitId: (id) => set({ currentSplitId: id }),
   setCurrentFolder: (folder) => set({ currentFolder: folder }),
+  setBriefingForceShow: (force) => set({ briefingForceShow: force }),
 
   // Snippets actions
   setSnippets: (snippets) => set({ snippets }),

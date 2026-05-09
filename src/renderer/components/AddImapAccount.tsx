@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { setSecret as setKeychainSecret } from "../lib/secrets";
+import { openExternalUrl } from "../lib/external-url";
 
 interface ImapPreset {
   id: string;
@@ -233,14 +234,13 @@ export function AddImapAccount({ onComplete, onCancel }: AddImapAccountProps) {
         {requiresAppPassword && selectedPreset?.appPasswordHelp && (
           <p className="mt-1.5 text-xs text-aos-text-muted">
             {selectedPreset.label} requires an app-specific password.{" "}
-            <a
-              href={selectedPreset.appPasswordHelp}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 hover:no-underline text-aos-text"
+            <button
+              type="button"
+              onClick={() => openExternalUrl(selectedPreset.appPasswordHelp!)}
+              className="underline underline-offset-2 hover:no-underline text-aos-text cursor-pointer"
             >
               How to create one ↗
-            </a>
+            </button>
           </p>
         )}
       </div>

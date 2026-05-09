@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { IpcResponse } from "../../shared/types";
 import { reconfigurePostHog } from "../services/posthog";
 import { setSecret as setKeychainSecret } from "../lib/secrets";
+import { openExternalUrl } from "../lib/external-url";
 import { AddImapAccount } from "./AddImapAccount";
 
 interface SetupWizardProps {
@@ -351,14 +352,26 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 <ol className="text-sm space-y-1.5 list-decimal list-inside marker:text-aos-text-muted">
                   <li>
                     Open the{" "}
-                    <a
-                      href="https://console.cloud.google.com/apis/credentials"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-2 hover:no-underline"
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        // Tauri's webview blocks `<a target="_blank">` clicks
+                        // — they no-op silently. We have to call out to
+                        // tauri-plugin-shell to launch the URL in the user's
+                        // default browser.
+                        const url = "https://console.cloud.google.com/apis/credentials";
+                        try {
+                          const { open } = await import("@tauri-apps/plugin-shell");
+                          await open(url);
+                        } catch {
+                          // Non-Tauri (dev shim, jsdom): fall back to window.open
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        }
+                      }}
+                      className="underline underline-offset-2 hover:no-underline text-blue-600 dark:text-blue-400 cursor-pointer"
                     >
                       Google Cloud Console
-                    </a>
+                    </button>
                   </li>
                   <li>Create a project (or select an existing one)</li>
                   <li>
@@ -430,14 +443,13 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 <ol className="text-sm space-y-1.5 list-decimal list-inside marker:text-aos-text-muted">
                   <li>
                     Open{" "}
-                    <a
-                      href="https://console.anthropic.com/settings/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-2 hover:no-underline"
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl("https://console.anthropic.com/settings/keys")}
+                      className="underline underline-offset-2 hover:no-underline text-blue-600 dark:text-blue-400 cursor-pointer"
                     >
                       console.anthropic.com
-                    </a>
+                    </button>
                   </li>
                   <li>Create a new API key (or use an existing one)</li>
                   <li>Paste it below</li>

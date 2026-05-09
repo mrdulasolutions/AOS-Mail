@@ -21,6 +21,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CalendarEventRow } from "../../shared/sidecar-contract";
+import { openExternalUrl } from "../lib/external-url";
 
 type RsvpResponse = "accepted" | "declined" | "tentative";
 
@@ -298,11 +299,10 @@ function EventRow({ event, expanded, onToggle, onRespond }: EventRowProps): JSX.
             </div>
           )}
           {event.htmlLink && (
-            <a
-              href={event.htmlLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            <button
+              type="button"
+              onClick={() => openExternalUrl(event.htmlLink!)}
+              className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
             >
               Open in Google Calendar
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -313,7 +313,7 @@ function EventRow({ event, expanded, onToggle, onRespond }: EventRowProps): JSX.
                   d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                 />
               </svg>
-            </a>
+            </button>
           )}
         </div>
       )}
