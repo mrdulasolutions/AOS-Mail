@@ -37,6 +37,7 @@ export function MorningBriefing({ onDismissed }: MorningBriefingProps) {
   const setSelectedEmailId = useAppStore((s) => s.setSelectedEmailId);
   const setSelectedThreadId = useAppStore((s) => s.setSelectedThreadId);
   const setViewMode = useAppStore((s) => s.setViewMode);
+  const setCurrentSplitId = useAppStore((s) => s.setCurrentSplitId);
   const queryClient = useQueryClient();
 
   const { data: briefingResult, isLoading } = useQuery({
@@ -67,6 +68,14 @@ export function MorningBriefing({ onDismissed }: MorningBriefingProps) {
       // independence — invalidate both so dismiss propagates.
       queryClient.invalidateQueries({ queryKey: ["briefing", currentAccountId] });
       queryClient.invalidateQueries({ queryKey: ["briefing-gate", currentAccountId] });
+      // Land the user on Priority — the briefing summarised exactly the
+      // threads that live in the Priority bucket (analysis.needsReply=true).
+      // Without this, dismiss leaves the user on whatever split was active
+      // before (default "__other__"), which is structurally `chronological
+      // MINUS priority` — i.e. the *complement* of what was just briefed.
+      // Reads as a blank/empty inbox for any user whose action items
+      // dominate. See store/index.ts:2032 for the Other filter.
+      setCurrentSplitId("__priority__");
       onDismissed?.();
     },
   });

@@ -621,11 +621,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Inbox splits state
   splits: [],
-  // Default to "__other__" so unanalyzed emails are visible at first open.
-  // Priority is a curated view — meaningful only after analysis has run.
-  // Once Anthropic API key is set + analyses populate, the user can flip
-  // to Priority via the tab strip.
-  currentSplitId: "__other__",
+  // Default to null = "All" — show every active thread chronologically on
+  // first open. Previously defaulted to "__other__" with the rationale
+  // "show unanalyzed emails first," but Other is defined as `chronological
+  // MINUS (needsReply ∪ done)` — so once analysis runs (which is the
+  // common case for any configured user), Other becomes the *complement*
+  // of the priority bucket. That made the default landing state read as
+  // empty / blank for users whose inbox is mostly action items, and
+  // surprised users who dismissed the morning briefing expecting to see
+  // the threads it just summarised. "All" is the safe, non-filtering
+  // default; the user can flip to Priority / Other / custom splits via
+  // the tab strip whenever they want.
+  currentSplitId: null,
 
   // Default: no folder pinned — show INBOX (the existing behaviour).
   currentFolder: null,
@@ -749,31 +756,82 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const filteredNewEmails =
         pendingIds.size > 0 ? newEmails.filter((e) => !pendingIds.has(e.id)) : newEmails;
-      // Merge new emails: add new ones, update existing ones (e.g. triage adds analysis)
+
+      if (filteredNewEmails.length === 0) {
+        // Pure no-op flush — every incoming email was suppressed.
+        // Bail without allocating so useThreadedEmails doesn't recompute.
+        return {};
+      }
+
+      // Merge new emails: add new ones, update existing ones (e.g. triage adds
+      // analysis). Track whether any merge ACTUALLY changed a field — sync
+      // re-emissions of unchanged data shouldn't force the threading memo to
+      // recompute over 2500+ emails for nothing.
       const existingMap = new Map(state.emails.map((e) => [e.id, e]));
       const toAdd: DashboardEmail[] = [];
+      const changedIds = new Set<string>();
+
       for (const email of filteredNewEmails) {
         const existing = existingMap.get(email.id);
         if (existing) {
-          // Merge: prefer new values but preserve fields that may have been
-          // loaded separately (body from prefetch, analysis/draft from triage)
-          existingMap.set(email.id, {
-            ...existing,
-            ...email,
-            body: email.body || existing.body,
-            analysis: email.analysis ?? existing.analysis,
-            draft: email.draft ?? existing.draft,
-          });
+          // Compute merge fields ahead of allocating the new object so we
+          // can short-circuit when nothing actually differs.
+          const newBody = email.body || existing.body;
+          const newAnalysis = email.analysis ?? existing.analysis;
+          const newDraft = email.draft ?? existing.draft;
+          // Cheap reference-equality check across the merged shape.
+          // For the spread fields (...email), any differing value is a real
+          // change. For the explicit nested fields (analysis, draft, body)
+          // reference equality is the right semantic.
+          let changed =
+            newBody !== existing.body ||
+            newAnalysis !== existing.analysis ||
+            newDraft !== existing.draft;
+          if (!changed) {
+            for (const key of Object.keys(email) as (keyof DashboardEmail)[]) {
+              if (email[key] !== existing[key]) {
+                changed = true;
+                break;
+              }
+            }
+          }
+          if (changed) {
+            existingMap.set(email.id, {
+              ...existing,
+              ...email,
+              body: newBody,
+              analysis: newAnalysis,
+              draft: newDraft,
+            });
+            changedIds.add(email.id);
+          }
         } else {
           toAdd.push(email);
         }
       }
+
+      if (toAdd.length === 0 && changedIds.size === 0) {
+        // No brand-new emails and no merge actually changed any field.
+        // Pure no-op — return same emails ref so useThreadedEmails bails.
+        return {};
+      }
+
+      // Rebuild the array. We only allocate fresh objects for the ids that
+      // actually changed; unchanged emails retain their original reference,
+      // which keeps downstream per-email memos (analysis cards, draft
+      // preview, etc.) from invalidating unnecessarily.
       let result: DashboardEmail[];
-      if (toAdd.length === 0 && filteredNewEmails.every((e) => existingMap.has(e.id))) {
-        // Only updates, rebuild from map
-        result = state.emails.map((e) => existingMap.get(e.id) ?? e);
+      if (changedIds.size === 0) {
+        // toAdd-only path — append without mapping the existing array.
+        result = state.emails.concat(toAdd);
+      } else if (toAdd.length === 0) {
+        // Updates-only path — map over existing, swap only changed entries.
+        result = state.emails.map((e) => (changedIds.has(e.id) ? existingMap.get(e.id)! : e));
       } else {
-        result = [...state.emails.map((e) => existingMap.get(e.id) ?? e), ...toAdd];
+        result = [
+          ...state.emails.map((e) => (changedIds.has(e.id) ? existingMap.get(e.id)! : e)),
+          ...toAdd,
+        ];
       }
       return { emails: applyOptimisticReads(result) };
     });
@@ -833,12 +891,45 @@ export const useAppStore = create<AppState>((set, get) => ({
       highlightMemoryIds: show ? get().highlightMemoryIds : [],
     }),
   updateEmail: (id, updates) =>
-    set((state) => ({
-      emails: state.emails.map((email) => (email.id === id ? { ...email, ...updates } : email)),
-      sentEmails: state.sentEmails.map((email) =>
-        email.id === id ? { ...email, ...updates } : email,
-      ),
-    })),
+    set((state) => {
+      // Short-circuit no-op updates so useThreadedEmails / useSplitFiltered
+      // memos don't re-run groupByThread over 2500+ emails for nothing.
+      // Performance: single-key reads + reference equality, O(1) before
+      // we touch the emails array. Two array scans (findIndex on each
+      // collection) instead of two .map() over the full arrays.
+      const updateKeys = Object.keys(updates) as (keyof typeof updates)[];
+
+      const inboxIdx = state.emails.findIndex((e) => e.id === id);
+      const sentIdx = state.sentEmails.findIndex((e) => e.id === id);
+
+      if (inboxIdx === -1 && sentIdx === -1) return {};
+
+      // Reference-equality check: do any of the updates actually differ?
+      // For nested objects (analysis, draft) this means a caller that
+      // re-passes the same object ref is treated as a no-op. That's the
+      // correct semantic — sync re-emissions of unchanged data shouldn't
+      // force the whole inbox to recompute.
+      const isDifferent = (existing: { [k: string]: unknown }) =>
+        updateKeys.some((k) => existing[k as string] !== updates[k]);
+
+      const inboxChanged = inboxIdx !== -1 && isDifferent(state.emails[inboxIdx] as never);
+      const sentChanged = sentIdx !== -1 && isDifferent(state.sentEmails[sentIdx] as never);
+
+      if (!inboxChanged && !sentChanged) return {};
+
+      const patch: Partial<typeof state> = {};
+      if (inboxChanged) {
+        const newEmails = state.emails.slice();
+        newEmails[inboxIdx] = { ...newEmails[inboxIdx], ...updates };
+        patch.emails = newEmails;
+      }
+      if (sentChanged) {
+        const newSent = state.sentEmails.slice();
+        newSent[sentIdx] = { ...newSent[sentIdx], ...updates };
+        patch.sentEmails = newSent;
+      }
+      return patch;
+    }),
   // Multi-account actions
   setAccounts: (accounts) =>
     set({

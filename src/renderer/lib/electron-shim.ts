@@ -2224,6 +2224,15 @@ function installRealNamespaces(): WindowApi {
       success: false,
       error: "agent.claudeLogin: Claude CLI integration is a V2 feature",
     }),
+    // V1 ships ONE inbox agent that runs automatically — there's no
+    // pluggable-provider list to expose yet. Returning [] here is
+    // intentional, not a bug. AgentsSidebar's empty-state path renders
+    // a V1-honest "Inbox Agent runs automatically; multi-agent in V2"
+    // summary card; the per-email V1AgentPanel is the real surface for
+    // configurable behavior today (see EmailPreviewSidebar.tsx:397).
+    // When V2 lands a real provider registry, swap this for a sidecar
+    // RPC (e.g. agent.providers in sidecar/src/methods/) and emit
+    // updates via the agent.onProviders listener wired in App.tsx:1304.
     providers: async () => ({
       success: true,
       data: [],

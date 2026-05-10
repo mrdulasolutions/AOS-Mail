@@ -174,11 +174,36 @@ export function AgentsSidebar() {
         </button>
       </div>
 
-      {/* Provider list */}
+      {/* Provider list.
+         V1 ships one inbox agent (triage + sender lookup + drafts) that runs
+         automatically in the background — there's nothing to multi-select per
+         email. The pluggable-provider UI under here was built ahead of V2;
+         when `availableProviders` is empty (the V1 default) we show an
+         honest summary of what's running today instead of "No agents
+         available." which read as broken. */}
       <div className="p-2 space-y-1">
         {availableProviders.length === 0 ? (
-          <div className="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
-            No agents available.
+          <div className="px-3 py-3 space-y-2">
+            <div className="rounded-lg border border-purple-200 dark:border-purple-800/50 bg-purple-50 dark:bg-purple-900/20 px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <span className="text-base leading-tight">📨</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-purple-900 dark:text-purple-200">
+                    Inbox Agent
+                  </div>
+                  <div className="text-[11px] text-purple-700/80 dark:text-purple-300/70 leading-snug mt-0.5">
+                    Triages new mail, looks up senders, drafts replies in your
+                    voice. Runs automatically in the background.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-1 py-1">
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+                Custom + multi-agent workflows are coming in V2. For now,
+                everything routes through one configurable inbox agent.
+              </p>
+            </div>
           </div>
         ) : (
           availableProviders.map((provider) => (
@@ -203,13 +228,15 @@ export function AgentsSidebar() {
         </>
       )}
 
-      {/* Footer */}
+      {/* Footer — Manage button routes to Settings → Agents tab specifically
+         (api key, prompts, tools) rather than the generic Settings root,
+         which was confusing because it dropped users on the General tab. */}
       <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
         <button
-          onClick={() => setShowSettings(true)}
-          className="w-full px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-colors text-center"
+          onClick={() => setShowSettings(true, "agents")}
+          className="w-full px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg transition-colors text-center font-medium"
         >
-          Manage...
+          Manage agent settings
         </button>
       </div>
     </div>
