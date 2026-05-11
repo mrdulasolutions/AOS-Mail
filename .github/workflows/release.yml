@@ -26,6 +26,12 @@ jobs:
     timeout-minutes: 75
     env:
       NODE_OPTIONS: --max-old-space-size=4096
+      # Stop macOS tar/cp from creating AppleDouble (`._*`) companion
+      # files. Without this, `actions/cache@v4` restore via gtar seeds
+      # `._*` files into src-tauri/target and sidecar/, which then leak
+      # into the .app bundle and break tauri-plugin-updater's tar
+      # extractor on the client ("failed to unpack `._AOS Mail.app`").
+      COPYFILE_DISABLE: "1"
 
     steps:
       - name: Checkout
@@ -103,6 +109,17 @@ jobs:
             echo "updater=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Strip AppleDouble metadata from build inputs
+        run: |
+          # Defense in depth alongside COPYFILE_DISABLE=1. Cache restore
+          # may have already seeded ._* files before this step runs, and
+          # `npm install` on macOS occasionally leaves them in
+          # node_modules. Anything tauri-bundler copies into the .app
+          # must be free of these or the updater tarball will contain
+          # them and break extraction client-side.
+          find src-tauri/target sidecar node_modules -name '._*' -type f -delete 2>/dev/null || true
+          find . -maxdepth 6 -name '._*' -type f -delete 2>/dev/null || true
+
       - name: Build & bundle Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -147,6 +164,42 @@ jobs:
           # release. softprops/action-gh-release is invoked by tauri-action
           # internally for the upload.
           args: --target ${{ matrix.target }} --verbose
+
+      - name: Verify update tarball has no AppleDouble entries
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          TARBALL=$(ls "$BUNDLE_DIR"/*.app.tar.gz 2>/dev/null | head -n1 || true)
+          if [ -z "$TARBALL" ]; then
+            echo "::error::No .app.tar.gz produced in $BUNDLE_DIR — updater bundle missing."
+            exit 1
+          fi
+          # BSD `tar -t` on macOS silently hides AppleDouble entries, so
+          # parse tar headers directly from the raw stream. Each header
+          # is 512 bytes; bytes 0..99 are the filename, 124..134 the
+          # octal size. Walk and count any entry starting with `._` or
+          # containing `/._`.
+          COUNT=$(gzip -dc "$TARBALL" | python3 -c '
+          import sys
+          data = sys.stdin.buffer.read(); i = 0; n = 0
+          while i + 512 <= len(data):
+              name = data[i:i+100].split(b"\x00", 1)[0].decode("utf-8", "replace")
+              if not name:
+                  break
+              if name.startswith("._") or "/._" in name:
+                  n += 1
+              try:
+                  size = int((data[i+124:i+135].split(b"\x00", 1)[0].strip() or b"0"), 8)
+              except ValueError:
+                  size = 0
+              i += 512 + ((size + 511) // 512) * 512
+          print(n)
+          ')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::error::$TARBALL contains $COUNT AppleDouble (._*) entries — this will break tauri-plugin-updater on macOS clients."
+            exit 1
+          fi
+          echo "OK: $TARBALL contains 0 AppleDouble entries."
 
       - name: Summarize artifacts
         if: always()
