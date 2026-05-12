@@ -43,8 +43,7 @@ export function registerSplitsMethods(): void {
   });
 
   registerMethod("splits.update", (params) => {
-    const { id, updates } =
-      (params as { id?: string; updates?: Partial<InboxSplit> }) ?? {};
+    const { id, updates } = (params as { id?: string; updates?: Partial<InboxSplit> }) ?? {};
     if (!id) throw new Error("splits.update: missing id");
     let updated: InboxSplit | null = null;
     store.patch((s) => {

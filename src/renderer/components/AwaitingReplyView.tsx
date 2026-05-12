@@ -198,9 +198,7 @@ export function AwaitingReplyView() {
         // Genuine fallback: thread isn't in either store (user opened
         // nudge view before any sync finished). Surface a clear error so
         // the row's caller can render it inline.
-        throw new Error(
-          "Couldn't find the original message in your inbox. Refresh and try again.",
-        );
+        throw new Error("Couldn't find the original message in your inbox. Refresh and try again.");
       }
 
       openCompose("reply", replyAnchor.id, {

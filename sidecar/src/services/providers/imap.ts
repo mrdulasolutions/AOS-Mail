@@ -7,11 +7,7 @@
 
 import { ImapFlow } from "imapflow";
 import type { ImapCredentials } from "./imap-creds.js";
-import {
-  saveImapCredentials,
-  loadImapCredentials,
-  deleteImapCredentials,
-} from "./imap-creds.js";
+import { saveImapCredentials, loadImapCredentials, deleteImapCredentials } from "./imap-creds.js";
 import { createLogger } from "../../lib/logger.js";
 
 const log = createLogger("imap");

@@ -12,10 +12,7 @@ import { createMessage } from "./anthropic.js";
 import { resolveModelFor } from "./model-config.js";
 import { stripJsonFences } from "../lib/prompts/strip-json-fences.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
-import {
-  UNTRUSTED_DATA_INSTRUCTION,
-  wrapUntrustedEmail,
-} from "../lib/prompts/prompt-safety.js";
+import { UNTRUSTED_DATA_INSTRUCTION, wrapUntrustedEmail } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("thread-summary");
@@ -73,8 +70,7 @@ function formatMessages(messages: ThreadSummaryInput["messages"]): string {
     .map((m, idx) => {
       const text = m.bodyText ?? m.body;
       const stripped = stripQuotedContent(text);
-      const trimmed =
-        stripped.length > 3000 ? stripped.slice(0, 3000) + "\n[…]" : stripped;
+      const trimmed = stripped.length > 3000 ? stripped.slice(0, 3000) + "\n[…]" : stripped;
       return [
         `--- Message ${idx + 1} of ${messages.length} ---`,
         `From: ${m.from}`,
@@ -87,9 +83,7 @@ function formatMessages(messages: ThreadSummaryInput["messages"]): string {
     .join("\n\n");
 }
 
-export async function summarizeThread(
-  input: ThreadSummaryInput,
-): Promise<ThreadSummary> {
+export async function summarizeThread(input: ThreadSummaryInput): Promise<ThreadSummary> {
   if (input.messages.length === 0) {
     return { summary: "", actionItems: [], decisions: [] };
   }

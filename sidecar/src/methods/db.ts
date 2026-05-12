@@ -24,7 +24,9 @@ export function registerDbMethods(): void {
 
   registerMethod("db.listAccounts", () => {
     const rows = getDb()
-      .prepare("SELECT id, email, display_name, is_primary, added_at FROM accounts ORDER BY added_at")
+      .prepare(
+        "SELECT id, email, display_name, is_primary, added_at FROM accounts ORDER BY added_at",
+      )
       .all() as AccountRow[];
     return rows.map((r) => ({
       id: r.id,

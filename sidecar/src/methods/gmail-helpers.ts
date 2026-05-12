@@ -13,9 +13,9 @@ export function upsertAccountAfterAuth(
   displayName: string | null,
 ): void {
   const db = getDb();
-  const existing = db
-    .prepare("SELECT id FROM accounts WHERE id = ?")
-    .get(accountId) as AccountRow | undefined;
+  const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(accountId) as
+    | AccountRow
+    | undefined;
   if (existing) {
     db.prepare("UPDATE accounts SET email = ?, display_name = ? WHERE id = ?").run(
       email,

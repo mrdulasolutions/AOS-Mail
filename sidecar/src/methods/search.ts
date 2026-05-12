@@ -187,12 +187,7 @@ function searchEmails(query: string, options: SearchOptions = {}): SearchResult[
           OR e.to_address LIKE ? COLLATE NOCASE
         )
       `;
-      const params: (string | number)[] = [
-        likePattern,
-        likePattern,
-        likePattern,
-        likePattern,
-      ];
+      const params: (string | number)[] = [likePattern, likePattern, likePattern, likePattern];
       if (accountId) {
         sql += " AND e.account_id = ?";
         params.push(accountId);

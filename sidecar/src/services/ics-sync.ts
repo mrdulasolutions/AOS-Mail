@@ -96,7 +96,13 @@ export function addIcsSubscription(input: {
       `INSERT INTO ics_subscriptions (id, url, name, color, refresh_interval_min, created_at)
        VALUES (?, ?, ?, ?, 60, ?)`,
     )
-    .run(id, url.toString(), input.name.trim() || "Subscribed Calendar", input.color ?? "#7c3aed", now);
+    .run(
+      id,
+      url.toString(),
+      input.name.trim() || "Subscribed Calendar",
+      input.color ?? "#7c3aed",
+      now,
+    );
   return rowToSub(
     getDb().prepare("SELECT * FROM ics_subscriptions WHERE id = ?").get(id) as IcsSubscriptionRow,
   );
@@ -155,7 +161,9 @@ function unfoldLines(raw: string): string[] {
  *   DTSTART;TZID=America/New_York:20260509T140000
  *     → key=DTSTART, params={TZID: 'America/New_York'}, value=20260509T140000
  */
-function parseLine(line: string): { key: string; params: Record<string, string>; value: string } | null {
+function parseLine(
+  line: string,
+): { key: string; params: Record<string, string>; value: string } | null {
   const colon = line.indexOf(":");
   if (colon < 0) return null;
   const head = line.slice(0, colon);
@@ -196,11 +204,7 @@ function icsDateToISO(value: string): { iso: string; dateOnly: boolean } {
 }
 
 function unescapeText(s: string): string {
-  return s
-    .replace(/\\n/gi, "\n")
-    .replace(/\\,/g, ",")
-    .replace(/\\;/g, ";")
-    .replace(/\\\\/g, "\\");
+  return s.replace(/\\n/gi, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
 }
 
 export function parseIcs(text: string): VEvent[] {
@@ -285,9 +289,9 @@ export async function syncIcsSubscription(id: string): Promise<{
   parsed: number;
   upserted: number;
 }> {
-  const sub = getDb()
-    .prepare("SELECT * FROM ics_subscriptions WHERE id = ?")
-    .get(id) as IcsSubscriptionRow | undefined;
+  const sub = getDb().prepare("SELECT * FROM ics_subscriptions WHERE id = ?").get(id) as
+    | IcsSubscriptionRow
+    | undefined;
   if (!sub) throw new Error(`ICS subscription not found: ${id}`);
   const acct = `ics:${id}`;
   let body: string;

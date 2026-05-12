@@ -24,10 +24,7 @@ import { createMessage } from "./anthropic.js";
 import { resolveModelFor } from "./model-config.js";
 import { stripJsonFences } from "../lib/prompts/strip-json-fences.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
-import {
-  UNTRUSTED_DATA_INSTRUCTION,
-  wrapUntrustedEmail,
-} from "../lib/prompts/prompt-safety.js";
+import { UNTRUSTED_DATA_INSTRUCTION, wrapUntrustedEmail } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("archive-ready");
@@ -117,10 +114,7 @@ function isFromUser(email: ThreadEmailForAnalysis, userEmail: string): boolean {
   return fromEmail.trim() === userLower.trim();
 }
 
-function formatThreadForAnalysis(
-  emails: ThreadEmailForAnalysis[],
-  userEmail?: string,
-): string {
+function formatThreadForAnalysis(emails: ThreadEmailForAnalysis[], userEmail?: string): string {
   // Sort ascending by date so the conversation flows oldest → newest.
   const sorted = [...emails].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -158,9 +152,7 @@ function formatThreadForAnalysis(
   return parts.join("\n");
 }
 
-export async function analyzeThread(
-  input: AnalyzeThreadInput,
-): Promise<ArchiveReadyResult> {
+export async function analyzeThread(input: AnalyzeThreadInput): Promise<ArchiveReadyResult> {
   if (input.emails.length === 0) {
     throw new Error(`thread ${input.threadId} has no emails`);
   }
@@ -215,7 +207,6 @@ export async function analyzeThread(
 
   return {
     isReady: !!parsed.archive_ready,
-    reason:
-      typeof parsed.reason === "string" ? parsed.reason : "(no reason given)",
+    reason: typeof parsed.reason === "string" ? parsed.reason : "(no reason given)",
   };
 }

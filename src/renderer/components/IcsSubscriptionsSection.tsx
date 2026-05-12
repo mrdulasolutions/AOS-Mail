@@ -77,9 +77,7 @@ export function IcsSubscriptionsSection() {
             <IcsRow
               key={sub.id}
               sub={sub}
-              onChanged={() =>
-                queryClient.invalidateQueries({ queryKey: ["ics-subscriptions"] })
-              }
+              onChanged={() => queryClient.invalidateQueries({ queryKey: ["ics-subscriptions"] })}
             />
           ))}
         </div>

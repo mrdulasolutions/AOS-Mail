@@ -551,7 +551,11 @@ export interface SenderApi {
   getFeedback: (
     email: string,
   ) => Promise<
-    IpcResponse<{ rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number } | null>
+    IpcResponse<{
+      rating: "useful" | "wrong" | "partial";
+      notes: string | null;
+      createdAt: number;
+    } | null>
   >;
 }
 
@@ -1079,10 +1083,7 @@ export interface BriefingApi {
     date?: string,
     force?: boolean,
   ) => Promise<IpcResponse<R<"briefing.getOrGenerate">>>;
-  dismiss: (
-    accountId: string,
-    date?: string,
-  ) => Promise<IpcResponse<R<"briefing.dismiss">>>;
+  dismiss: (accountId: string, date?: string) => Promise<IpcResponse<R<"briefing.dismiss">>>;
   list: (accountId: string, limit?: number) => Promise<IpcResponse<R<"briefing.list">>>;
 }
 

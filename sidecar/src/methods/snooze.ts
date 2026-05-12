@@ -112,9 +112,7 @@ export function registerSnoozeMethods(): void {
         snoozeUntil?: number;
       }) ?? {};
     if (!emailId || !threadId || !accountId || typeof snoozeUntil !== "number") {
-      throw new Error(
-        "snooze.snooze: requires { emailId, threadId, accountId, snoozeUntil }",
-      );
+      throw new Error("snooze.snooze: requires { emailId, threadId, accountId, snoozeUntil }");
     }
     const id = randomUUID();
     dbUnsnoozeByThread(threadId, accountId);
@@ -132,8 +130,7 @@ export function registerSnoozeMethods(): void {
   });
 
   registerMethod("snooze.unsnooze", (params) => {
-    const { threadId, accountId } =
-      (params as { threadId?: string; accountId?: string }) ?? {};
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
     if (!threadId || !accountId) {
       throw new Error("snooze.unsnooze: requires { threadId, accountId }");
     }
@@ -164,8 +161,7 @@ export function registerSnoozeMethods(): void {
   });
 
   registerMethod("snooze.get", (params) => {
-    const { threadId, accountId } =
-      (params as { threadId?: string; accountId?: string }) ?? {};
+    const { threadId, accountId } = (params as { threadId?: string; accountId?: string }) ?? {};
     if (!threadId || !accountId) {
       throw new Error("snooze.get: requires { threadId, accountId }");
     }

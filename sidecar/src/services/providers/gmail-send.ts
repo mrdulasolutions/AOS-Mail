@@ -131,9 +131,7 @@ export async function sendViaGmail(input: SendInput): Promise<GmailSendResult> {
         metadataHeaders: ["Message-ID"],
       });
       const headers = get.data.payload?.headers || [];
-      const found = headers.find(
-        (h) => h.name?.toLowerCase() === "message-id",
-      );
+      const found = headers.find((h) => h.name?.toLowerCase() === "message-id");
       if (found?.value) messageIdHeader = found.value;
     } catch {
       // Best-effort; falling back to Gmail's id is fine for local bookkeeping.

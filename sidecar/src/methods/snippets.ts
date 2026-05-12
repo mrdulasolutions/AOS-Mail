@@ -54,8 +54,7 @@ export function registerSnippetsMethods(): void {
   });
 
   registerMethod("snippets.update", (params) => {
-    const { id, updates } =
-      (params as { id?: string; updates?: Partial<Snippet> }) ?? {};
+    const { id, updates } = (params as { id?: string; updates?: Partial<Snippet> }) ?? {};
     if (!id) throw new Error("snippets.update: missing id");
     let updated: Snippet | null = null;
     store.patch((s) => {
