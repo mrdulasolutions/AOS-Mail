@@ -67,8 +67,29 @@ jobs:
 
       - name: Build sidecar (bundle + package binary)
         run: |
+          # Full sidecar pipeline — matches package.json's `build:sidecar`
+          # composite script. All four steps are required for tauri-bundler
+          # to find what tauri.conf.json declares:
+          #
+          #   prepare-node     -> src-tauri/binaries/aos-mail-node-<triple>
+          #                      (slimmed system node — referenced by
+          #                       `externalBin` in tauri.conf.json)
+          #   build            -> sidecar/dist/index.cjs (bundled JS)
+          #   package          -> src-tauri/binaries/aos-mail-sidecar-<triple>
+          #                      (bash stub that execs the bundled node
+          #                       against the bundled JS)
+          #   runtime-modules  -> sidecar/runtime-modules/ (better-sqlite3
+          #                       + bindings, referenced by `resources` in
+          #                       tauri.conf.json)
+          #
+          # Previously this step skipped `prepare-node` and `runtime-modules`,
+          # leaving v0.1.8's arm64 build to fail with
+          # "resource path `binaries/aos-mail-node-aarch64-apple-darwin`
+          # doesn't exist". Earlier releases dodged it via cached state.
+          npm --prefix sidecar run prepare-node
           npm --prefix sidecar run build
           npm --prefix sidecar run package
+          npm --prefix sidecar run runtime-modules
 
       - name: Resolve release version from tag
         if: startsWith(github.ref, 'refs/tags/v')
