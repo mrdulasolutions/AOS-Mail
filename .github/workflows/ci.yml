@@ -80,9 +80,15 @@ jobs:
           # leak we care about is in the renderer's JS, which vite produces
           # into dist/ regardless of platform.
           npm run build:renderer
-          if grep -rq 'GOCSPX-\|\.apps\.googleusercontent\.com' dist/; then
+          # Tight patterns to avoid false positives on placeholder strings
+          # in the UI (e.g. `your-client-id.apps.googleusercontent.com`
+          # and `GOCSPX-…` are legitimate input placeholders).
+          #   Real client ID: `<digits>-<alphanum>.apps.googleusercontent.com`
+          #   Real secret:    `GOCSPX-<≥20 char alphanum/underscore/dash>`
+          if grep -rEq '[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{20,}' dist/; then
             echo "ERROR: Google OAuth credentials found in renderer bundle!"
             echo "Ensure MAIN_VITE_GOOGLE_CLIENT_ID and MAIN_VITE_GOOGLE_CLIENT_SECRET are not set in CI."
+            grep -rEn '[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{20,}' dist/ | head -5
             exit 1
           fi
 
