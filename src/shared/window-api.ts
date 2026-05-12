@@ -548,10 +548,12 @@ export interface SenderApi {
     rating: "useful" | "wrong" | "partial",
     extra?: { notes?: string; accountId?: string; emailId?: string },
   ) => Promise<IpcResponse<{ ok: true }>>;
-  getFeedback: (
-    email: string,
-  ) => Promise<
-    IpcResponse<{ rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number } | null>
+  getFeedback: (email: string) => Promise<
+    IpcResponse<{
+      rating: "useful" | "wrong" | "partial";
+      notes: string | null;
+      createdAt: number;
+    } | null>
   >;
 }
 
@@ -1079,10 +1081,7 @@ export interface BriefingApi {
     date?: string,
     force?: boolean,
   ) => Promise<IpcResponse<R<"briefing.getOrGenerate">>>;
-  dismiss: (
-    accountId: string,
-    date?: string,
-  ) => Promise<IpcResponse<R<"briefing.dismiss">>>;
+  dismiss: (accountId: string, date?: string) => Promise<IpcResponse<R<"briefing.dismiss">>>;
   list: (accountId: string, limit?: number) => Promise<IpcResponse<R<"briefing.list">>>;
 }
 

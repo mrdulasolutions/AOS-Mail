@@ -17,10 +17,7 @@ import { rateLimit } from "../lib/rate-limit.js";
 import { resolveModelFor } from "./model-config.js";
 import { stripJsonFences } from "../lib/prompts/strip-json-fences.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
-import {
-  UNTRUSTED_DATA_INSTRUCTION,
-  wrapUntrustedEmail,
-} from "../lib/prompts/prompt-safety.js";
+import { UNTRUSTED_DATA_INSTRUCTION, wrapUntrustedEmail } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
 import { findApplicableRules, type LearnedAction } from "./learned-rules.js";
 
@@ -185,9 +182,7 @@ export async function analyzeEmail(input: AnalyzeInput): Promise<AnalysisResult>
   }
 
   const body = formatEmailForAnalysis(input.email.body);
-  const userIdentityLine = input.userEmail
-    ? `Your email address: ${input.userEmail}\n\n`
-    : "";
+  const userIdentityLine = input.userEmail ? `Your email address: ${input.userEmail}\n\n` : "";
 
   const wrapped = wrapUntrustedEmail(
     `From: ${input.email.from}\nTo: ${input.email.to}\nSubject: ${input.email.subject}\nDate: ${input.email.date}\n\n${body}`,

@@ -174,13 +174,7 @@ function ToastRow({ toast }: { toast: Toast }) {
   return <UndoToastRow toast={toast} onUndo={handleUndo} />;
 }
 
-function UndoToastRow({
-  toast,
-  onUndo,
-}: {
-  toast: Toast & { kind: "undo" };
-  onUndo: () => void;
-}) {
+function UndoToastRow({ toast, onUndo }: { toast: Toast & { kind: "undo" }; onUndo: () => void }) {
   // Total duration is captured the first time we see this toast. If the
   // toast was merged (expiresAt extended), totalMs grows to match —
   // the bar always fills the new full window and drains again. Without

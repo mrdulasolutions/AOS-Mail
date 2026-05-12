@@ -9,7 +9,7 @@
 //
 // Headers map directly to the emails-table shape the renderer reads.
 
-import { ImapFlow, type FetchMessageObject } from "imapflow";
+import { type FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import { openImapClient } from "./imap.js";
 import { createLogger } from "../../lib/logger.js";
@@ -39,9 +39,7 @@ export interface ImapMessageFull extends ImapMessageHeader {
   bodyText: string | null; // optional plaintext extraction
 }
 
-function formatAddressList(
-  addrs: Array<{ name?: string; address?: string }> | undefined,
-): string {
+function formatAddressList(addrs: Array<{ name?: string; address?: string }> | undefined): string {
   if (!addrs || addrs.length === 0) return "";
   return addrs
     .map((a) => {
@@ -294,9 +292,7 @@ export async function searchImapMessages(
  * Returns null if no SENT folder can be found — caller should treat
  * that as "this server has no SENT to sync from".
  */
-export async function discoverSentFolder(
-  accountId: string,
-): Promise<string | null> {
+export async function discoverSentFolder(accountId: string): Promise<string | null> {
   const client = await openImapClient(accountId);
   try {
     const list = await client.list();

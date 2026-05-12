@@ -8,10 +8,7 @@
 import { createMessage } from "./anthropic.js";
 import { resolveModelFor } from "./model-config.js";
 import { stripQuotedContent } from "../lib/prompts/strip-quoted-content.js";
-import {
-  UNTRUSTED_DATA_INSTRUCTION,
-  wrapUntrustedEmail,
-} from "../lib/prompts/prompt-safety.js";
+import { UNTRUSTED_DATA_INSTRUCTION, wrapUntrustedEmail } from "../lib/prompts/prompt-safety.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("draft-generator");

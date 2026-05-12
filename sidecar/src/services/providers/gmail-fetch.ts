@@ -84,7 +84,10 @@ export function parseGmailEmailId(emailId: string): {
  * before any defined id — used by the watermark code where the initial
  * `latest` may be falsy.
  */
-export function compareHistoryIds(a: string | null | undefined, b: string | null | undefined): number {
+export function compareHistoryIds(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
   const av = a ? BigInt(a) : 0n;
   const bv = b ? BigInt(b) : 0n;
   if (av < bv) return -1;
@@ -92,10 +95,7 @@ export function compareHistoryIds(a: string | null | undefined, b: string | null
   return 0;
 }
 
-function getHeader(
-  headers: gmail_v1.Schema$MessagePartHeader[] | undefined,
-  name: string,
-): string {
+function getHeader(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, name: string): string {
   if (!headers) return "";
   const h = headers.find((x) => x.name?.toLowerCase() === name.toLowerCase());
   return h?.value || "";
@@ -160,10 +160,7 @@ function snippetOf(s: string, max = 200): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-function messageToHeader(
-  accountId: string,
-  m: gmail_v1.Schema$Message,
-): GmailMessageHeader | null {
+function messageToHeader(accountId: string, m: gmail_v1.Schema$Message): GmailMessageHeader | null {
   if (!m.id) return null;
   const headers = m.payload?.headers;
   const labels = m.labelIds || [];
@@ -284,16 +281,7 @@ export async function getGmailHeader(
     userId: "me",
     id: gmailId,
     format: "metadata",
-    metadataHeaders: [
-      "Subject",
-      "From",
-      "To",
-      "Cc",
-      "Bcc",
-      "Date",
-      "Message-ID",
-      "In-Reply-To",
-    ],
+    metadataHeaders: ["Subject", "From", "To", "Cc", "Bcc", "Date", "Message-ID", "In-Reply-To"],
   });
   return messageToHeader(accountId, response.data);
 }
@@ -307,9 +295,7 @@ export async function getGmailHeaders(
   const out: GmailMessageHeader[] = [];
   for (let i = 0; i < gmailIds.length; i += concurrency) {
     const chunk = gmailIds.slice(i, i + concurrency);
-    const settled = await Promise.allSettled(
-      chunk.map((id) => getGmailHeader(accountId, id)),
-    );
+    const settled = await Promise.allSettled(chunk.map((id) => getGmailHeader(accountId, id)));
     for (const r of settled) {
       if (r.status === "fulfilled" && r.value) out.push(r.value);
     }
@@ -375,22 +361,14 @@ export async function getGmailHistoryChanges(
       const response = await gmail.users.history.list({
         userId: "me",
         startHistoryId,
-        historyTypes: [
-          "messageAdded",
-          "messageDeleted",
-          "labelAdded",
-          "labelRemoved",
-        ],
+        historyTypes: ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"],
         labelId,
         pageToken,
       });
       const history = response.data.history || [];
       for (const item of history) {
         for (const ma of item.messagesAdded || []) {
-          if (
-            ma.message?.id &&
-            ma.message?.labelIds?.includes(labelId)
-          ) {
+          if (ma.message?.id && ma.message?.labelIds?.includes(labelId)) {
             newSet.add(ma.message.id);
           }
         }
@@ -429,12 +407,8 @@ export async function getGmailHistoryChanges(
     return {
       newIds,
       removedIds: [...removedSet],
-      readIds: [...readSet].filter(
-        (id) => !newSet.has(id) && !removedSet.has(id),
-      ),
-      unreadIds: [...unreadSet].filter(
-        (id) => !newSet.has(id) && !removedSet.has(id),
-      ),
+      readIds: [...readSet].filter((id) => !newSet.has(id) && !removedSet.has(id)),
+      unreadIds: [...unreadSet].filter((id) => !newSet.has(id) && !removedSet.has(id)),
       historyId: latest,
     };
   } catch (err: unknown) {

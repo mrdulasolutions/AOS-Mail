@@ -189,9 +189,7 @@ export function registerSummaryMethods(): void {
 function safeParseArray(raw: string): string[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? (parsed.filter((x) => typeof x === "string") as string[])
-      : [];
+    return Array.isArray(parsed) ? (parsed.filter((x) => typeof x === "string") as string[]) : [];
   } catch {
     return [];
   }

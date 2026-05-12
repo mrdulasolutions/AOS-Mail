@@ -689,7 +689,11 @@ export interface SidecarMethods {
   };
   "sender.getFeedback": {
     params: { email: string };
-    result: { rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number } | null;
+    result: {
+      rating: "useful" | "wrong" | "partial";
+      notes: string | null;
+      createdAt: number;
+    } | null;
   };
 
   // ── extensions (V1 bundled framework) ─────────────────────────────────

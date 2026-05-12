@@ -1348,9 +1348,11 @@ function installRealNamespaces(): WindowApi {
     },
     getFeedback: async (email: string) => {
       try {
-        const data = (await bridge.call("sender.getFeedback", { email })) as
-          | { rating: "useful" | "wrong" | "partial"; notes: string | null; createdAt: number }
-          | null;
+        const data = (await bridge.call("sender.getFeedback", { email })) as {
+          rating: "useful" | "wrong" | "partial";
+          notes: string | null;
+          createdAt: number;
+        } | null;
         return { success: true, data };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };

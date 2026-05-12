@@ -1851,7 +1851,9 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     Open the{" "}
                     <button
                       type="button"
-                      onClick={() => openExternalUrl("https://console.cloud.google.com/apis/credentials")}
+                      onClick={() =>
+                        openExternalUrl("https://console.cloud.google.com/apis/credentials")
+                      }
                       className="underline hover:no-underline text-blue-700 dark:text-blue-300 cursor-pointer"
                     >
                       Google Cloud Console

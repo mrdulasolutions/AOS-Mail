@@ -14,10 +14,7 @@
 
 import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import type { DashboardEmail } from "../../shared/types";
-import type {
-  ExtensionPanelInfo,
-  ExtensionEnrichmentResult,
-} from "../../shared/extension-types";
+import type { ExtensionPanelInfo, ExtensionEnrichmentResult } from "../../shared/extension-types";
 import { useAppStore } from "../store";
 import {
   getAllPanels,
@@ -64,9 +61,7 @@ export function useExtensionPanels(
   // through every component.
   const accountId = useAppStore((s) => s.currentAccountId);
 
-  const [enrichments, setEnrichments] = useState<Map<string, ExtensionEnrichmentResult>>(
-    new Map(),
-  );
+  const [enrichments, setEnrichments] = useState<Map<string, ExtensionEnrichmentResult>>(new Map());
   const [loadingExtensions, setLoadingExtensions] = useState<Set<string>>(new Set());
 
   const currentEmailIdRef = useRef<string | null>(null);
