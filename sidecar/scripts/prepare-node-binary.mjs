@@ -18,7 +18,7 @@
 // Why it's not committed: ~119 MB exceeds GitHub's 100 MB per-file ceiling
 // (and Git LFS is a heavier dep than just regenerating it from local node).
 
-import { existsSync, statSync, copyFileSync } from "node:fs";
+import { existsSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +73,10 @@ function archForTriple(triple) {
 function main() {
   const triple = rustTargetTriple();
   const arch = archForTriple(triple);
+  // `src-tauri/binaries/` is gitignored and not always created by other
+  // steps — on a fresh checkout (e.g. CI) it does not exist, and the
+  // subsequent copyFileSync / lipo -output would fail with ENOENT.
+  mkdirSync(TAURI_BIN_DIR, { recursive: true });
   const dest = resolve(TAURI_BIN_DIR, `aos-mail-node-${triple}`);
   const sysNode = findSystemNode();
 
