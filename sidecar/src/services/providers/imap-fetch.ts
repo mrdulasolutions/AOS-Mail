@@ -9,7 +9,7 @@
 //
 // Headers map directly to the emails-table shape the renderer reads.
 
-import { ImapFlow, type FetchMessageObject } from "imapflow";
+import { type FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import { openImapClient } from "./imap.js";
 import { createLogger } from "../../lib/logger.js";
