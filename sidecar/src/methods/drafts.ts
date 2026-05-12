@@ -41,9 +41,9 @@ function persistDraft(
 ): void {
   const db = getDb();
   const now = Date.now();
-  const existing = db
-    .prepare("SELECT email_id FROM drafts WHERE email_id = ?")
-    .get(emailId) as { email_id: string } | undefined;
+  const existing = db.prepare("SELECT email_id FROM drafts WHERE email_id = ?").get(emailId) as
+    | { email_id: string }
+    | undefined;
   const ccStr = cc ? JSON.stringify(cc) : null;
   const bccStr = bcc ? JSON.stringify(bcc) : null;
   const toStr = to ? JSON.stringify(to) : null;

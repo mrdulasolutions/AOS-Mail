@@ -39,8 +39,7 @@ export function registerLearnedRulesMethods(): void {
   });
 
   registerMethod("learnedRules.toggle", (params) => {
-    const { ruleId, enabled } =
-      (params as { ruleId?: string; enabled?: boolean }) ?? {};
+    const { ruleId, enabled } = (params as { ruleId?: string; enabled?: boolean }) ?? {};
     if (!ruleId) throw new Error("learnedRules.toggle: requires { ruleId }");
     if (typeof enabled !== "boolean") {
       throw new Error("learnedRules.toggle: requires { enabled: boolean }");
@@ -62,17 +61,12 @@ export function registerLearnedRulesMethods(): void {
   // LEARNED_RULES_TEST_HOOKS=1 on a packaged binary; without the second
   // check, that would expose dev RPCs that let arbitrary callers manipulate
   // the rules engine. See post-mortem P3 #19.
-  if (
-    process.env.LEARNED_RULES_TEST_HOOKS === "1" &&
-    process.env.NODE_ENV !== "production"
-  ) {
+  if (process.env.LEARNED_RULES_TEST_HOOKS === "1" && process.env.NODE_ENV !== "production") {
     registerMethod("learnedRules.devRecordOverride", async (params) => {
       const { emailId, accountId, action } =
         (params as { emailId?: string; accountId?: string; action?: LearnedAction }) ?? {};
       if (!emailId || !accountId || !action) {
-        throw new Error(
-          "learnedRules.devRecordOverride: requires { emailId, accountId, action }",
-        );
+        throw new Error("learnedRules.devRecordOverride: requires { emailId, accountId, action }");
       }
       return recordOverride({
         emailId,

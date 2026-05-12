@@ -183,7 +183,10 @@ function parseProfileResponse(raw: string): ParsedProfile {
   }
 
   // 4. Plain prose — use as summary if it's short enough to be useful.
-  const cleaned = text.replace(/[`{}"[\]]/g, " ").replace(/\s+/g, " ").trim();
+  const cleaned = text
+    .replace(/[`{}"[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (cleaned.length > 0 && cleaned.length < 1000) {
     return { summary: cleaned };
   }

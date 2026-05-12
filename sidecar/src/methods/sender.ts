@@ -62,11 +62,12 @@ export function registerSenderMethods(): void {
   // Web-search-backed lookup. Returns the cached profile if fresh,
   // otherwise calls Claude with the web_search tool and caches the result.
   registerMethod("sender.lookup", async (params) => {
-    const { email, name, accountId } = (params as {
-      email?: string;
-      name?: string;
-      accountId?: string;
-    }) ?? {};
+    const { email, name, accountId } =
+      (params as {
+        email?: string;
+        name?: string;
+        accountId?: string;
+      }) ?? {};
     if (!email) throw new Error("sender.lookup: requires { email }");
     return await lookupSenderService({ email, name, accountId });
   });
@@ -78,13 +79,14 @@ export function registerSenderMethods(): void {
   //      we use the bad examples as a few-shot training set when we
   //      revise sender-lookup's prompt.
   registerMethod("sender.recordFeedback", (params) => {
-    const { email, rating, notes, accountId, emailId } = (params as {
-      email?: string;
-      rating?: "useful" | "wrong" | "partial";
-      notes?: string;
-      accountId?: string;
-      emailId?: string;
-    }) ?? {};
+    const { email, rating, notes, accountId, emailId } =
+      (params as {
+        email?: string;
+        rating?: "useful" | "wrong" | "partial";
+        notes?: string;
+        accountId?: string;
+        emailId?: string;
+      }) ?? {};
     if (!email) throw new Error("sender.recordFeedback: requires { email }");
     if (rating !== "useful" && rating !== "wrong" && rating !== "partial") {
       throw new Error("sender.recordFeedback: rating must be 'useful' | 'wrong' | 'partial'");

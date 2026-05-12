@@ -95,7 +95,9 @@ export async function rateLimit(
 /**
  * Test-only / diagnostic: peek at the current usage of a bucket.
  */
-export function bucketUsage(name: string): { current: number; limit: number; windowMs: number } | null {
+export function bucketUsage(
+  name: string,
+): { current: number; limit: number; windowMs: number } | null {
   const b = buckets.get(name);
   if (!b) return null;
   pruneOld(b, Date.now());

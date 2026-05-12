@@ -52,8 +52,7 @@ function logFilePath(): string | null {
   // Mirrors db/data-dir.ts but resolved here directly to avoid an import
   // cycle (data-dir.ts uses createLogger).
   const dir =
-    process.env.AOS_DATA_DIR ??
-    join(homedir(), "Library", "Application Support", "AOS Mail");
+    process.env.AOS_DATA_DIR ?? join(homedir(), "Library", "Application Support", "AOS Mail");
   try {
     mkdirSync(dir, { recursive: true });
     resolvedLogPath = join(dir, "sidecar.log");

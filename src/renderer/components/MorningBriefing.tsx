@@ -175,10 +175,7 @@ export function MorningBriefing({ onDismissed }: MorningBriefingProps) {
   const accountLabel = currentAccount?.email ?? "";
 
   return (
-    <div
-      className={`flex-1 min-w-0 overflow-y-auto ${themeBg}`}
-      data-testid="morning-briefing"
-    >
+    <div className={`flex-1 min-w-0 overflow-y-auto ${themeBg}`} data-testid="morning-briefing">
       <div className="max-w-3xl mx-auto px-8 py-12">
         {/* Header */}
         <div className="mb-8">

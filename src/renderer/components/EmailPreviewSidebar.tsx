@@ -394,10 +394,7 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
             </div>
           </div>
         ) : (
-          <V1AgentPanel
-            email={contextEmail || latestEmail || null}
-            accountId={currentAccountId}
-          />
+          <V1AgentPanel email={contextEmail || latestEmail || null} accountId={currentAccountId} />
         )}
       </div>
 

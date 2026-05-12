@@ -192,16 +192,16 @@ export function AgentsSidebar() {
                     Inbox Agent
                   </div>
                   <div className="text-[11px] text-purple-700/80 dark:text-purple-300/70 leading-snug mt-0.5">
-                    Triages new mail, looks up senders, drafts replies in your
-                    voice. Runs automatically in the background.
+                    Triages new mail, looks up senders, drafts replies in your voice. Runs
+                    automatically in the background.
                   </div>
                 </div>
               </div>
             </div>
             <div className="px-1 py-1">
               <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
-                Custom + multi-agent workflows are coming in V2. For now,
-                everything routes through one configurable inbox agent.
+                Custom + multi-agent workflows are coming in V2. For now, everything routes through
+                one configurable inbox agent.
               </p>
             </div>
           </div>

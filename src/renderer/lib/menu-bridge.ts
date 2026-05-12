@@ -42,16 +42,18 @@ export function installMenuBridge(): void {
   if (!bridge.isTauri) return;
 
   for (const id of KNOWN_MENU_IDS) {
-    bridge.listen(`menu:${id}`, () => {
-      // Per-id custom event for components that listen narrowly.
-      window.dispatchEvent(new CustomEvent(`aos-mail:${id}`));
-      // Aggregate event with the id in detail.
-      window.dispatchEvent(new CustomEvent("aos-mail:menu", { detail: { id } }));
-      // eslint-disable-next-line no-console
-      console.debug(`[menu] ${id}`);
-    }).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.warn(`[menu] failed to subscribe to menu:${id}:`, err);
-    });
+    bridge
+      .listen(`menu:${id}`, () => {
+        // Per-id custom event for components that listen narrowly.
+        window.dispatchEvent(new CustomEvent(`aos-mail:${id}`));
+        // Aggregate event with the id in detail.
+        window.dispatchEvent(new CustomEvent("aos-mail:menu", { detail: { id } }));
+        // eslint-disable-next-line no-console
+        console.debug(`[menu] ${id}`);
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn(`[menu] failed to subscribe to menu:${id}:`, err);
+      });
   }
 }

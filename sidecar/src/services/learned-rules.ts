@@ -223,7 +223,10 @@ function pickScopeValue(
 function senderDomainOf(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at < 0) return null;
-  const d = email.slice(at + 1).trim().toLowerCase();
+  const d = email
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
   return d.length > 0 ? d : null;
 }
 
@@ -376,9 +379,7 @@ export async function recordOverride(input: OverrideInput): Promise<RecordOverri
   // Look up the email so we know who it's from. Not strictly required for
   // the flow but the prompt classification needs it.
   const emailRow = db
-    .prepare(
-      "SELECT from_address, subject, account_id FROM emails WHERE id = ?",
-    )
+    .prepare("SELECT from_address, subject, account_id FROM emails WHERE id = ?")
     .get(input.emailId) as
     | { from_address: string; subject: string; account_id: string }
     | undefined;
@@ -467,7 +468,9 @@ export async function recordOverride(input: OverrideInput): Promise<RecordOverri
     const prevIds = (() => {
       try {
         const parsed: unknown = JSON.parse(row.source_email_ids);
-        return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+        return Array.isArray(parsed)
+          ? parsed.filter((x): x is string => typeof x === "string")
+          : [];
       } catch {
         return [];
       }
@@ -742,12 +745,14 @@ export function toggleLearnedRule(ruleId: string, enabled: boolean): LearnedRule
     )
     .get(ruleId) as MemoryRow | undefined;
   if (!row) return null;
-  db.prepare(
-    `UPDATE memories SET enabled = ?, updated_at = ? WHERE id = ?`,
-  ).run(enabled ? 1 : 0, Date.now(), ruleId);
-  const updated = db
-    .prepare(`SELECT * FROM memories WHERE id = ?`)
-    .get(ruleId) as MemoryRow | undefined;
+  db.prepare(`UPDATE memories SET enabled = ?, updated_at = ? WHERE id = ?`).run(
+    enabled ? 1 : 0,
+    Date.now(),
+    ruleId,
+  );
+  const updated = db.prepare(`SELECT * FROM memories WHERE id = ?`).get(ruleId) as
+    | MemoryRow
+    | undefined;
   return updated ? rowToRule(updated) : null;
 }
 
@@ -756,7 +761,10 @@ export function toggleLearnedRule(ruleId: string, enabled: boolean): LearnedRule
  * draft observations are cleared so the user can start over with the
  * same accountId without ghosts re-promoting from leftover counts.
  */
-export function resetLearnedRules(accountId?: string): { deletedRules: number; deletedObservations: number } {
+export function resetLearnedRules(accountId?: string): {
+  deletedRules: number;
+  deletedObservations: number;
+} {
   const db = getDb();
   const memoryWhere = accountId
     ? `account_id = ? AND source = 'priority-override' AND memory_type = 'analysis'`
