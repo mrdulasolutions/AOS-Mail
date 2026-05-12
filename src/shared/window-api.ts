@@ -548,9 +548,7 @@ export interface SenderApi {
     rating: "useful" | "wrong" | "partial",
     extra?: { notes?: string; accountId?: string; emailId?: string },
   ) => Promise<IpcResponse<{ ok: true }>>;
-  getFeedback: (
-    email: string,
-  ) => Promise<
+  getFeedback: (email: string) => Promise<
     IpcResponse<{
       rating: "useful" | "wrong" | "partial";
       notes: string | null;
