@@ -35,8 +35,14 @@ function rustTargetTriple() {
 }
 
 function findSystemNode() {
+  // Prefer the running interpreter itself — it's by definition a real,
+  // full Node binary in the version this build expects. Avoids the
+  // failure mode we hit on macos-latest GitHub runners, where
+  // /opt/homebrew/bin/node is an ~86 KB shim rather than the actual
+  // ~80 MB binary, producing a broken bundled node in the .app.
   const candidates = [
     process.env.AOS_BUNDLED_NODE,
+    process.execPath, // <- the node running this very script
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
     "/opt/local/bin/node",
@@ -44,14 +50,23 @@ function findSystemNode() {
   for (const cand of candidates) {
     if (existsSync(cand)) {
       try {
-        statSync(cand); // confirm it's accessible
+        const st = statSync(cand);
+        // Sanity check: real Node binaries are at least 10 MB. Anything
+        // smaller is almost certainly a wrapper / shim / launcher and
+        // would produce a non-functional bundled node.
+        if (st.size < 10 * 1024 * 1024) {
+          console.warn(
+            `skipping ${cand}: only ${(st.size / 1024 / 1024).toFixed(1)} MB — looks like a shim, not the real node binary`,
+          );
+          continue;
+        }
         return cand;
       } catch {
         // skip
       }
     }
   }
-  // Try `which`
+  // Try `which` as a last resort
   try {
     const which = execSync("command -v node").toString().trim();
     if (which) return which;
