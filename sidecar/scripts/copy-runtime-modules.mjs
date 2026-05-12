@@ -168,15 +168,36 @@ function signNodeBinaries() {
   }
   const nodeFiles = findNodeFiles(DEST);
   if (nodeFiles.length === 0) return;
+  // In CI, the tauri.conf.json identity is resolved but the matching cert
+  // isn't in the keychain until tauri-action imports it — and that happens
+  // in a later workflow step than this one. Same applies to local dev
+  // contributors who don't have the production cert installed. In both
+  // cases we'd rather emit the unsigned .node files and let notarization
+  // (if enabled) flag it loudly than abort the whole build here.
+  let signed = 0;
+  let skipped = 0;
   for (const f of nodeFiles) {
-    // --force replaces whatever signature node-gyp / prebuild-install added
-    // (typically ad-hoc). --options runtime opts into hardened runtime.
-    // --timestamp adds Apple's secure timestamp, required for notarization.
-    execSync(
-      `codesign --sign ${JSON.stringify(identity)} --options runtime --timestamp --force ${JSON.stringify(f)}`,
-      { stdio: ["ignore", "pipe", "pipe"] },
+    try {
+      // --force replaces whatever signature node-gyp / prebuild-install added
+      // (typically ad-hoc). --options runtime opts into hardened runtime.
+      // --timestamp adds Apple's secure timestamp, required for notarization.
+      execSync(
+        `codesign --sign ${JSON.stringify(identity)} --options runtime --timestamp --force ${JSON.stringify(f)}`,
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      console.log(`signed: ${relative(DEST, f)}`);
+      signed += 1;
+    } catch (err) {
+      const msg = (err?.stderr?.toString?.() || err?.message || String(err)).trim();
+      console.warn(`could not sign ${relative(DEST, f)} (${msg.split("\n")[0]}) — leaving unsigned`);
+      skipped += 1;
+    }
+  }
+  if (skipped > 0) {
+    console.warn(
+      `${skipped} .node file(s) left unsigned. Acceptable for unsigned/dev builds; ` +
+        "notarization will reject them — sign explicitly after tauri-action imports the cert.",
     );
-    console.log(`signed: ${relative(DEST, f)}`);
   }
 }
 
