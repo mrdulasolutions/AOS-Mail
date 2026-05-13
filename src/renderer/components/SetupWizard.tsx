@@ -13,7 +13,15 @@ interface SetupWizardProps {
   initialStep?: "imap";
 }
 
-type Step = "loading" | "credentials" | "apikey" | "oauth" | "extensions" | "analytics" | "imap";
+type Step =
+  | "loading"
+  | "credentials"
+  | "apikey"
+  | "oauth"
+  | "extensions"
+  | "permissions"
+  | "analytics"
+  | "imap";
 
 interface ExtensionAuthInfo {
   extensionId: string;
@@ -44,6 +52,13 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
   // Analytics opt-in (default ON — session replay is bundled under analytics)
   const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
 
+  // Notification permission state. "unknown" before the user has clicked
+  // Grant; "granted" / "denied" after macOS has decided. Used by the
+  // permissions wizard step to render the right copy + CTA.
+  const [notificationPermission, setNotificationPermission] = useState<
+    "unknown" | "granted" | "denied" | "requesting"
+  >("unknown");
+
   // Check what's already configured and skip to the right step.
   // If `initialStep` was passed (e.g. "imap" from the empty-state CTA),
   // we still compute the visible-step indicator but don't override the
@@ -73,6 +88,7 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
           if (!hasAnthropicKey) flow.push("apikey");
           if (!hasTokens) flow.push("oauth");
           flow.push("extensions");
+          flow.push("permissions");
           flow.push("analytics");
           setVisibleSteps(flow);
 
@@ -86,7 +102,14 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
             enterExtensionsStep();
           }
         } else {
-          setVisibleSteps(["credentials", "apikey", "oauth", "extensions", "analytics"]);
+          setVisibleSteps([
+            "credentials",
+            "apikey",
+            "oauth",
+            "extensions",
+            "permissions",
+            "analytics",
+          ]);
           setStep("credentials");
         }
       })
@@ -221,19 +244,20 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
         setStep("extensions");
         setIsLoading(false);
       } else {
-        // No extensions need auth (or IPC failed) — skip extensions step entirely
+        // No extensions need auth (or IPC failed) — skip extensions step
+        // entirely and move to the permissions step (next in the flow).
         if (!result.success) {
           console.error("[SetupWizard] getPendingAuths failed:", result.error);
         }
         setVisibleSteps((prev) => prev.filter((s) => s !== "extensions"));
         setIsLoading(false);
-        setStep("analytics");
+        setStep("permissions");
       }
     } catch (err) {
       console.error("[SetupWizard] getPendingAuths failed:", err);
       setVisibleSteps((prev) => prev.filter((s) => s !== "extensions"));
       setIsLoading(false);
-      setStep("analytics");
+      setStep("permissions");
     }
   }, []);
 
@@ -569,11 +593,107 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
               {error && <div className="aos-callout-danger mb-4 text-sm">{error}</div>}
 
               <button
-                onClick={() => setStep("analytics")}
+                onClick={() => setStep("permissions")}
                 disabled={authenticatingExtension !== null}
                 className="aos-btn-primary w-full py-3"
               >
                 Continue
+              </button>
+            </>
+          )}
+
+          {step === "permissions" && (
+            <>
+              <h2 className="text-2xl font-semibold text-aos-text mb-2 tracking-tight">
+                Enable notifications
+              </h2>
+              <p className="text-aos-text-soft mb-4 leading-relaxed">
+                AOS Mail uses macOS notifications to surface high-priority emails so you don&apos;t
+                have to keep checking the app. You can change this anytime in Settings →
+                Notifications.
+              </p>
+              <p className="text-aos-text-muted text-sm mb-6 leading-relaxed">
+                macOS will ask you once. If you decline, you can re-enable later from System
+                Settings → Notifications → AOS Mail.
+              </p>
+
+              {/* State pill — reflects requestPermission()'s last return value. */}
+              {notificationPermission === "granted" && (
+                <div className="aos-callout-success mb-4 text-sm">
+                  ✓ Notifications enabled. You&apos;ll get a banner when new mail needs your
+                  attention.
+                </div>
+              )}
+              {notificationPermission === "denied" && (
+                <div className="aos-callout-warning mb-4 text-sm">
+                  Notifications are blocked at the system level. To enable them, open System
+                  Settings → Notifications → AOS Mail and turn on &ldquo;Allow notifications.&rdquo;
+                  You can continue without this — notifications are an optional convenience.
+                </div>
+              )}
+
+              <div className="flex gap-3 mb-2">
+                {notificationPermission !== "granted" && (
+                  <button
+                    onClick={async () => {
+                      setNotificationPermission("requesting");
+                      try {
+                        const { isPermissionGranted, requestPermission } = await import(
+                          "@tauri-apps/plugin-notification"
+                        );
+                        const already = await isPermissionGranted();
+                        if (already) {
+                          setNotificationPermission("granted");
+                          // Persist the toggle so the rest of the app respects it.
+                          await window.api.settings.set({ notificationsEnabled: true });
+                          return;
+                        }
+                        const result = await requestPermission();
+                        // macOS returns "granted" / "denied" / "default". "default" =
+                        // the user dismissed the prompt without deciding; treat as
+                        // not-yet-decided so the button stays available.
+                        if (result === "granted") {
+                          setNotificationPermission("granted");
+                          await window.api.settings.set({ notificationsEnabled: true });
+                        } else if (result === "denied") {
+                          setNotificationPermission("denied");
+                        } else {
+                          setNotificationPermission("unknown");
+                        }
+                      } catch (err) {
+                        console.warn("[SetupWizard] notification permission failed:", err);
+                        setNotificationPermission("denied");
+                      }
+                    }}
+                    disabled={notificationPermission === "requesting"}
+                    className="aos-btn-primary flex-1 py-3"
+                  >
+                    {notificationPermission === "requesting"
+                      ? "Asking macOS…"
+                      : "Allow notifications"}
+                  </button>
+                )}
+                {notificationPermission === "denied" && (
+                  <button
+                    onClick={() => {
+                      // Deep-link straight to AOS Mail's notification settings.
+                      // macOS recognizes this URL scheme since Ventura.
+                      void openExternalUrl(
+                        "x-apple.systempreferences:com.apple.preference.notifications?id=com.mrdulasolutions.aosmail",
+                      );
+                    }}
+                    className="aos-btn-secondary py-3 px-4"
+                  >
+                    Open System Settings
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => setStep("analytics")}
+                className="aos-btn-secondary w-full py-3 mt-2"
+              >
+                {notificationPermission === "granted" ? "Continue" : "Continue without notifications"}
               </button>
             </>
           )}
