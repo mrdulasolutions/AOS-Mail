@@ -638,9 +638,8 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                     onClick={async () => {
                       setNotificationPermission("requesting");
                       try {
-                        const { isPermissionGranted, requestPermission } = await import(
-                          "@tauri-apps/plugin-notification"
-                        );
+                        const { isPermissionGranted, requestPermission } =
+                          await import("@tauri-apps/plugin-notification");
                         const already = await isPermissionGranted();
                         if (already) {
                           setNotificationPermission("granted");
@@ -693,7 +692,9 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                 onClick={() => setStep("analytics")}
                 className="aos-btn-secondary w-full py-3 mt-2"
               >
-                {notificationPermission === "granted" ? "Continue" : "Continue without notifications"}
+                {notificationPermission === "granted"
+                  ? "Continue"
+                  : "Continue without notifications"}
               </button>
             </>
           )}
