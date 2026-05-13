@@ -1325,142 +1325,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 )}
               </div>
 
-              {/* AI Models */}
-              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
-                <div className="mb-3">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">AI Models</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Choose which Claude model to use for each feature. Haiku is fastest and
-                    cheapest, Opus is most capable.
-                  </p>
-                </div>
-                <div className="space-y-3">
-                  {[
-                    {
-                      key: "analysis" as const,
-                      label: "Email Analysis",
-                      description: "Triaging which emails need replies",
-                    },
-                    {
-                      key: "drafts" as const,
-                      label: "Draft Generation",
-                      description: "Writing reply drafts",
-                    },
-                    {
-                      key: "refinement" as const,
-                      label: "Draft Refinement",
-                      description: "Improving drafts based on feedback",
-                    },
-                    {
-                      key: "calendaring" as const,
-                      label: "Scheduling Detection",
-                      description: "Identifying calendar-related emails",
-                    },
-                    {
-                      key: "archiveReady" as const,
-                      label: "Archive-Ready Analysis",
-                      description: "Detecting completed conversations",
-                    },
-                    {
-                      key: "senderLookup" as const,
-                      label: "Sender Lookup",
-                      description: "Web search for sender info",
-                      anthropicOnly: true,
-                    },
-                    {
-                      key: "agentDrafter" as const,
-                      label: "Agent Drafter",
-                      description: "Background auto-draft generation",
-                    },
-                    {
-                      key: "agentChat" as const,
-                      label: "Agent Chat",
-                      description: "Interactive agent sidebar conversations",
-                    },
-                  ].map(({ key, label, description, ...rest }) => {
-                    // Mirror the Agents tab picker shape: full Anthropic
-                    // model list + OpenRouter free models, auto-save on
-                    // change. anthropicOnly features (Sender Lookup uses
-                    // Anthropic web_search; no OpenRouter equivalent) keep
-                    // the Anthropic-only chip and hide the OpenRouter
-                    // optgroup. The sidecar's resolveModelFor() accepts
-                    // both legacy tier names ("haiku") and concrete model
-                    // ids ("claude-haiku-4-5-…", "deepseek/…:free"), so
-                    // either value space round-trips correctly.
-                    const anthropicOnly =
-                      "anthropicOnly" in rest ? rest.anthropicOnly : false;
-                    const isNonClaude =
-                      anthropicOnly && !modelConfig[key].startsWith("claude-");
-                    return (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
-                      >
-                        <div className="flex-1 min-w-0 mr-4">
-                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {label}
-                            {anthropicOnly && (
-                              <span
-                                className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400"
-                                title="Uses Anthropic's web_search tool, which has no OpenRouter equivalent"
-                              >
-                                Anthropic-only
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {description}
-                          </p>
-                          {isNonClaude && (
-                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                              Configured model is not a Claude model — this feature will fail
-                              until a Claude model is selected.
-                            </p>
-                          )}
-                        </div>
-                        <select
-                          value={modelConfig[key]}
-                          onChange={async (e) => {
-                            const next = e.target.value;
-                            const updated = { ...modelConfig, [key]: next };
-                            setModelConfig(updated);
-                            await window.api.settings.set({ modelConfig: updated });
-                            queryClient.invalidateQueries({
-                              queryKey: ["general-config"],
-                            });
-                          }}
-                          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-[300px]"
-                        >
-                          <optgroup label="Anthropic">
-                            {ANTHROPIC_MODEL_OPTIONS.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </optgroup>
-                          {!anthropicOnly && freeModels.length > 0 && (
-                            <optgroup label="OpenRouter (free)">
-                              {freeModels.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                  Picking a non-Anthropic model routes that feature through OpenRouter — make
-                  sure an OpenRouter API key is configured in Agent Tools → AI Models, otherwise
-                  the call will surface a clear &ldquo;OpenRouter API key required&rdquo; error.
-                  Sender Lookup is the exception: it uses Anthropic&rsquo;s web_search tool,
-                  which has no OpenRouter equivalent, so the picker only offers Claude models
-                  for that feature.
-                </p>
-              </div>
+              {/* AI Models lives in Agent Tools → AI Models now — single
+                  source of truth, directly under the Anthropic auth section. */}
 
               {/* Updates */}
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-600 mb-6">
@@ -2293,6 +2159,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                           "Iterating on a draft from your feedback (falls back to Draft Generation)",
                       },
                       {
+                        key: "calendaring" as const,
+                        label: "Scheduling Detection",
+                        description: "Identifying calendar-related emails",
+                      },
+                      {
                         key: "summary" as const,
                         label: "Thread Summary",
                         description: "Multi-message thread summaries",
@@ -2307,6 +2178,16 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         label: "Sender Lookup",
                         description: "Web-search-backed sender profiles",
                         anthropicOnly: true,
+                      },
+                      {
+                        key: "agentDrafter" as const,
+                        label: "Agent Drafter",
+                        description: "Background auto-draft generation",
+                      },
+                      {
+                        key: "agentChat" as const,
+                        label: "Agent Chat",
+                        description: "Interactive agent sidebar conversations",
                       },
                     ] as const
                   ).map(({ key, label, description, ...rest }) => {
