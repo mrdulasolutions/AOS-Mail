@@ -9,8 +9,6 @@ import {
   DEFAULT_STYLE_PROMPT,
   DEFAULT_AGENT_DRAFTER_PROMPT,
   DEFAULT_MODEL_CONFIG,
-  MODEL_TIERS,
-  MODEL_TIER_LABELS,
   ANTHROPIC_MODEL_OPTIONS,
   type EAConfig,
   type Config,
@@ -18,7 +16,6 @@ import {
   type Signature,
   type McpServerConfig,
   type ModelConfig,
-  type ModelTier,
   type CliToolConfig,
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
@@ -1351,6 +1348,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       key: "senderLookup" as const,
                       label: "Sender Lookup",
                       description: "Web search for sender info",
+                      anthropicOnly: true,
                     },
                     {
                       key: "agentDrafter" as const,
@@ -1362,36 +1360,89 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       label: "Agent Chat",
                       description: "Interactive agent sidebar conversations",
                     },
-                  ].map(({ key, label, description }) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
-                    >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {label}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
-                      </div>
-                      <select
-                        value={modelConfig[key]}
-                        onChange={(e) => {
-                          const tier = e.target.value;
-                          if ((MODEL_TIERS as readonly string[]).includes(tier)) {
-                            setModelConfig((prev) => ({ ...prev, [key]: tier as ModelTier }));
-                          }
-                        }}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  ].map(({ key, label, description, ...rest }) => {
+                    // Mirror the Agents tab picker shape: full Anthropic
+                    // model list + OpenRouter free models, auto-save on
+                    // change. anthropicOnly features (Sender Lookup uses
+                    // Anthropic web_search; no OpenRouter equivalent) keep
+                    // the Anthropic-only chip and hide the OpenRouter
+                    // optgroup. The sidecar's resolveModelFor() accepts
+                    // both legacy tier names ("haiku") and concrete model
+                    // ids ("claude-haiku-4-5-…", "deepseek/…:free"), so
+                    // either value space round-trips correctly.
+                    const anthropicOnly =
+                      "anthropicOnly" in rest ? rest.anthropicOnly : false;
+                    const isNonClaude =
+                      anthropicOnly && !modelConfig[key].startsWith("claude-");
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
                       >
-                        {MODEL_TIERS.map((tier) => (
-                          <option key={tier} value={tier}>
-                            {MODEL_TIER_LABELS[tier]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
+                        <div className="flex-1 min-w-0 mr-4">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {label}
+                            {anthropicOnly && (
+                              <span
+                                className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400"
+                                title="Uses Anthropic's web_search tool, which has no OpenRouter equivalent"
+                              >
+                                Anthropic-only
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {description}
+                          </p>
+                          {isNonClaude && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                              Configured model is not a Claude model — this feature will fail
+                              until a Claude model is selected.
+                            </p>
+                          )}
+                        </div>
+                        <select
+                          value={modelConfig[key]}
+                          onChange={async (e) => {
+                            const next = e.target.value;
+                            const updated = { ...modelConfig, [key]: next };
+                            setModelConfig(updated);
+                            await window.api.settings.set({ modelConfig: updated });
+                            queryClient.invalidateQueries({
+                              queryKey: ["general-config"],
+                            });
+                          }}
+                          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-[300px]"
+                        >
+                          <optgroup label="Anthropic">
+                            {ANTHROPIC_MODEL_OPTIONS.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {!anthropicOnly && freeModels.length > 0 && (
+                            <optgroup label="OpenRouter (free)">
+                              {freeModels.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+                    );
+                  })}
                 </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                  Picking a non-Anthropic model routes that feature through OpenRouter — make
+                  sure an OpenRouter API key is configured in Agent Tools → AI Models, otherwise
+                  the call will surface a clear &ldquo;OpenRouter API key required&rdquo; error.
+                  Sender Lookup is the exception: it uses Anthropic&rsquo;s web_search tool,
+                  which has no OpenRouter equivalent, so the picker only offers Claude models
+                  for that feature.
+                </p>
               </div>
 
               {/* Updates */}
