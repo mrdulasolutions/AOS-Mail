@@ -15,9 +15,11 @@ For Claude / AI-agent collaboration patterns specific to this codebase, see [CLA
 - [Configuration paths](#configuration-paths)
 - [The renderer ↔ sidecar contract](#the-renderer--sidecar-contract)
 - [Testing](#testing)
-- [Release pipeline](#release-pipeline-sign-notarize-publish)
+- [Release pipeline](#release-pipeline-automated-via-github-actions)
 - [Updater key management](#updater-key-management)
 - [Contributing](#contributing)
+- [Troubleshooting](#troubleshooting-common-devrelease-issues)
+- [Roadmap](#roadmap)
 
 ---
 
@@ -81,7 +83,7 @@ The full breakdown of what AOS Mail changes vs upstream Exo:
 - **Node sidecar** — the entire main process logic (Gmail client, IMAP, agents, SQLite, draft pipeline) lifted into a long-running Node process the Rust shell supervises. NDJSON JSON-RPC over stdio with the contract typed end-to-end.
 - **Keychain integration** via Rust `keyring` crate.
 - **Auto-updater** wired to GitHub Releases via `tauri-plugin-updater` with minisign-signed manifests.
-- **Bundle size** dropped from Electron's ~80 MB+ to a ~9 MB DMG / ~43 MB unpacked `.app`.
+- **Bundle size** — the unpacked `.app` is ~125 MB on disk; the shipped `.dmg` compresses that to ~45 MB. The dominant payload is the bundled Node binary (~113 MB) — required so the sidecar runs on any Mac without a system Node install. Pre-Tauri Electron was 80 MB+ for a smaller-functionality slice; we're paying for self-contained Node here, knowingly.
 
 ### Multi-inbox — IMAP/SMTP added (Gmail-only upstream)
 
@@ -256,150 +258,175 @@ npm run test:sidecar
 
 ---
 
-## Release pipeline (sign, notarize, publish)
+## Release pipeline (automated via GitHub Actions)
 
-This is what you run to ship a new version to GitHub Releases.
+Releases are fully automated by `.github/workflows/release.yml`. **You don't run `codesign` or `notarytool` locally.** You bump the version, push a tag, and the workflow does the rest.
 
-### Prerequisites (one-time, per machine)
+### The pipeline at a glance
 
-1. **Apple Developer Program** membership ($99/yr) under the Apple ID used for signing.
-2. **Developer ID Application certificate** installed in the login Keychain. Verify with:
-   ```bash
-   security find-identity -v -p codesigning
-   ```
-   Should list `Developer ID Application: <Name> (<Team ID>)`.
-3. **App-specific password** for notarization, generated at <https://account.apple.com> → Sign-In and Security → App-Specific Passwords.
-4. **Tauri updater key** at `~/.tauri/aos-mail-v1.key`. The matching pubkey is embedded in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`.
-5. `gh` CLI authenticated against `mrdulasolutions/AOS-Mail`.
+A tag push matching `v*` triggers a matrix build (currently `aarch64-apple-darwin` on `macos-latest` only; `x86_64-apple-darwin` on `macos-13` is configured but GitHub's Intel runner pool has been unreliable — see [docs/POST-MORTEM-2026-05.md](docs/POST-MORTEM-2026-05.md)). Each matrix job runs through 14 steps:
+
+1. **Checkout** the tagged commit.
+2. **Setup Node + Rust** toolchains.
+3. **Cache cargo** registry and `src-tauri/target/`.
+4. **`npm ci`** root + sidecar.
+5. **Pre-import Apple Developer ID cert** into a fresh keychain in `$RUNNER_TEMP` (necessary so the next step can codesign `.node` binaries — see [PR #9, #10](https://github.com/mrdulasolutions/AOS-Mail/pulls)).
+6. **Build sidecar** — runs `prepare-node` (bundle real Node binary), `build` (esbuild the JS), `package` (wrap in self-extracting bash stub), `runtime-modules` (copy + sign `better_sqlite3.node`).
+7. **Probe Apple signing secrets** — logs whether codesign and notarization will run.
+8. **Strip AppleDouble metadata** — sweeps `._*` files from `src-tauri/target`, `sidecar/`, `node_modules`. Without this, `tauri-plugin-updater`'s tar extractor SIGKILLs on the resulting `.app.tar.gz`. See [PR #2](https://github.com/mrdulasolutions/AOS-Mail/pull/2).
+9. **`tauri-action@v0`** — compiles the Rust binary, bundles the `.app`, codesigns with the Developer ID, notarizes via Apple, builds the `.dmg`, signs the updater bundle with the minisign key, and uploads everything to a **draft** GitHub release.
+10. **Verify update tarball** — raw-parses the produced `.app.tar.gz` (since BSD `tar -t` hides AppleDouble entries) and fails the build if any `._*` entries are present.
+11. **Summarize artifacts** in the run log.
 
 ### Cutting a release
 
 ```bash
-# 1. Bump version in three places
-#    - package.json
-#    - sidecar/package.json
-#    - src-tauri/tauri.conf.json
-#    - src-tauri/Cargo.toml
-# Commit the bump.
-git commit -am "chore(release): bump to v0.1.1"
+# 1. Bump the version in all four canonical files (they MUST agree):
+#    - package.json                 "version"
+#    - sidecar/package.json         "version" (optional but conventional)
+#    - src-tauri/tauri.conf.json    "version"
+#    - src-tauri/Cargo.toml         [package] version
+#    - src-tauri/Cargo.lock         [[package]] name = "aos-mail" → version
+git commit -am "chore(release): bump to v0.1.9"
+git push origin main
 
-# 2. Build (signed + notarized + updater-signed)
-APPLE_ID=mattdula@gmail.com \
-APPLE_PASSWORD=<app-specific-password> \
-APPLE_TEAM_ID=PPY9K2BYJH \
-TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/aos-mail-v1.key)" \
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your-key-password> \
-npm run build
+# 2. Tag and push.
+git tag v0.1.9
+git push origin v0.1.9
 
-# 3. Notarize the DMG separately (Tauri only notarizes the .app's zip)
-xcrun notarytool submit \
-  "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg" \
-  --apple-id $APPLE_ID --password $APPLE_PASSWORD --team-id $APPLE_TEAM_ID --wait
+# 3. Watch the workflow.
+gh run watch  # or visit Actions in the GitHub UI
 
-xcrun stapler staple \
-  "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg"
-
-# 4. Compress the .app for the updater (rename to release convention here)
-cd src-tauri/target/release/bundle/macos
-tar -czf AOS-Mac_<version>.app.tar.gz "AOS Mail.app"
-
-# 5. Sign the tarball with the updater key
-TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/aos-mail-v1.key)" \
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your-key-password> \
-npx @tauri-apps/cli signer sign AOS-Mac_<version>.app.tar.gz
-
-# 6. Generate latest.json (see "latest.json format" below)
-
-# 7. Stage the DMG with the release-convention name
-cp "src-tauri/target/release/bundle/dmg/AOS Mail_<version>_aarch64.dmg" \
-   "AOS-Mac_<version>.dmg"
-
-# 8. Tag and push
-git tag v<version>
-git push origin main v<version>
-
-# 9. Publish the release. RELEASE-ASSET NAMING CONVENTION:
-#    AOS-Mac_<version>.dmg
-#    AOS-Mac_<version>.app.tar.gz
-#    AOS-Mac_<version>.app.tar.gz.sig
-#    latest.json
-#    The "(Mac)" form is sanitized to "AOS.Mac." by GitHub's release API
-#    (parens stripped to dots), so we use a hyphen instead. Future
-#    multi-platform releases will follow `AOS-<platform>_<version>.<ext>`
-#    (e.g. `AOS-Linux_0.2.0.AppImage`).
-gh release create v<version> \
-  --title "v<version> — <one-line summary>" \
-  --notes-file release-notes.md \
-  AOS-Mac_<version>.dmg \
-  AOS-Mac_<version>.app.tar.gz \
-  AOS-Mac_<version>.app.tar.gz.sig \
-  latest.json
+# 4. When green, GitHub Releases has a DRAFT release with all artifacts
+#    attached. Review the assets, edit the auto-generated release notes
+#    if needed, then click "Publish release."
+gh release view v0.1.9                       # check artifacts
+gh release edit v0.1.9 --draft=false          # or publish from UI
 ```
 
-### Verifying a signed build
+The moment the draft is published, `releases/latest/download/latest.json` flips, and every running install picks up the new version on its next check.
+
+### Required GitHub Actions secrets
+
+All eight must be set at <https://github.com/mrdulasolutions/AOS-Mail/settings/secrets/actions> for a fully-signed + notarized + auto-updatable release:
+
+| Secret | Value | How to obtain |
+|---|---|---|
+| `APPLE_CERTIFICATE` | Base64-encoded `.p12` of the Developer ID Application cert | `security export -k login.keychain-db -t identities -f pkcs12 -P <pw> -o cert.p12 && base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password you set on the `.p12` export | (whatever you typed above) |
+| `APPLE_SIGNING_IDENTITY` | The exact CN: `Developer ID Application: <Name> (<Team ID>)` | `security find-identity -v -p codesigning` |
+| `APPLE_ID` | Apple ID email for notarization | The Apple ID enrolled in the Developer Program |
+| `APPLE_PASSWORD` | App-specific password (16-char `xxxx-xxxx-xxxx-xxxx`) | <https://account.apple.com> → Sign-In and Security → App-Specific Passwords |
+| `APPLE_TEAM_ID` | 10-char team identifier | Visible in the CN above, also at <https://developer.apple.com/account> |
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of `~/.tauri/aos-mail-v2.key` (the entire base64 minisign blob) | `npx @tauri-apps/cli signer generate -w ~/.tauri/aos-mail-v2.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the minisign key | (whatever you chose when generating) |
+
+If any signing secret is missing, the build still produces an `.app` and `.dmg` but they'll be unsigned and won't pass Gatekeeper on a fresh machine. If any notarization secret is missing, the build signs but skips notarytool — users see the "unidentified developer" warning on first open.
+
+If `TAURI_SIGNING_PRIVATE_KEY` is missing, the workflow skips producing `.app.tar.gz.sig` and `latest.json` — auto-update breaks. Don't ship a release this way; users will be stuck manually downloading DMGs.
+
+### Verifying a published release
 
 ```bash
+# Pull the produced .app
+mkdir /tmp/verify && cd /tmp/verify
+gh release download v0.1.9 --repo mrdulasolutions/AOS-Mail --pattern '*aarch64*.tar.gz'
+tar -xzf AOS.Mail_aarch64.app.tar.gz
+
 # Gatekeeper assessment
-spctl -a -vv "src-tauri/target/release/bundle/macos/AOS Mail.app"
-# Should print: accepted / source=Notarized Developer ID
+spctl -a -vv "AOS Mail.app"
+# Expect: accepted / source=Notarized Developer ID
 
 # Stapler ticket validation
-xcrun stapler validate "src-tauri/target/release/bundle/macos/AOS Mail.app"
-xcrun stapler validate "AOS-Mac_<version>.dmg"
-# Both should print: The validate action worked!
+xcrun stapler validate "AOS Mail.app"
+# Expect: The validate action worked!
 
-# Inspect signing details
-codesign -dvv "src-tauri/target/release/bundle/macos/AOS Mail.app"
-# Should show:
-#   Authority=Developer ID Application: <Name> (<Team ID>)
+# Inspect signing chain
+codesign -dvv "AOS Mail.app"
+# Expect three Authority lines:
+#   Authority=Developer ID Application: Matthew Dula (PPY9K2BYJH)
 #   Authority=Developer ID Certification Authority
 #   Authority=Apple Root CA
-#   TeamIdentifier=<Team ID>
+
+# Confirm zero AppleDouble entries in the updater tarball
+gzip -dc AOS.Mail_aarch64.app.tar.gz | python3 -c '
+import sys
+d = sys.stdin.buffer.read(); i = 0; n = 0
+while i + 512 <= len(d):
+    name = d[i:i+100].split(b"\x00",1)[0].decode("utf-8","replace")
+    if not name: break
+    if name.startswith("._") or "/._" in name: n += 1
+    try: size = int((d[i+124:i+135].split(b"\x00",1)[0].strip() or b"0"), 8)
+    except ValueError: size = 0
+    i += 512 + ((size + 511) // 512) * 512
+print("AppleDouble entries:", n)
+'
+# Expect: AppleDouble entries: 0
 ```
 
-### `latest.json` format
+### `latest.json` format (auto-generated by tauri-action)
 
 ```json
 {
-  "version": "0.1.2",
+  "version": "0.1.9",
   "notes": "Brief release summary",
-  "pub_date": "2026-05-08T20:27:58Z",
+  "pub_date": "2026-05-13T22:00:00Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "<contents of AOS-Mac_<version>.app.tar.gz.sig>",
-      "url": "https://github.com/mrdulasolutions/AOS-Mail/releases/download/v<version>/AOS-Mac_<version>.app.tar.gz"
+      "signature": "<contents of AOS.Mail_aarch64.app.tar.gz.sig>",
+      "url": "https://github.com/mrdulasolutions/AOS-Mail/releases/download/v0.1.9/AOS.Mail_aarch64.app.tar.gz"
     }
   }
 }
 ```
 
-The Tauri updater is configured (in `src-tauri/tauri.conf.json`) to fetch this from `https://github.com/mrdulasolutions/AOS-Mail/releases/latest/download/latest.json`. Existing installs check it on startup and at intervals; if `version` is greater than the installed version and the signature validates, the user is offered the update.
+Note the **single-platform-only** structure today. The matrix runs both arm64 and x64 jobs (when Intel runners are available), but each job uploads its own `latest.json` to the same draft and the second upload wins. A future workflow patch should merge platform entries into one `latest.json` before publish. Until then, Intel users have no auto-update channel.
 
 ---
 
 ## Updater key management
 
-The Tauri updater uses a minisign keypair. Public key is embedded in `src-tauri/tauri.conf.json`; private key lives outside the repo at `~/.tauri/aos-mail-v1.key` (chmod 600).
+The Tauri updater uses a minisign keypair. Public key is embedded in `src-tauri/tauri.conf.json`; private key lives outside the repo.
 
-**If the private key or password is lost**, you cannot sign update manifests for any version that has the *current* pubkey embedded. Recovery:
+**Current key:** `~/.tauri/aos-mail-v2.key` (pubkey ID `6B791DD61977DEDE`). The v1 key was retired in [PR #8](https://github.com/mrdulasolutions/AOS-Mail/pull/8) after its password was lost — see [docs/POST-MORTEM-2026-05.md](docs/POST-MORTEM-2026-05.md) for the full incident.
+
+**Where the key lives:**
+
+- **Canonical local copy**: `~/.tauri/aos-mail-v2.key` + `.pub` on the maintainer's machine, chmod 600.
+- **GitHub Actions secret**: `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- **Password manager**: 1Password (or equivalent) vault entry "AOS Mail — Tauri Updater Private Key v2". **This is mandatory — losing the password breaks auto-update for every installed client.**
+
+### Rotation
+
+Rotate when:
+
+1. The private key was committed or leaked.
+2. **Hygiene:** every 2-3 years.
 
 ```bash
 # 1. Generate a new key
-CI=true npx @tauri-apps/cli signer generate \
-  --password <new-password> \
-  --write-keys ~/.tauri/aos-mail-v2.key \
+npx @tauri-apps/cli signer generate \
+  --password <pick a strong password> \
+  --write-keys ~/.tauri/aos-mail-v3.key \
   --force
 
-# 2. Copy the new public key out of ~/.tauri/aos-mail-v2.key.pub
-#    Update src-tauri/tauri.conf.json plugins.updater.pubkey
+# 2. Update tauri.conf.json:
+#    plugins.updater.pubkey ← contents of ~/.tauri/aos-mail-v3.key.pub
+#    Commit + merge that change.
 
-# 3. Bump version, rebuild, ship.
-#    Existing installs (with the OLD pubkey embedded) will reject signed
-#    updates from the new key — they'll have to download the new DMG manually
-#    once. From there forward, auto-updates resume working.
+# 3. Update GitHub secrets:
+cat ~/.tauri/aos-mail-v3.key | gh secret set TAURI_SIGNING_PRIVATE_KEY --repo mrdulasolutions/AOS-Mail
+echo -n '<the new password>' | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo mrdulasolutions/AOS-Mail
+
+# 4. Save the new password to 1Password BEFORE cutting the release.
+
+# 5. Tag a new version. Existing installs (with the OLD pubkey embedded
+#    in their .app) will REJECT signed updates from the new key — they
+#    have to download the .dmg manually once. From there forward,
+#    auto-updates resume working.
 ```
 
-Plan ahead: back the private key + password up to a password manager before you forget.
+**The rotation cost is real.** Every user on the old pubkey loses auto-update until they manually install the new build. Communicate the rotation in the release notes and consider keeping both pubkeys valid during a transition window (Tauri 2 doesn't support multi-pubkey natively; this would require a custom updater fork).
 
 ---
 
@@ -429,6 +456,62 @@ If something breaks:
    - The relevant slice of `sidecar.log`
    - Steps to reproduce
 3. Don't paste OAuth tokens or API keys — the logger redacts those automatically but double-check before posting.
+
+---
+
+## Troubleshooting (common dev/release issues)
+
+### `tauri dev` exits immediately with `sidecar terminated: signal: Some(9)`
+
+The bundled Node binary at `src-tauri/target/debug/aos-mail-node` was SIGKILL'd by macOS's `amfid`. Modern macOS (14.4+) refuses to execute unsigned arm64 Mach-O binaries. The `prepare-node` script strips Node Foundation's signature so tauri-action can re-sign with the Developer ID in production — but in dev mode nothing re-signs, leaving the binary unsigned. Fixed in [PR #16](https://github.com/mrdulasolutions/AOS-Mail/pull/16) by ad-hoc signing after the strip. If you see this on a branch that pre-dates PR #16, run:
+
+```bash
+codesign --sign - --force --timestamp=none src-tauri/binaries/aos-mail-node-aarch64-apple-darwin
+```
+
+### Release build: `failed to import keychain certificate` during tauri-action
+
+`security import` is rejecting the `.p12`. Almost always one of:
+
+- `APPLE_CERTIFICATE_PASSWORD` secret is empty or wrong.
+- `APPLE_CERTIFICATE` secret contains multiple identities — the runner picks one that doesn't match `APPLE_SIGNING_IDENTITY`. Re-export the Developer ID cert **without** the Apple Development cert (use Keychain Access → select only the Developer ID identity + its private key → File → Export).
+
+### Release build: `failed to notarize app: Team ID must be at least 3 characters`
+
+Notarization secrets are missing or empty. tauri-action treats empty env vars as "present, try to notarize" and Apple rejects. Either set all three (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`), or wait for the workflow patch that conditionally passes them.
+
+### Released `.app.tar.gz` is 9 MB instead of 45 MB
+
+Stale tauri-bundler cache. `src-tauri/target/` is cached by `actions/cache@v4`; the cached `bundle/macos/*.app.tar.gz` from a previous broken run can survive a rebuild even when the underlying `.app` is correct. The workflow now wipes `src-tauri/target/<triple>/release/bundle/` before tauri-action runs (PR #12). If you see this regress, that step is the first thing to check.
+
+### Auto-update fails on user machines with `failed to unpack \`._AOS Mail.app\``
+
+The updater tarball contains macOS AppleDouble metadata files. Caused by `actions/cache@v4` restoring files with extended attributes — `gtar` seeds `._*` companions into the workspace, which then leak into the updater bundle. The workflow's `COPYFILE_DISABLE=1` env var + "Strip AppleDouble metadata" step (PR #2) prevent this; the "Verify update tarball" gate catches regressions before publish.
+
+### Notifications stopped working in production
+
+Almost always a macOS TCC desync, not the app. Reset and re-grant:
+
+```bash
+tccutil reset Notifications com.mrdulasolutions.aosmail
+# Quit AOS Mail entirely, relaunch from /Applications, click Test.
+```
+
+If the banner still doesn't appear, watch `usernoted` live while clicking Test:
+
+```bash
+log stream --predicate 'process == "usernoted"' --info
+```
+
+Apple's daemon will log the filter reason in plain text — Focus mode, alert style None, signature mismatch, etc.
+
+### "OpenRouter API key not saving" / changes don't take effect mid-session
+
+Pre-PR #14 bug: the renderer's Settings page wrote the new key to Keychain but never forwarded it to the sidecar's in-memory secrets store. The key took effect only after restart. PR #14 added the missing `settings.set` / `openrouter.setApiKey` forward. If you see this on an old branch, restart the app.
+
+### Free OpenRouter models hit `HTTP 429: free-models-per-min`
+
+OpenRouter caps free models at 16 req/min, and concurrent agent flows blow through that in seconds. PR #13 added a client-side sliding-window limiter scoped to `:free` model ids. If 429s persist even with the limiter active, it's almost certainly an upstream provider's own throttling — `google/gemma-*:free` proxies to Google AI Studio which has its own (much tighter) per-account quota. Switch model or BYOK upstream.
 
 ---
 
