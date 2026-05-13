@@ -183,6 +183,22 @@ jobs:
             echo "updater=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Clear cached tauri bundle outputs
+        run: |
+          # The cargo cache restores `src-tauri/target/`, including any
+          # previously-bundled `bundle/macos/AOS Mail.app/`, `bundle/dmg/`,
+          # and `bundle/macos/AOS Mail.app.tar.gz`. tauri-bundler treats
+          # those as up-to-date on incremental builds, so even when the
+          # underlying sidecar binaries change (e.g. the v0.1.8 saga where
+          # aos-mail-node went from an 86 KB stub to a 113 MB real binary),
+          # the cached `.app.tar.gz` survives untouched and gets uploaded
+          # to the release with the stale contents — the .dmg shows the
+          # new binary, the updater tarball shows the old one.
+          #
+          # Force tauri-bundler to regenerate every bundle artifact from
+          # scratch on each release.
+          rm -rf src-tauri/target/${{ matrix.target }}/release/bundle/ || true
+
       - name: Strip AppleDouble metadata from build inputs
         run: |
           # Defense in depth alongside COPYFILE_DISABLE=1. Cache restore
