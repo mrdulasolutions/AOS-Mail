@@ -109,13 +109,21 @@ function main() {
     copyFileSync(sysNode, dest);
   }
 
-  // Strip whatever signature came from Node Foundation; Tauri will re-sign
-  // with our Developer ID at bundle time.
+  // Strip Node Foundation's signature, then ad-hoc sign so the binary can
+  // actually execute. Background: on macOS 14.4+ (and 15+ more strictly),
+  // `amfid` SIGKILLs unsigned arm64 Mach-O binaries the moment they exec.
+  // The original Node Foundation signature would work for execution but
+  // doesn't match our final .app's signing chain, so production builds
+  // need it stripped. Replacing it with an ad-hoc signature (`--sign -`)
+  // is the only way to have the binary be both executable *now* (for
+  // `tauri dev`) and clean-slate for tauri-action's later `codesign
+  // --force` re-sign with the Developer ID cert.
   try {
     execSync(`codesign --remove-signature "${dest}"`, { stdio: "ignore" });
   } catch {
     // already unsigned — fine
   }
+  execSync(`codesign --sign - --force --timestamp=none "${dest}"`, { stdio: "ignore" });
   execSync(`chmod +x "${dest}"`);
 
   const size = (statSync(dest).size / 1024 / 1024).toFixed(1);
