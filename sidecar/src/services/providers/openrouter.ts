@@ -46,6 +46,72 @@ const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1000;
 const MAX_DELAY_MS = 10_000;
 
+// ─── Free-model rate limiting ────────────────────────────────────────────
+//
+// OpenRouter caps free-tier models at 16 requests/minute (a value returned
+// in the `X-RateLimit-Limit` response header). Multiple concurrent agent
+// flows in this app — analyzer, draft generator, rerunAgent, sender lookup
+// — can each fire OpenRouter calls in parallel, so the burst can blow
+// through 16/min in seconds and the user sees an HTTP 429.
+//
+// We solve this client-side, but ONLY for free models. Paid models on
+// OpenRouter have much higher (effectively unbounded for our load) limits
+// and don't need the gate; threading them through a 16/min bucket would
+// just add latency for no reason.
+//
+// Detection is by model-id convention: OpenRouter free models are
+// distributed with an `:free` suffix (e.g. `meta-llama/llama-3.3-70b
+// -instruct:free`). The bare model id with no suffix is the paid tier.
+//
+// Algorithm is a sliding-window counter — a queue of timestamps of the
+// last `FREE_RATE_LIMIT_PER_MIN` successful "issue this call" decisions.
+// Before issuing a new free-model call, we drop timestamps older than
+// `RATE_WINDOW_MS`, and if the remaining list is still at capacity, sleep
+// until the oldest timestamp ages out. Awaiters proceed in arrival order
+// because each call awaits before mutating the array.
+//
+// This is purely in-process — sidecar restarts reset the counter, which
+// is fine: the next 429 from the server would just push us back into
+// rate-respecting mode via the X-RateLimit-Reset handler below.
+const FREE_RATE_LIMIT_PER_MIN = 16;
+const RATE_WINDOW_MS = 60_000;
+const recentFreeCallTimestamps: number[] = [];
+
+function isFreeModel(model: string): boolean {
+  return model.endsWith(":free");
+}
+
+async function acquireFreeRateSlot(model: string): Promise<void> {
+  if (!isFreeModel(model)) return;
+  // Loop because a queued caller may need to wait multiple windows if a
+  // burst arrived first. Each iteration either claims a slot or sleeps
+  // until the next slot frees up.
+  for (;;) {
+    const now = Date.now();
+    while (
+      recentFreeCallTimestamps.length > 0 &&
+      recentFreeCallTimestamps[0]! < now - RATE_WINDOW_MS
+    ) {
+      recentFreeCallTimestamps.shift();
+    }
+    if (recentFreeCallTimestamps.length < FREE_RATE_LIMIT_PER_MIN) {
+      recentFreeCallTimestamps.push(now);
+      return;
+    }
+    // Wait until the oldest tracked call ages out of the window, plus a
+    // 50ms cushion to avoid a thundering-herd retry exactly at the
+    // boundary.
+    const oldest = recentFreeCallTimestamps[0]!;
+    const waitMs = oldest + RATE_WINDOW_MS - now + 50;
+    log.info("free-model rate limit reached, queueing", {
+      model,
+      waitMs,
+      queued: recentFreeCallTimestamps.length,
+    });
+    await sleep(Math.max(waitMs, 100));
+  }
+}
+
 export interface OpenRouterFreeModel {
   id: string;
   name: string;
@@ -207,6 +273,11 @@ export async function createMessageOpenRouter(
     }
 
     try {
+      // Client-side rate gate for free models — see top of file. No-op
+      // for paid models. Runs INSIDE the retry loop so a 429-with-Retry-
+      // After path also goes through the queue on the next attempt.
+      await acquireFreeRateSlot(params.model);
+
       const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: buildHeaders(key),
@@ -222,7 +293,25 @@ export async function createMessageOpenRouter(
         const err = new Error(`OpenRouter HTTP ${res.status}: ${text || "no body"}`);
         if (!retryable || attempt >= MAX_RETRIES) throw err;
         lastError = err;
-        await sleep(backoff(attempt));
+        // Server-side safety net: if OpenRouter sent X-RateLimit-Reset
+        // (epoch milliseconds), respect it instead of falling back to a
+        // capped exponential backoff that wouldn't outlast a 60s window.
+        // Cap the sleep at 90s so a misconfigured/giant Reset header
+        // can't strand the call.
+        const resetMs = parseRateLimitResetMs(res);
+        const delay =
+          res.status === 429 && resetMs !== null
+            ? Math.min(Math.max(resetMs - Date.now() + 250, 100), 90_000)
+            : backoff(attempt);
+        if (res.status === 429) {
+          log.warn("OpenRouter 429 — sleeping before retry", {
+            model: params.model,
+            resetMs,
+            delay,
+            attempt,
+          });
+        }
+        await sleep(delay);
         continue;
       }
 
@@ -308,6 +397,26 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+// OpenRouter returns `X-RateLimit-Reset` as a Unix-epoch value indicating
+// when the current rate window will reset. It's documented as
+// milliseconds, but treat both ms-since-epoch and s-since-epoch defensively
+// so a future change in spec doesn't silently land us in 1970-time.
+// Returns null if the header isn't present or doesn't parse to a positive
+// future timestamp.
+function parseRateLimitResetMs(res: Response): number | null {
+  const raw = res.headers.get("X-RateLimit-Reset");
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // Heuristic: a value < 10^12 is almost certainly seconds (year 2001+).
+  // Above that, it's milliseconds. Both branches return ms.
+  const ms = n < 1e12 ? n * 1000 : n;
+  // Sanity: must be in the next 5 minutes — anything further out is
+  // either a clock skew issue or a header bug we shouldn't honour.
+  if (ms - Date.now() > 5 * 60_000) return null;
+  return ms;
 }
 
 function sleep(ms: number): Promise<void> {
