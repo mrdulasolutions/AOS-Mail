@@ -712,6 +712,12 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       } else {
         await deleteKeychainSecret("anthropicApiKey");
       }
+      // Forward to the sidecar's in-memory secrets store so the next
+      // Anthropic call this session picks up the new key. Without this,
+      // the keychain has it but the sidecar's getSecret() returns the
+      // pre-change value until the app restarts (which re-bootstraps
+      // secrets from the keychain at boot).
+      await window.api.settings.set({ anthropicApiKey: trimmed });
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
       setApiKeySaved(true);
       setTimeout(() => setApiKeySaved(false), 3000);
@@ -747,6 +753,17 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       } catch (err) {
         setOpenRouterError(err instanceof Error ? err.message : "Save failed");
         return;
+      }
+      // Forward to the sidecar's in-memory secrets store. The keychain
+      // is the canonical store (re-bootstrapped at app boot), but the
+      // sidecar caches the key in memory for the current session —
+      // without this call, OpenRouter requests this session see the
+      // stale value (or null) and fail with "API key not set" until
+      // the user restarts the app.
+      if (trimmed) {
+        await window.api.openrouter.setApiKey(trimmed);
+      } else {
+        await window.api.openrouter.clearApiKey();
       }
       setOpenRouterConfigured(!!trimmed);
       setOpenRouterSaved(true);
