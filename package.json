@@ -104,5 +104,8 @@
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.57.2",
     "vite": "^6.0.5"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.8"
   }
 }
