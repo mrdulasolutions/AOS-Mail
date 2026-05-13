@@ -43,7 +43,7 @@ It's a real Mac app: native window chrome, Keychain-backed secrets, system notif
 
 > **Requires:** macOS 13 or later, Apple Silicon (M-series). Intel Mac support is on the roadmap.
 
-1. **[Download `AOS_Mail_0.1.0_aarch64.dmg`](https://github.com/mrdulasolutions/AOS-Mail/releases/latest)** from the latest release
+1. **[Download the latest `.dmg`](https://github.com/mrdulasolutions/AOS-Mail/releases/latest)** — the file is named `AOS.Mail_<version>_aarch64.dmg`
 2. Double-click the DMG and drag **AOS Mail** to your Applications folder
 3. Open it. On first launch you'll be asked to:
    - Connect a Gmail account (OAuth) or an IMAP account (iCloud, Fastmail, etc.)
@@ -52,6 +52,13 @@ It's a real Mac app: native window chrome, Keychain-backed secrets, system notif
 That's it.
 
 The app is signed by Apple Developer ID and notarized — Gatekeeper opens it without a fight. New versions auto-update silently in the background.
+
+## Need help?
+
+- **Setup walkthrough, FAQ, common fixes** — see the [Wiki](https://github.com/mrdulasolutions/AOS-Mail/wiki).
+- **Notifications aren't appearing?** Most common cause is a stale macOS permission record. Run `tccutil reset Notifications com.mrdulasolutions.aosmail` in Terminal, then quit and relaunch the app. Full breakdown in [Troubleshooting](https://github.com/mrdulasolutions/AOS-Mail/wiki/Troubleshooting).
+- **App won't open** because of Gatekeeper / "unidentified developer"? You're on an old build. Re-download the latest from Releases — every shipped version since v0.1.0 is signed and notarized.
+- **Bug or feature request** — open an issue at <https://github.com/mrdulasolutions/AOS-Mail/issues>. Include your macOS version and AOS Mail version (Settings → About).
 
 ## Where it came from
 
