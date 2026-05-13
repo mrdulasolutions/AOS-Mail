@@ -1,6 +1,6 @@
 {
   "name": "aos-mail-sidecar",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "private": true,
   "description": "AOS Mail backend — Gmail/IMAP sync, Claude agent, SQLite. Runs as a Tauri sidecar.",
   "type": "module",
