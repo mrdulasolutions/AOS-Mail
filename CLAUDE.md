@@ -5,6 +5,74 @@ Your primary job is to be a pair programmer. I'm an experienced engineer that ha
 
 For complex work (migrations, multi-file refactors, architectural changes), you should always write a plan before executing. For analysis tasks, prefer specialized tools (type checkers, linters, LSP, IDE features) over grep patterns when available.
 
+## Working principles
+
+Four behavioral baselines that hold across every change you make in this codebase. Derived from [Karpathy's observations on LLM coding pitfalls](https://github.com/multica-ai/andrej-karpathy-skills) — biased toward caution over speed. For trivial changes (typo, obvious one-liner) use judgment; for everything else these apply.
+
+### 1. Think before coding — don't assume, don't hide confusion
+
+Before you write code:
+
+- **State assumptions explicitly.** If uncertain, ask.
+- **Surface multiple interpretations.** If "make it faster" could mean three things, present the three; don't pick silently.
+- **Push back when warranted.** If you see a simpler approach than what was asked, say so before implementing.
+- **Stop when confused.** Name what's unclear and ask. Hiding confusion produces wrong code.
+
+This already aligns with the "ask questions for clarity instead of taking actions we have not agreed on yet" baseline above — making it explicit so you can self-audit before each task.
+
+### 2. Simplicity first — minimum code that solves the problem
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios (validate at boundaries; trust internal code — same rule as Robustness below).
+- If you wrote 200 lines and it could be 50, rewrite it.
+
+**Self-test:** "Would a senior engineer say this is overcomplicated?" If yes, simplify. This reinforces the Simplicity section under Coding Standards.
+
+### 3. Surgical changes — touch only what you must
+
+When editing existing code:
+
+- **Don't "improve" adjacent code, comments, or formatting.** If you notice unrelated dead code or sloppy style, mention it — don't fix it in this PR.
+- **Don't refactor things that aren't broken.** Drive-by refactors balloon PRs and make review painful.
+- **Match existing style** even if you'd write it differently.
+- **Clean up only your own mess.** Remove imports/variables/functions YOUR change made unused; don't remove pre-existing dead code unless explicitly asked.
+
+**Self-test:** Every changed line should trace directly to the user's request. If you can't justify a line, drop it.
+
+This pairs with the Consistency section under Coding Standards. The PR principle is: one concern per PR. Notice a separate bug while working? File it as an issue or mention it in passing — don't fix it in the same PR.
+
+### 4. Goal-driven execution — define success, then loop
+
+Transform imperative tasks into verifiable goals before starting:
+
+| Instead of… | Transform to… |
+|---|---|
+| "Add validation" | "Write tests for invalid inputs, then make them pass" |
+| "Fix the bug" | "Write a test that reproduces it, then make it pass" |
+| "Refactor X" | "Ensure tests pass before and after; no behavior change" |
+| "Update the docs" | "List the specific factual claims that need updating; verify each against the current code" |
+
+For multi-step work, write the plan as steps with verification checks:
+
+```
+1. <step>  → verify: <observable signal>
+2. <step>  → verify: <observable signal>
+3. <step>  → verify: <observable signal>
+```
+
+Strong success criteria let you loop independently without checking in. Weak criteria ("make it work") require constant clarification. This is the operational form of the planning emphasis above — pre-stated verification gates turn a plan from a wish-list into an executable contract.
+
+### How to tell this is working
+
+- **Fewer unrequested changes in diffs** — the diff matches the request, not the request plus drive-by edits.
+- **Fewer rewrites due to overcomplication** — the first version is the simple one.
+- **Clarifying questions arrive before implementation**, not after a wrong direction was committed.
+- **PRs are small and reviewable** in one sitting.
+
+If a session is producing the opposite (large diffs, drive-by refactors, "while I was in here I also..."), stop and re-read this section.
+
 ## Parallel development
 - In general, I may have between 2 and 10 parallel sessions running at any given time, so you should assume that there are other agents that may be editing the codebase. You can assume that I have already created isolation using git worktrees, so you are free to edit any file you want but you have to assume that either you or other agents might run into merge conflicts when merging later.
 - You should make a best effort, however, to keep this parallelism in mind when doing development. For example, if you're developing an app, you should make the .app assets have some sort of suffix (if possible) to be able to distinguish the build coming from this agent run vs the others. this is likely something from the branch name or something to that effect.
