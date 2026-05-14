@@ -463,20 +463,20 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setNotificationsEnabled(enabled);
     await window.api.settings.set({ notificationsEnabled: enabled });
     // Toggling ON should re-prompt for OS permission if it isn't granted yet —
-    // otherwise the toggle says "on" but nothing fires. tauri-plugin-notification
-    // only re-prompts when the cached state is undecided; in the unsigned dev
-    // build the prompt may also be no-opped by macOS Gatekeeper, which is why
-    // the Test button (which sends an actual notification) is the user's
-    // best fallback for verifying the wiring end-to-end.
+    // otherwise the toggle says "on" but nothing fires. macOS only shows the
+    // permission prompt once per app lifetime; after that requestPermission
+    // returns the cached state without showing UI. The Test button (which
+    // sends an actual notification) is the user's best fallback for
+    // verifying the wiring end-to-end.
     if (!enabled) return;
     const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
     if (!isTauri) return;
     try {
-      const { isPermissionGranted, requestPermission } =
-        await import("@tauri-apps/plugin-notification");
-      const granted = await isPermissionGranted();
-      if (!granted) {
-        await requestPermission();
+      const { getNotificationPermission, requestNotificationPermission } =
+        await import("../services/notifications");
+      const live = await getNotificationPermission();
+      if (live !== "authorized" && live !== "provisional") {
+        await requestNotificationPermission();
       }
     } catch (err) {
       console.warn("[notifications] permission re-probe failed:", err);

@@ -638,20 +638,21 @@ export function SetupWizard({ onComplete, initialStep }: SetupWizardProps) {
                     onClick={async () => {
                       setNotificationPermission("requesting");
                       try {
-                        const { isPermissionGranted, requestPermission } =
-                          await import("@tauri-apps/plugin-notification");
-                        const already = await isPermissionGranted();
-                        if (already) {
+                        const { getNotificationPermission, requestNotificationPermission } =
+                          await import("../services/notifications");
+                        const live = await getNotificationPermission();
+                        if (live === "authorized" || live === "provisional") {
                           setNotificationPermission("granted");
                           // Persist the toggle so the rest of the app respects it.
                           await window.api.settings.set({ notificationsEnabled: true });
                           return;
                         }
-                        const result = await requestPermission();
-                        // macOS returns "granted" / "denied" / "default". "default" =
-                        // the user dismissed the prompt without deciding; treat as
-                        // not-yet-decided so the button stays available.
-                        if (result === "granted") {
+                        const result = await requestNotificationPermission();
+                        // UN returns "authorized" / "denied" / "provisional" /
+                        // "ephemeral" / "not_determined". The first two
+                        // count as success; "not_determined" means the user
+                        // dismissed the prompt — keep the button enabled.
+                        if (result === "authorized" || result === "provisional") {
                           setNotificationPermission("granted");
                           await window.api.settings.set({ notificationsEnabled: true });
                         } else if (result === "denied") {

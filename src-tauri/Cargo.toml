@@ -17,7 +17,6 @@ tauri = { version = "2", features = ["macos-private-api", "tray-icon", "devtools
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-store = "2"
 tauri-plugin-os = "2"
@@ -43,6 +42,17 @@ cocoa = "0.26"
 objc = "0.2"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
+# Used by native_notifications.rs to drive UNUserNotificationCenter directly,
+# replacing tauri-plugin-notification on macOS. The plugin's underlying
+# notify-rust → mac-notification-sys chain still uses NSUserNotificationCenter
+# (deprecated since 10.14), which on Sequoia delivers to Notification Center
+# but does not show banner alerts. UNUserNotificationCenter is the modern API
+# every native Mac app uses, and the only one that produces banners on
+# current macOS.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSError", "NSDate", "NSArray", "NSObject"] }
+objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNNotificationResponse", "UNNotificationSettings"] }
+block2 = "0.6"
 
 [profile.release]
 panic = "abort"

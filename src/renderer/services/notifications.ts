@@ -1,34 +1,30 @@
 // Native macOS notifications for new mail.
 //
-// Wraps `@tauri-apps/plugin-notification` with the project-specific behaviors:
-//   - permission gating (request once, remember the answer)
-//   - settings gating (`notificationsEnabled` honored on every fire)
-//   - coalescing: 5+ emails in one batch collapse into a single summary
-//   - click routing: tapping the notification focuses the window AND (when
-//     the user clicks within ~10 seconds) selects the corresponding thread.
+// Backed by our own Tauri commands (notify_*) which talk to
+// UNUserNotificationCenter directly. We replaced `@tauri-apps/plugin-
+// notification` because its underlying notify-rust → mac-notification-sys
+// chain still uses NSUserNotificationCenter (deprecated since macOS 10.14),
+// which on Sequoia delivers to Notification Center but doesn't pop banners.
 //
-// Click-routing on macOS is best-effort. The Tauri notification plugin uses
-// `notify_rust` under the hood, which doesn't expose a per-notification
-// click event without registering custom action types up front. We register
-// a single "open" action type at startup so clicks deliver via the
-// `onAction` event channel; for notifications fired before the action types
-// land we fall back to relying on macOS's native foregrounding behavior
-// (clicking the notification activates the app, which brings the window
-// forward via our menu/dock state).
+// Same public surface as before:
+//   - initNotifications()    — one-time permission probe at boot
+//   - notifyNewEmails(emails) — fire (or coalesce) notifications for a batch
+//   - testNotification()      — Settings panel "fire a sample"
+//
+// What's deliberately simpler than the previous plugin-based version:
+//   - No actionTypeId / no per-notification routing. Tap on a notification
+//     brings the app forward (macOS handles that without a delegate). We
+//     don't yet route to a specific thread on click — the Rust side
+//     would need a UNUserNotificationCenterDelegate that emits Tauri
+//     events; that's a follow-up.
+//   - No `onAction` handler. The user just sees the notification, clicks
+//     it, app comes forward.
 
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-  onAction,
-  registerActionTypes,
-} from "@tauri-apps/plugin-notification";
 import bridge from "../lib/bridge";
-import { focusMainWindow } from "../lib/mac-polish";
 import { useAppStore } from "../store";
 import type { DashboardEmail } from "../../shared/types";
 
-const NEW_MAIL_ACTION_TYPE = "aos-mail.new-mail";
+type AuthState = "not_determined" | "denied" | "authorized" | "provisional" | "ephemeral";
 
 let initialized = false;
 let permissionGranted: boolean | null = null;
@@ -51,10 +47,20 @@ function senderName(from: string): string {
   return from.replace(/[<>]/g, "").trim() || "(no sender)";
 }
 
+async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
+  if (!bridge.isTauri) return null;
+  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+  return (await tauriInvoke(cmd, args)) as T;
+}
+
+/** "authorized" and "provisional" both let notifications fire; the rest do not. */
+function stateAllowsDelivery(state: AuthState | null): boolean {
+  return state === "authorized" || state === "provisional";
+}
+
 /**
- * One-time setup: probe (and request) notification permission, register the
- * click handler. Idempotent — safe to call from React effects that may fire
- * twice in StrictMode.
+ * One-time setup: probe (and request) notification permission. Idempotent —
+ * safe to call from React effects that may fire twice in StrictMode.
  */
 export async function initNotifications(): Promise<void> {
   if (initialized) return;
@@ -66,46 +72,21 @@ export async function initNotifications(): Promise<void> {
   }
 
   try {
-    permissionGranted = await isPermissionGranted();
-    if (!permissionGranted) {
-      const requested = await requestPermission();
-      permissionGranted = requested === "granted";
+    const live = await invokeCmd<AuthState>("notify_permission_state");
+    if (stateAllowsDelivery(live)) {
+      permissionGranted = true;
+      return;
     }
+    if (live === "denied") {
+      permissionGranted = false;
+      return;
+    }
+    // not_determined — prompt the user.
+    const requested = await invokeCmd<AuthState>("notify_request_permission");
+    permissionGranted = stateAllowsDelivery(requested);
   } catch (err) {
     console.warn("[notifications] permission probe failed:", err);
     permissionGranted = false;
-  }
-
-  // Register a single "Open" action so notifications deliver clicks through
-  // `onAction`. Without this, plain notifications on macOS fire only the
-  // implicit close — we wouldn't know which thread to route to.
-  try {
-    await registerActionTypes([
-      {
-        id: NEW_MAIL_ACTION_TYPE,
-        actions: [{ id: "open", title: "Open" }],
-      },
-    ]);
-  } catch (err) {
-    // Non-fatal: clicking the notification will still bring the app forward
-    // via macOS's native foregrounding; the user just won't auto-jump to the
-    // specific thread.
-    console.warn("[notifications] action-type registration failed:", err);
-  }
-
-  // One global click handler. Tauri delivers `extra` back unchanged from the
-  // sendNotification call site — we use that to route to the right thread.
-  try {
-    await onAction((evt) => {
-      const extra = (evt.extra ?? {}) as Record<string, unknown>;
-      const emailId = typeof extra.emailId === "string" ? extra.emailId : null;
-      void focusMainWindow();
-      if (emailId) {
-        useAppStore.getState().setSelectedEmailId(emailId);
-      }
-    });
-  } catch (err) {
-    console.warn("[notifications] click handler attach failed:", err);
   }
 }
 
@@ -118,8 +99,7 @@ function notificationsEnabled(): boolean {
 /**
  * Surface a notification (or coalesced summary) for a batch of new emails.
  * Skips silently when permission is missing or the user has disabled
- * notifications in Settings. Filters out sent-only items (the user already
- * sent those; nothing to be notified about).
+ * notifications in Settings. Filters out sent-only items.
  */
 export async function notifyNewEmails(emails: DashboardEmail[]): Promise<void> {
   if (!bridge.isTauri) return;
@@ -132,13 +112,10 @@ export async function notifyNewEmails(emails: DashboardEmail[]): Promise<void> {
   if (incoming.length === 0) return;
 
   if (incoming.length >= COALESCE_THRESHOLD) {
-    // One summary instead of N popups; tapping it focuses the window without
-    // a thread selection (no single thread to route to).
-    sendNotification({
+    // One summary instead of N popups.
+    await invokeCmd("notify_send", {
       title: `${incoming.length} new messages`,
       body: "Open AOS Mail to triage your inbox.",
-      actionTypeId: NEW_MAIL_ACTION_TYPE,
-      extra: { kind: "summary" },
     });
     return;
   }
@@ -147,16 +124,9 @@ export async function notifyNewEmails(emails: DashboardEmail[]): Promise<void> {
     const subject = email.subject || "(no subject)";
     const snippet = email.snippet ?? "";
     const body = snippet ? `${subject} — ${snippet}` : subject;
-    sendNotification({
+    await invokeCmd("notify_send", {
       title: senderName(email.from),
       body: truncate(body, 80),
-      actionTypeId: NEW_MAIL_ACTION_TYPE,
-      extra: {
-        kind: "email",
-        emailId: email.id,
-        threadId: email.threadId,
-        accountId: email.accountId ?? "",
-      },
     });
   }
 }
@@ -165,17 +135,17 @@ export async function notifyNewEmails(emails: DashboardEmail[]): Promise<void> {
  * Fire a sample notification so the user can verify their permission/toggle
  * wiring without waiting for real mail.
  *
- * Returns a structured outcome so the caller can surface a useful error in
- * the Settings panel — three failure modes are distinct:
- *   - "browser":    not running under Tauri (e.g. Storybook). Nothing to do.
- *   - "denied":     macOS denied permission and there's no path to re-prompt
- *                   from JS. Caller can deep-link to System Settings.
- *   - "disabled":   user has the toggle turned off; we honor that and don't
- *                   fire a "test" notification either.
+ * Returns a structured outcome so the Settings panel can surface a useful
+ * error — three failure modes are distinct:
+ *   - "browser":  not running under Tauri (e.g. Storybook). Nothing to do.
+ *   - "denied":   macOS denied permission and there's no path to re-prompt
+ *                 from JS. Caller can deep-link to System Settings.
+ *   - "disabled": user has the toggle turned off; we honor that and don't
+ *                 fire a "test" notification either.
  *
- * On the happy path we re-request permission first if the cached state is
- * stale — handles the case where the user denied at boot, then granted
- * permission via System Settings without restarting the app.
+ * On the happy path we re-probe permission first — handles the case where
+ * the user denied at boot, then granted permission via System Settings
+ * without restarting the app.
  */
 export async function testNotification(): Promise<
   { ok: true } | { ok: false; reason: "browser" | "denied" | "disabled" }
@@ -183,15 +153,17 @@ export async function testNotification(): Promise<
   if (!bridge.isTauri) return { ok: false, reason: "browser" };
   if (!notificationsEnabled()) return { ok: false, reason: "disabled" };
 
-  // Re-probe permission. The cached permissionGranted may be stale if the
+  // Re-probe permission. The cached `permissionGranted` may be stale if the
   // user changed System Settings since the last initNotifications call.
   try {
-    const live = await isPermissionGranted();
-    if (live) {
+    const live = await invokeCmd<AuthState>("notify_permission_state");
+    if (stateAllowsDelivery(live)) {
       permissionGranted = true;
+    } else if (live === "not_determined") {
+      const requested = await invokeCmd<AuthState>("notify_request_permission");
+      permissionGranted = stateAllowsDelivery(requested);
     } else {
-      const requested = await requestPermission();
-      permissionGranted = requested === "granted";
+      permissionGranted = false;
     }
   } catch (err) {
     console.warn("[notifications] permission probe failed:", err);
@@ -199,11 +171,35 @@ export async function testNotification(): Promise<
   }
   if (!permissionGranted) return { ok: false, reason: "denied" };
 
-  sendNotification({
+  await invokeCmd("notify_send", {
     title: "AOS Mail",
     body: "This is what new mail will look like.",
-    actionTypeId: NEW_MAIL_ACTION_TYPE,
-    extra: { kind: "test" },
   });
   return { ok: true };
+}
+
+/**
+ * Public state probe — used by SetupWizard to display the permission badge
+ * and decide whether to render the "Allow notifications" button.
+ */
+export async function getNotificationPermission(): Promise<AuthState> {
+  if (!bridge.isTauri) return "denied";
+  const live = await invokeCmd<AuthState>("notify_permission_state");
+  return live ?? "not_determined";
+}
+
+/**
+ * Trigger the OS permission prompt. Idempotent on macOS — after the first
+ * grant/deny, the OS just returns the cached decision instead of prompting
+ * again. Returns the resolved state.
+ */
+export async function requestNotificationPermission(): Promise<AuthState> {
+  if (!bridge.isTauri) return "denied";
+  const requested = await invokeCmd<AuthState>("notify_request_permission");
+  if (requested && stateAllowsDelivery(requested)) {
+    permissionGranted = true;
+  } else if (requested === "denied") {
+    permissionGranted = false;
+  }
+  return requested ?? "not_determined";
 }
