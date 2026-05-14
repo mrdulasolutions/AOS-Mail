@@ -18,9 +18,14 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-latest
             arch: arm64
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            arch: x64
+          # x86_64 (Intel) builds were dropped after v0.1.9. GitHub's
+          # `macos-13` runners — the last Intel image — are deprecated
+          # and consistently queue past `timeout-minutes`, so the
+          # x86_64 leg has not produced a release artifact since
+          # v0.1.6. All published releases since then have been
+          # aarch64-only. Re-add this leg when GitHub offers a stable
+          # Intel runner again (unlikely) or move to a self-hosted
+          # Intel runner.
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
