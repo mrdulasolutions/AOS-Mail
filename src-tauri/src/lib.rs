@@ -21,6 +21,9 @@ mod sidecar;
 mod mac_polish;
 
 #[cfg(target_os = "macos")]
+mod native_notifications;
+
+#[cfg(target_os = "macos")]
 fn apply_macos_vibrancy(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
     let _ = apply_vibrancy(
@@ -126,6 +129,60 @@ fn get_pending_mailto(
     Ok(state.take())
 }
 
+/// Prompt the user for notification permission via UNUserNotificationCenter,
+/// the modern macOS framework. We route around tauri-plugin-notification
+/// because its underlying notify-rust uses the deprecated
+/// NSUserNotificationCenter, which on Sequoia delivers to Notification
+/// Center but doesn't show banners. Returns the resolved state — on every
+/// call after the first one, macOS doesn't re-prompt and we get back the
+/// cached decision.
+#[tauri::command]
+fn notify_request_permission() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        native_notifications::request_authorization()
+            .map(|s| serde_json::to_value(s).unwrap_or_default())
+            .map(|v| v.as_str().unwrap_or("not_determined").to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("denied".to_string())
+    }
+}
+
+/// Query the live notification permission state without prompting. Used by
+/// the renderer's permission probe at boot and by Settings to keep the
+/// toggle's visible state in sync if the user changed the system setting
+/// while the app was running.
+#[tauri::command]
+fn notify_permission_state() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        native_notifications::authorization_state()
+            .map(|s| serde_json::to_value(s).unwrap_or_default())
+            .map(|v| v.as_str().unwrap_or("not_determined").to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("denied".to_string())
+    }
+}
+
+/// Deliver a notification with the given title + body. macOS handles all the
+/// chrome (icon, sound, banner timing) based on per-app System Settings.
+#[tauri::command]
+fn notify_send(title: String, body: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        native_notifications::send(&title, &body)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (title, body);
+        Ok(())
+    }
+}
+
 /// In-memory mailto queue. Holds ONE pending parsed URL — that's all macOS
 /// needs at cold start; subsequent mailto opens come through the live event
 /// channel and are already routed to the renderer by the time they arrive.
@@ -157,7 +214,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -197,6 +253,9 @@ pub fn run() {
             set_default_mail_app,
             is_default_mail_app,
             get_pending_mailto,
+            notify_request_permission,
+            notify_permission_state,
+            notify_send,
             keychain::keychain_set,
             keychain::keychain_get,
             keychain::keychain_delete,
