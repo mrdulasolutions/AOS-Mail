@@ -1,6 +1,6 @@
 {
   "name": "aos-mail",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "license": "BUSL-1.1",
   "description": "AOS Mail — Agent Operated System for Mail. Native-feeling, multi-inbox, Claude-powered Mac email client.",
   "repository": {
